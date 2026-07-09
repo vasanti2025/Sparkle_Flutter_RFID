@@ -1,4 +1,3 @@
-import com.android.build.gradle.BaseExtension
 import com.android.build.gradle.LibraryExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
@@ -19,43 +18,21 @@ rootProject.layout.buildDirectory.value(newBuildDir)
 subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
     project.layout.buildDirectory.value(newSubprojectBuildDir)
-}
 
-// Force JVM 17 for every Android plugin module (fixes tflite_flutter Java 11 vs Kotlin 17).
-// Do NOT set JavaCompile.options.release — AGP forbids it (bootclasspath).
-subprojects {
     plugins.withId("com.android.library") {
         extensions.configure(LibraryExtension::class.java) {
             defaultConfig.ndk.abiFilters.clear()
             defaultConfig.ndk.abiFilters.add("arm64-v8a")
-            compileOptions {
-                sourceCompatibility = JavaVersion.VERSION_17
-                targetCompatibility = JavaVersion.VERSION_17
+        }
+    }
+
+    // Plugins like tflite_flutter compile Java as 11; Kotlin 2.x defaults to 17.
+    // Match Kotlin to Java 11 inside plugin modules only (app stays on 17).
+    if (name != "app") {
+        tasks.withType<KotlinCompile>().configureEach {
+            compilerOptions {
+                jvmTarget.set(JvmTarget.JVM_11)
             }
-        }
-    }
-
-    tasks.withType<JavaCompile>().configureEach {
-        sourceCompatibility = JavaVersion.VERSION_17.toString()
-        targetCompatibility = JavaVersion.VERSION_17.toString()
-    }
-    tasks.withType<KotlinCompile>().configureEach {
-        compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_17)
-        }
-    }
-}
-
-// Re-apply after plugin android{} blocks (tflite_flutter hardcodes Java 11).
-gradle.projectsEvaluated {
-    rootProject.subprojects.forEach { sub ->
-        sub.extensions.findByType(BaseExtension::class.java)?.compileOptions?.apply {
-            sourceCompatibility = JavaVersion.VERSION_17
-            targetCompatibility = JavaVersion.VERSION_17
-        }
-        sub.tasks.withType(JavaCompile::class.java).configureEach {
-            sourceCompatibility = JavaVersion.VERSION_17.toString()
-            targetCompatibility = JavaVersion.VERSION_17.toString()
         }
     }
 }
