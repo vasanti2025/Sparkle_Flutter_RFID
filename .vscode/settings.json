@@ -1,0 +1,8 @@
+{
+  "terminal.integrated.env.windows": {
+    "GRADLE_USER_HOME": "E:\\gradle_home",
+    "PUB_CACHE": "E:\\pub_cache",
+    "TEMP": "E:\\flutter_tmp",
+    "TMP": "E:\\flutter_tmp"
+  }
+}

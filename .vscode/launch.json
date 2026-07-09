@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "RFID Flutter (C71 arm64)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "toolArgs": [
+        "--target-platform",
+        "android-arm64"
+      ]
+    }
+  ]
+}
