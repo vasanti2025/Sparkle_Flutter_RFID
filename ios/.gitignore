@@ -32,3 +32,7 @@ Runner/GeneratedPluginRegistrant.*
 !default.mode2v3
 !default.pbxuser
 !default.perspectivev3
+
+# Large Chainway SDK — downloaded by ios/scripts/fetch_rfid_sdk.sh / Podfile
+Frameworks/RFIDManager.xcframework/
+Frameworks/*.zip

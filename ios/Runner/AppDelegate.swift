@@ -8,6 +8,16 @@ import UIKit
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    let ok = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+
+    // Window may not be ready synchronously on all Flutter versions.
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self else { return }
+      if let controller = self.window?.rootViewController as? FlutterViewController {
+        RfidBridge.shared.setup(messenger: controller.binaryMessenger)
+      }
+    }
+
+    return ok
   }
 }

@@ -26,6 +26,15 @@ class RfidService {
   bool _trayConnected = false;
   bool get trayConnected => _trayConnected;
 
+  bool _r6ModeEnabled = false;
+  bool get r6ModeEnabled => _r6ModeEnabled;
+
+  bool _r6Connected = false;
+  bool get r6Connected => _r6Connected;
+
+  bool get bleReaderActive =>
+      (_trayModeEnabled && _trayConnected) || (_r6ModeEnabled && _r6Connected);
+
   int _power = 5;
   int get power => _power;
 
@@ -62,6 +71,10 @@ class RfidService {
           _trayConnected = true;
         } else if (event == 'TRAY_DISCONNECTED') {
           _trayConnected = false;
+        } else if (event == 'R6_CONNECTED') {
+          _r6Connected = true;
+        } else if (event == 'R6_DISCONNECTED') {
+          _r6Connected = false;
         } else if (event is String) {
           if (event.startsWith('BATCH:')) {
             final payload = event.substring(6);
@@ -115,11 +128,24 @@ class RfidService {
     await applyTrayMode(enabled: true, address: address);
   }
 
+  Future<void> restoreR6ModeFromPrefs({
+    required bool enabled,
+    required String address,
+  }) async {
+    _r6ModeEnabled = enabled;
+    if (!_isSupported || !enabled || address.isEmpty) return;
+    await applyR6Mode(enabled: true, address: address);
+  }
+
   Future<bool> applyTrayMode({
     required bool enabled,
     String address = '',
   }) async {
     _trayModeEnabled = enabled;
+    if (enabled) {
+      _r6ModeEnabled = false;
+      _r6Connected = false;
+    }
     if (!_isSupported) return false;
     try {
       final status = await _methodChannel.invokeMethod<Map<dynamic, dynamic>>(
@@ -131,6 +157,30 @@ class RfidService {
     } catch (e) {
       debugPrint('Error applying tray mode: $e');
       _trayConnected = false;
+      return false;
+    }
+  }
+
+  Future<bool> applyR6Mode({
+    required bool enabled,
+    String address = '',
+  }) async {
+    _r6ModeEnabled = enabled;
+    if (enabled) {
+      _trayModeEnabled = false;
+      _trayConnected = false;
+    }
+    if (!_isSupported) return false;
+    try {
+      final status = await _methodChannel.invokeMethod<Map<dynamic, dynamic>>(
+        'setR6Mode',
+        {'enabled': enabled, 'address': address},
+      );
+      _r6Connected = status?['connected'] == true;
+      return true;
+    } catch (e) {
+      debugPrint('Error applying R6 mode: $e');
+      _r6Connected = false;
       return false;
     }
   }
@@ -150,6 +200,24 @@ class RfidService {
     } catch (e) {
       debugPrint('Error reading tray status: $e');
       return {'enabled': _trayModeEnabled, 'connected': _trayConnected, 'address': ''};
+    }
+  }
+
+  Future<Map<String, dynamic>> getR6Status() async {
+    if (!_isSupported) {
+      return {'enabled': _r6ModeEnabled, 'connected': false, 'address': ''};
+    }
+    try {
+      final status = await _methodChannel.invokeMethod<Map<dynamic, dynamic>>('getR6Status');
+      _r6Connected = status?['connected'] == true;
+      return {
+        'enabled': status?['enabled'] == true,
+        'connected': status?['connected'] == true,
+        'address': status?['address']?.toString() ?? '',
+      };
+    } catch (e) {
+      debugPrint('Error reading R6 status: $e');
+      return {'enabled': _r6ModeEnabled, 'connected': _r6Connected, 'address': ''};
     }
   }
 
@@ -196,11 +264,18 @@ class RfidService {
 
     if (_isSupported) {
       try {
-        // Tray mode requires BLE connection (SparklePOS checks this before scan).
+        // BLE tray/R6 require an active Bluetooth connection before scan.
         if (_trayModeEnabled) {
           final status = await getTrayStatus();
           if (status['connected'] != true) {
             debugPrint('Tray mode on but tray not connected — cannot start scan');
+            return false;
+          }
+        }
+        if (_r6ModeEnabled) {
+          final status = await getR6Status();
+          if (status['connected'] != true) {
+            debugPrint('R6 mode on but R6 not connected — cannot start scan');
             return false;
           }
         }

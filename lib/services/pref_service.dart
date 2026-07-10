@@ -174,6 +174,9 @@ class PrefService {
   static const String keyTrayModeEnabled = 'tray_mode_enabled';
   static const String keyTrayDeviceAddress = 'tray_device_address';
   static const String keyTrayDeviceName = 'tray_device_name';
+  static const String keyR6ModeEnabled = 'r6_mode_enabled';
+  static const String keyR6DeviceAddress = 'r6_device_address';
+  static const String keyR6DeviceName = 'r6_device_name';
 
   bool isWebReusableTagEnabled() => _prefs.getBool(keyWebReusableTag) ?? true;
   Future<void> setWebReusableTagEnabled(bool value) async => _prefs.setBool(keyWebReusableTag, value);
@@ -182,7 +185,10 @@ class PrefService {
   Future<void> setLocalWifiModeEnabled(bool value) async => _prefs.setBool(keyLocalWifiMode, value);
 
   bool isTrayModeEnabled() => _prefs.getBool(keyTrayModeEnabled) ?? false;
-  Future<void> setTrayModeEnabled(bool value) async => _prefs.setBool(keyTrayModeEnabled, value);
+  Future<void> setTrayModeEnabled(bool value) async {
+    await _prefs.setBool(keyTrayModeEnabled, value);
+    if (value) await _prefs.setBool(keyR6ModeEnabled, false);
+  }
 
   String getTrayDeviceAddress() => _prefs.getString(keyTrayDeviceAddress) ?? '';
   String getTrayDeviceName() => _prefs.getString(keyTrayDeviceName) ?? '';
@@ -190,6 +196,20 @@ class PrefService {
   Future<void> saveTrayDevice({required String name, required String address}) async {
     await _prefs.setString(keyTrayDeviceName, name);
     await _prefs.setString(keyTrayDeviceAddress, address);
+  }
+
+  bool isR6ModeEnabled() => _prefs.getBool(keyR6ModeEnabled) ?? false;
+  Future<void> setR6ModeEnabled(bool value) async {
+    await _prefs.setBool(keyR6ModeEnabled, value);
+    if (value) await _prefs.setBool(keyTrayModeEnabled, false);
+  }
+
+  String getR6DeviceAddress() => _prefs.getString(keyR6DeviceAddress) ?? '';
+  String getR6DeviceName() => _prefs.getString(keyR6DeviceName) ?? '';
+
+  Future<void> saveR6Device({required String name, required String address}) async {
+    await _prefs.setString(keyR6DeviceName, name);
+    await _prefs.setString(keyR6DeviceAddress, address);
   }
 
   Future<void> saveBranchIds(List<int> branchIds) async {

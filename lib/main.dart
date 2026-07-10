@@ -179,6 +179,11 @@ void main() async {
           enabled: true,
           address: prefService.getTrayDeviceAddress(),
         );
+      } else if (prefService.isR6ModeEnabled()) {
+        await RfidService().restoreR6ModeFromPrefs(
+          enabled: true,
+          address: prefService.getR6DeviceAddress(),
+        );
       }
     } catch (e, st) {
       debugPrint('Tray mode init skipped: $e\n$st');

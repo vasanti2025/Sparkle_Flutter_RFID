@@ -58,6 +58,8 @@ class MainActivity : FlutterActivity() {
 
     private var trayModeEnabled = false
     private var trayDeviceAddress = ""
+    private var r6ModeEnabled = false
+    private var r6DeviceAddress = ""
     private lateinit var trayManager: TrayReaderManager
     private var activeInventorySession = false
 
@@ -79,7 +81,12 @@ class MainActivity : FlutterActivity() {
             },
             onConnectionChange = { connected, _ ->
                 mainHandler.post {
-                    eventSink?.success(if (connected) "TRAY_CONNECTED" else "TRAY_DISCONNECTED")
+                    val event = when {
+                        trayModeEnabled -> if (connected) "TRAY_CONNECTED" else "TRAY_DISCONNECTED"
+                        r6ModeEnabled -> if (connected) "R6_CONNECTED" else "R6_DISCONNECTED"
+                        else -> if (connected) "TRAY_CONNECTED" else "TRAY_DISCONNECTED"
+                    }
+                    eventSink?.success(event)
                 }
             },
         )
@@ -167,22 +174,38 @@ class MainActivity : FlutterActivity() {
                     result.success(true)
                 }
                 "setTrayMode" -> {
-                    trayModeEnabled = call.argument<Boolean>("enabled") ?: false
+                    val enabled = call.argument<Boolean>("enabled") ?: false
                     val address = call.argument<String>("address")?.trim().orEmpty()
-                    trayDeviceAddress = address
-                    if (trayModeEnabled && address.isNotEmpty()) {
-                        trayManager.init()
-                        trayManager.connect(address)
-                    } else {
-                        trayManager.disconnect()
+                    if (enabled) {
+                        // Mutual exclusivity with R6
+                        r6ModeEnabled = false
+                        r6DeviceAddress = ""
                     }
+                    trayModeEnabled = enabled
+                    trayDeviceAddress = address
+                    applyBleReaderMode()
                     result.success(trayStatusMap())
+                }
+                "setR6Mode" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    val address = call.argument<String>("address")?.trim().orEmpty()
+                    if (enabled) {
+                        trayModeEnabled = false
+                        trayDeviceAddress = ""
+                    }
+                    r6ModeEnabled = enabled
+                    r6DeviceAddress = address
+                    applyBleReaderMode()
+                    result.success(r6StatusMap())
                 }
                 "listBondedBluetoothDevices" -> {
                     result.success(listBondedBluetoothDevices())
                 }
                 "getTrayStatus" -> {
                     result.success(trayStatusMap())
+                }
+                "getR6Status" -> {
+                    result.success(r6StatusMap())
                 }
                 else -> result.notImplemented()
             }
@@ -230,7 +253,7 @@ class MainActivity : FlutterActivity() {
 
     private fun setReaderPower(power: Int): Boolean {
         return try {
-            if (trayModeEnabled) {
+            if (useBleReader()) {
                 trayManager.setPower(power)
             } else {
                 mReader?.setPower(power) ?: false
@@ -240,15 +263,38 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun useTrayReader(): Boolean {
-        return trayModeEnabled && trayManager.isConnected
+    private fun useBleReader(): Boolean {
+        return (trayModeEnabled || r6ModeEnabled) && trayManager.isConnected
+    }
+
+    private fun applyBleReaderMode() {
+        val enabled = trayModeEnabled || r6ModeEnabled
+        val address = when {
+            trayModeEnabled -> trayDeviceAddress
+            r6ModeEnabled -> r6DeviceAddress
+            else -> ""
+        }
+        if (enabled && address.isNotEmpty()) {
+            trayManager.init()
+            trayManager.connect(address)
+        } else {
+            trayManager.disconnect()
+        }
     }
 
     private fun trayStatusMap(): HashMap<String, Any> {
         val map = HashMap<String, Any>()
         map["enabled"] = trayModeEnabled
-        map["connected"] = trayManager.isConnected
+        map["connected"] = trayModeEnabled && trayManager.isConnected
         map["address"] = trayDeviceAddress
+        return map
+    }
+
+    private fun r6StatusMap(): HashMap<String, Any> {
+        val map = HashMap<String, Any>()
+        map["enabled"] = r6ModeEnabled
+        map["connected"] = r6ModeEnabled && trayManager.isConnected
+        map["address"] = r6DeviceAddress
         return map
     }
 
@@ -300,9 +346,8 @@ class MainActivity : FlutterActivity() {
             return true
         }
         activeInventorySession = inventory
-        // Tray mode must never fall back to UART gun — that is why tags on the tray
-        // appeared "not scanning" while SparklePOS (tray-only) worked.
-        if (trayModeEnabled) {
+        // BLE tray/R6 must never fall back to UART gun.
+        if (trayModeEnabled || r6ModeEnabled) {
             if (!trayManager.isConnected) {
                 return false
             }
@@ -395,7 +440,7 @@ class MainActivity : FlutterActivity() {
             recentEmitAt.clear()
         }
         return try {
-            if (trayModeEnabled) {
+            if (useBleReader()) {
                 trayManager.stopInventory()
             } else {
                 mReader?.stopInventory() ?: false
@@ -481,7 +526,7 @@ class MainActivity : FlutterActivity() {
     private fun shouldEmitTagToFlutter(cleanEpc: String): Boolean {
         // SparklePOS tray path emits every EPC; product matching happens in Flutter.
         // Native matchEpcs filtering was silently dropping tray tags not yet in local DB.
-        if (!trayModeEnabled) {
+        if (!trayModeEnabled && !r6ModeEnabled) {
             if (inventoryScanMode) {
                 if (inventoryScopeEpcs.isNotEmpty() && !inventoryScopeEpcs.contains(cleanEpc)) {
                     return false

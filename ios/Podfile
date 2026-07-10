@@ -27,11 +27,20 @@ require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelpe
 
 flutter_ios_podfile_setup
 
+# Ensure Chainway RFIDManager.xcframework is present (Codemagic / fresh clones).
+framework_path = File.join(__dir__, 'Frameworks', 'RFIDManager.xcframework')
+unless File.directory?(framework_path)
+  fetch_script = File.join(__dir__, 'scripts', 'fetch_rfid_sdk.sh')
+  system('bash', fetch_script) or raise 'Failed to download RFIDManager.xcframework'
+end
+
 target 'Runner' do
   use_frameworks!
   use_modular_headers!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  pod 'RFIDManagerSDK', :path => '.'
+
   target 'RunnerTests' do
     inherit! :search_paths
   end

@@ -565,6 +565,12 @@ class AppStrings {
   String get trayDeviceSelected => _t('trayDeviceSelected');
   String get bluetoothPermissionRequired => _t('bluetoothPermissionRequired');
   String get noBondedBluetoothDevices => _t('noBondedBluetoothDevices');
+  String get r6Mode => _t('r6Mode');
+  String get r6ModeDisabled => _t('r6ModeDisabled');
+  String get r6ModeEnabledMsg => _t('r6ModeEnabledMsg');
+  String get r6ModeDisabledMsg => _t('r6ModeDisabledMsg');
+  String get selectR6Device => _t('selectR6Device');
+  String get r6DeviceSelected => _t('r6DeviceSelected');
   String get loginErrorLabel => _t('loginErrorLabel');
 
   String get enterExhibition => _t('enterExhibition');
@@ -1263,8 +1269,14 @@ class AppStrings {
       'trayConnected': 'Connected',
       'trayNotConnected': 'Not connected',
       'trayDeviceSelected': 'Tray device selected',
-      'bluetoothPermissionRequired': 'Bluetooth permission is required for tray mode',
-      'noBondedBluetoothDevices': 'No paired Bluetooth devices found. Pair the tray in Android settings first.',
+      'bluetoothPermissionRequired': 'Bluetooth permission is required for RFID Bluetooth readers',
+      'noBondedBluetoothDevices': 'No Bluetooth RFID devices found. Turn on the reader and try again.',
+      'r6Mode': 'R6 Bluetooth Mode',
+      'r6ModeDisabled': 'Off',
+      'r6ModeEnabledMsg': 'R6 mode enabled',
+      'r6ModeDisabledMsg': 'R6 mode disabled',
+      'selectR6Device': 'Select Chainway R6',
+      'r6DeviceSelected': 'R6 device selected',
       'loginErrorLabel': 'Login Error',
       'transferType': 'Transfer Type',
       'from': 'From',
@@ -1697,8 +1709,14 @@ class AppStrings {
       'trayConnected': 'कनेक्टेड',
       'trayNotConnected': 'कनेक्ट नहीं',
       'trayDeviceSelected': 'ट्रे डिवाइस चुनी गई',
-      'bluetoothPermissionRequired': 'ट्रे मोड के लिए ब्लूटूथ अनुमति आवश्यक है',
-      'noBondedBluetoothDevices': 'कोई पेयर्ड ब्लूटूथ डिवाइस नहीं मिला। पहले Android सेटिंग्स में ट्रे पेयर करें।',
+      'bluetoothPermissionRequired': 'RFID ब्लूटूथ रीडर के लिए ब्लूटूथ अनुमति आवश्यक है',
+      'noBondedBluetoothDevices': 'कोई ब्लूटूथ RFID डिवाइस नहीं मिला। रीडर चालू करें और फिर कोशिश करें।',
+      'r6Mode': 'R6 ब्लूटूथ मोड',
+      'r6ModeDisabled': 'बंद',
+      'r6ModeEnabledMsg': 'R6 मोड सक्षम',
+      'r6ModeDisabledMsg': 'R6 मोड अक्षम',
+      'selectR6Device': 'Chainway R6 चुनें',
+      'r6DeviceSelected': 'R6 डिवाइस चुना गया',
       'searchItemProductRfidCategory': 'आइटम, उत्पाद, आरएफआईडी, श्रेणी खोजें...',
       'unknown': 'अज्ञात',
       'mobileLabel': 'मोबाइल: {mobile}',
@@ -2153,8 +2171,14 @@ class AppStrings {
       'trayConnected': 'متصل',
       'trayNotConnected': 'غير متصل',
       'trayDeviceSelected': 'تم اختيار جهاز الصينية',
-      'bluetoothPermissionRequired': 'مطلوب إذن البلوتوث لوضع الصينية',
-      'noBondedBluetoothDevices': 'لم يتم العثور على أجهزة بلوتوث مقترنة. اقترن بالصينية من إعدادات Android أولاً.',
+      'bluetoothPermissionRequired': 'مطلوب إذن البلوتوث لقارئ RFID عبر البلوتوث',
+      'noBondedBluetoothDevices': 'لم يتم العثور على أجهزة RFID بلوتوث. شغّل القارئ وحاول مرة أخرى.',
+      'r6Mode': 'وضع R6 بلوتوث',
+      'r6ModeDisabled': 'إيقاف',
+      'r6ModeEnabledMsg': 'تم تمكين وضع R6',
+      'r6ModeDisabledMsg': 'تم تعطيل وضع R6',
+      'selectR6Device': 'اختر Chainway R6',
+      'r6DeviceSelected': 'تم اختيار جهاز R6',
       'loginErrorLabel': 'خطأ في تسجيل الدخول',
       'transferType': 'نوع النقل',
       'from': 'من',

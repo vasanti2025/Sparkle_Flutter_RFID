@@ -153,12 +153,20 @@ class SettingsViewModel extends ChangeNotifier {
   String get trayDeviceAddress => _prefService.getTrayDeviceAddress();
   bool get trayConnected => RfidService().trayConnected;
 
+  bool get r6ModeEnabled => _prefService.isR6ModeEnabled();
+  String get r6DeviceName => _prefService.getR6DeviceName();
+  String get r6DeviceAddress => _prefService.getR6DeviceAddress();
+  bool get r6Connected => RfidService().r6Connected;
+
   Future<List<Map<String, String>>> listBondedTrayDevices() {
     return RfidService().listBondedBluetoothDevices();
   }
 
   Future<bool> setTrayModeEnabled(bool value) async {
     await _prefService.setTrayModeEnabled(value);
+    if (value) {
+      await RfidService().applyR6Mode(enabled: false);
+    }
     final address = value ? _prefService.getTrayDeviceAddress() : '';
     await RfidService().applyTrayMode(enabled: value, address: address);
     notifyListeners();
@@ -178,6 +186,33 @@ class SettingsViewModel extends ChangeNotifier {
 
   Future<void> refreshTrayStatus() async {
     await RfidService().getTrayStatus();
+    notifyListeners();
+  }
+
+  Future<bool> setR6ModeEnabled(bool value) async {
+    await _prefService.setR6ModeEnabled(value);
+    if (value) {
+      await RfidService().applyTrayMode(enabled: false);
+    }
+    final address = value ? _prefService.getR6DeviceAddress() : '';
+    await RfidService().applyR6Mode(enabled: value, address: address);
+    notifyListeners();
+    return RfidService().r6Connected || !value || address.isEmpty;
+  }
+
+  Future<void> selectR6Device({
+    required String name,
+    required String address,
+  }) async {
+    await _prefService.saveR6Device(name: name, address: address);
+    if (_prefService.isR6ModeEnabled()) {
+      await RfidService().applyR6Mode(enabled: true, address: address);
+    }
+    notifyListeners();
+  }
+
+  Future<void> refreshR6Status() async {
+    await RfidService().getR6Status();
     notifyListeners();
   }
 }

@@ -3,6 +3,10 @@ import 'dart:io';
 import 'package:permission_handler/permission_handler.dart';
 
 Future<bool> requestBluetoothPermissions() async {
+  if (Platform.isIOS) {
+    final status = await Permission.bluetooth.request();
+    return status.isGranted || status.isLimited;
+  }
   if (!Platform.isAndroid) return true;
 
   final modern = await [Permission.bluetoothConnect, Permission.bluetoothScan].request();
@@ -17,6 +21,10 @@ Future<bool> requestBluetoothPermissions() async {
 }
 
 Future<bool> hasBluetoothPermissions() async {
+  if (Platform.isIOS) {
+    final status = await Permission.bluetooth.status;
+    return status.isGranted || status.isLimited;
+  }
   if (!Platform.isAndroid) return true;
 
   final connect = await Permission.bluetoothConnect.status;

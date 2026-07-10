@@ -105,6 +105,7 @@ class SettingsScreen extends StatelessWidget {
               ),
               _WifiModeRow(vm: vm, s: s),
               _TrayModeRow(vm: vm, s: s),
+              _R6ModeRow(vm: vm, s: s),
               _ReusableTagsRow(vm: vm, s: s),
               _ActionRow(
                 title: s.clearData,
@@ -934,6 +935,148 @@ class _TrayModeRowState extends State<_TrayModeRow> {
           : Switch(
               value: enabled,
               onChanged: _setTrayMode,
+            ),
+    );
+  }
+}
+
+class _R6ModeRow extends StatefulWidget {
+  final SettingsViewModel vm;
+  final AppStrings s;
+
+  const _R6ModeRow({required this.vm, required this.s});
+
+  @override
+  State<_R6ModeRow> createState() => _R6ModeRowState();
+}
+
+class _R6ModeRowState extends State<_R6ModeRow> {
+  bool _busy = false;
+
+  String _trailingText() {
+    if (!widget.vm.r6ModeEnabled) return widget.s.r6ModeDisabled;
+    final name = widget.vm.r6DeviceName.trim();
+    if (name.isEmpty) return widget.s.selectR6Device;
+    if (widget.vm.r6Connected) return '$name (${widget.s.trayConnected})';
+    return '$name (${widget.s.trayNotConnected})';
+  }
+
+  Future<void> _pickR6Device() async {
+    if (!await hasBluetoothPermissions()) {
+      final granted = await requestBluetoothPermissions();
+      if (!granted && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(widget.s.bluetoothPermissionRequired), backgroundColor: Colors.orange),
+        );
+        return;
+      }
+    }
+
+    final devices = await widget.vm.listBondedTrayDevices();
+    if (!mounted) return;
+    if (devices.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(widget.s.noBondedBluetoothDevices), backgroundColor: Colors.orange),
+      );
+      return;
+    }
+
+    final selected = await showModalBottomSheet<Map<String, String>>(
+      context: context,
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(widget.s.selectR6Device, style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+              ),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: devices.length,
+                  itemBuilder: (_, index) {
+                    final device = devices[index];
+                    return ListTile(
+                      title: Text(device['name'] ?? ''),
+                      subtitle: Text(device['address'] ?? ''),
+                      onTap: () => Navigator.pop(ctx, device),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (selected == null) return;
+    final name = selected['name'] ?? 'Bluetooth Device';
+    final address = selected['address'] ?? '';
+    if (address.isEmpty) return;
+
+    setState(() => _busy = true);
+    await widget.vm.selectR6Device(name: name, address: address);
+    if (mounted) {
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${widget.s.r6DeviceSelected}: $name'), backgroundColor: Colors.green),
+      );
+    }
+  }
+
+  Future<void> _setR6Mode(bool enabled) async {
+    if (_busy) return;
+
+    if (enabled) {
+      if (!await hasBluetoothPermissions()) {
+        final granted = await requestBluetoothPermissions();
+        if (!granted && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(widget.s.bluetoothPermissionRequired), backgroundColor: Colors.orange),
+          );
+          return;
+        }
+      }
+
+      var address = widget.vm.r6DeviceAddress.trim();
+      if (address.isEmpty) {
+        await _pickR6Device();
+        address = widget.vm.r6DeviceAddress.trim();
+        if (address.isEmpty) return;
+      }
+    }
+
+    setState(() => _busy = true);
+    await widget.vm.setR6ModeEnabled(enabled);
+    await widget.vm.refreshR6Status();
+    if (mounted) {
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            enabled ? widget.s.r6ModeEnabledMsg : widget.s.r6ModeDisabledMsg,
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = widget.vm.r6ModeEnabled;
+    return _SettingsTile(
+      title: widget.s.r6Mode,
+      trailingText: _trailingText(),
+      onTap: enabled ? _pickR6Device : null,
+      trailing: _busy
+          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+          : Switch(
+              value: enabled,
+              onChanged: _setR6Mode,
             ),
     );
   }
