@@ -106,7 +106,7 @@ class _AddFaceScreenState extends State<AddFaceScreen> with SingleTickerProvider
 
     _cameraController = CameraController(
       _cameras![index],
-      ResolutionPreset.high,
+      ResolutionPreset.medium,
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.jpeg,
     );
@@ -247,6 +247,11 @@ class _AddFaceScreenState extends State<AddFaceScreen> with SingleTickerProvider
     setState(() => _saving = true);
     _captureLocked = true;
 
+    // Wait for any in-flight preview takePicture to finish.
+    for (var i = 0; i < 20 && _checkingFace; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+
     try {
       final captureInfo = _captureInfo;
       if (captureInfo == null) {
@@ -259,9 +264,12 @@ class _AddFaceScreenState extends State<AddFaceScreen> with SingleTickerProvider
       }
 
       List<double>? embeddingList;
-      for (var attempt = 0; attempt < 3; attempt++) {
+      for (var attempt = 0; attempt < 4; attempt++) {
         try {
-          await Future<void>.delayed(Duration(milliseconds: attempt * 200));
+          await Future<void>.delayed(Duration(milliseconds: 150 + attempt * 150));
+          if (!_cameraController!.value.isInitialized || _cameraController!.value.isTakingPicture) {
+            continue;
+          }
           final file = await _cameraController!.takePicture();
           embeddingList = await faceRecognitionService.getEmbeddingFromCameraFile(
             file.path,
@@ -269,7 +277,7 @@ class _AddFaceScreenState extends State<AddFaceScreen> with SingleTickerProvider
           );
           if (embeddingList != null) break;
         } catch (e) {
-          if (attempt == 2 && mounted) {
+          if (attempt == 3 && mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text(s.errorWithMessage(e)), backgroundColor: Colors.red),
             );

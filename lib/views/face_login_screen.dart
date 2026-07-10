@@ -107,7 +107,7 @@ class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProv
 
     _cameraController = CameraController(
       _cameras![index],
-      ResolutionPreset.high,
+      ResolutionPreset.medium,
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.jpeg,
     );

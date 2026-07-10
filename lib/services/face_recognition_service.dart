@@ -3,8 +3,8 @@ import 'dart:math';
 import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart' show Size;
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:image/image.dart' as img;
 
@@ -23,6 +23,7 @@ class FaceRecognitionService {
   Interpreter? _interpreter;
   bool _isModelLoaded = false;
   String? _initError;
+  Directory? _tempDir;
 
   FaceRecognitionService() {
     _faceDetector = FaceDetector(
@@ -30,7 +31,8 @@ class FaceRecognitionService {
         performanceMode: FaceDetectorMode.accurate,
         enableLandmarks: false,
         enableClassification: false,
-        minFaceSize: 0.08,
+        // Slightly lower so faces farther from the camera still register.
+        minFaceSize: 0.05,
       ),
     );
   }
@@ -47,6 +49,7 @@ class FaceRecognitionService {
       _interpreter = await Interpreter.fromAsset('assets/mobile_face_net.tflite');
       _isModelLoaded = true;
       _initError = null;
+      _tempDir = await getTemporaryDirectory();
       debugPrint('TFLITE: Model loaded successfully');
     } catch (e) {
       _isModelLoaded = false;
@@ -94,10 +97,40 @@ class FaceRecognitionService {
         return null;
       }
 
-      final candidates = _buildOrientedCandidates(decoded, captureInfo);
+      // Bake EXIF into pixels so ML Kit boxes match the bitmap we crop from.
+      final oriented = img.bakeOrientation(decoded);
+
+      // 1) Detect on orientation-baked JPEG (Android-safe fromFilePath).
+      final primaryPath = await _writeTempJpeg(oriented, 'face_primary');
+      if (primaryPath != null) {
+        final fromPrimary = await _detectAndEmbedFromJpegFile(
+          primaryPath,
+          decodedForCrop: oriented,
+        );
+        try {
+          await File(primaryPath).delete();
+        } catch (_) {}
+        if (fromPrimary != null) {
+          debugPrint('TFLITE: Face found from orientation-baked JPEG');
+          return fromPrimary;
+        }
+      }
+
+      final candidates = _buildOrientedCandidates(oriented, captureInfo);
+
       for (var i = 0; i < candidates.length; i++) {
         final candidate = candidates[i];
-        final embedding = await _detectAndEmbed(candidate);
+        final tempPath = await _writeTempJpeg(candidate, 'face_cand_$i');
+        if (tempPath == null) continue;
+
+        final embedding = await _detectAndEmbedFromJpegFile(
+          tempPath,
+          decodedForCrop: candidate,
+        );
+        try {
+          await File(tempPath).delete();
+        } catch (_) {}
+
         if (embedding != null) {
           debugPrint('TFLITE: Face found using orientation candidate #$i');
           return embedding;
@@ -122,28 +155,56 @@ class FaceRecognitionService {
     );
   }
 
+  Future<String?> _writeTempJpeg(img.Image image, String name) async {
+    try {
+      _tempDir ??= await getTemporaryDirectory();
+      final path = '${_tempDir!.path}/$name.jpg';
+      final encoded = img.encodeJpg(image, quality: 95);
+      await File(path).writeAsBytes(encoded, flush: true);
+      return path;
+    } catch (e) {
+      debugPrint('TFLITE: Failed to write temp JPEG: $e');
+      return null;
+    }
+  }
+
+  /// Detect face using ML Kit from a JPEG file path (Android-safe).
+  Future<List<double>?> _detectAndEmbedFromJpegFile(
+    String jpegPath, {
+    required img.Image decodedForCrop,
+  }) async {
+    final inputImage = InputImage.fromFilePath(jpegPath);
+    final faces = await _faceDetector.processImage(inputImage);
+    if (faces.isEmpty) return null;
+
+    faces.sort((a, b) {
+      final areaA = a.boundingBox.width * a.boundingBox.height;
+      final areaB = b.boundingBox.width * b.boundingBox.height;
+      return areaB.compareTo(areaA);
+    });
+
+    return _embeddingFromFace(decodedForCrop, faces.first);
+  }
+
   List<img.Image> _buildOrientedCandidates(img.Image source, CameraCaptureInfo info) {
     final out = <img.Image>[];
+    final seen = <String>{};
 
     void add(img.Image image) {
-      if (image.width >= 48 && image.height >= 48) {
-        out.add(image);
-      }
+      if (image.width < 48 || image.height < 48) return;
+      final key = '${image.width}x${image.height}_${image.getPixel(0, 0).r.toInt()}';
+      if (seen.add(key)) out.add(image);
     }
 
     img.Image rotate(img.Image image, int angle) {
-      if (angle == 0) return image;
+      if (angle % 360 == 0) return image;
       return img.copyRotate(image, angle: angle);
-    }
-
-    img.Image mirror(img.Image image) {
-      return img.flipHorizontal(image);
     }
 
     final rotations = <int>{
       0,
-      info.sensorOrientation,
-      (360 - info.sensorOrientation) % 360,
+      info.sensorOrientation % 360,
+      (360 - (info.sensorOrientation % 360)) % 360,
       90,
       180,
       270,
@@ -154,15 +215,16 @@ class FaceRecognitionService {
       add(rotated);
       add(_centerSquare(rotated));
       if (info.lensDirection == CameraLensDirection.front) {
-        add(mirror(rotated));
-        add(_centerSquare(mirror(rotated)));
+        final mirrored = img.flipHorizontal(rotated);
+        add(mirrored);
+        add(_centerSquare(mirrored));
       }
     }
 
     return out;
   }
 
-  img.Image _centerSquare(img.Image image, {double fraction = 0.82}) {
+  img.Image _centerSquare(img.Image image, {double fraction = 0.85}) {
     final side = (min(image.width, image.height) * fraction).round();
     if (side <= 0) return image;
     final x = ((image.width - side) / 2).round();
@@ -170,52 +232,10 @@ class FaceRecognitionService {
     return img.copyCrop(image, x: x, y: y, width: side, height: side);
   }
 
-  Future<List<double>?> _detectAndEmbed(img.Image image) async {
-    final inputImage = _inputImageFromBitmap(image);
-    final faces = await _faceDetector.processImage(inputImage);
-    if (faces.isEmpty) return null;
-
-    faces.sort((a, b) {
-      final areaA = a.boundingBox.width * a.boundingBox.height;
-      final areaB = b.boundingBox.width * b.boundingBox.height;
-      return areaB.compareTo(areaA);
-    });
-
-    return _embeddingFromFace(image, faces.first);
-  }
-
-  InputImage _inputImageFromBitmap(img.Image image) {
-    final bytes = _toBgraBytes(image);
-    return InputImage.fromBytes(
-      bytes: bytes,
-      metadata: InputImageMetadata(
-        size: Size(image.width.toDouble(), image.height.toDouble()),
-        rotation: InputImageRotation.rotation0deg,
-        format: InputImageFormat.bgra8888,
-        bytesPerRow: image.width * 4,
-      ),
-    );
-  }
-
-  Uint8List _toBgraBytes(img.Image image) {
-    final bytes = Uint8List(image.width * image.height * 4);
-    var offset = 0;
-    for (var y = 0; y < image.height; y++) {
-      for (var x = 0; x < image.width; x++) {
-        final pixel = image.getPixel(x, y);
-        bytes[offset++] = pixel.b.toInt();
-        bytes[offset++] = pixel.g.toInt();
-        bytes[offset++] = pixel.r.toInt();
-        bytes[offset++] = 255;
-      }
-    }
-    return bytes;
-  }
-
   List<double>? _embeddingFromFace(img.Image originalImage, Face face) {
     final rect = face.boundingBox;
-    final padX = rect.width * 0.12;
-    final padY = rect.height * 0.12;
+    final padX = rect.width * 0.15;
+    final padY = rect.height * 0.15;
     final x = max(0, (rect.left - padX).toInt());
     final y = max(0, (rect.top - padY).toInt());
     final right = min(originalImage.width.toDouble(), rect.right + padX);
