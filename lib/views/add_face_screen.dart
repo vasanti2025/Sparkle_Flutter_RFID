@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -28,8 +29,8 @@ class _AddFaceScreenState extends State<AddFaceScreen> with SingleTickerProvider
   int _selectedCameraIndex = 0;
   bool _modelReady = false;
   bool _faceDetected = false;
-  bool _checkingFace = false;
-  bool _captureLocked = false;
+  bool _streaming = false;
+  List<double>? _latestEmbedding;
 
   late AnimationController _scanAnimController;
   late Animation<double> _scanAnimation;
@@ -99,7 +100,19 @@ class _AddFaceScreenState extends State<AddFaceScreen> with SingleTickerProvider
     }
   }
 
+  Future<void> _stopStream() async {
+    final c = _cameraController;
+    if (c == null) return;
+    if (_streaming && c.value.isStreamingImages) {
+      try {
+        await c.stopImageStream();
+      } catch (_) {}
+    }
+    _streaming = false;
+  }
+
   Future<void> _startCamera(int index) async {
+    await _stopStream();
     if (_cameraController != null) {
       await _cameraController!.dispose();
     }
@@ -108,19 +121,19 @@ class _AddFaceScreenState extends State<AddFaceScreen> with SingleTickerProvider
       _cameras![index],
       ResolutionPreset.medium,
       enableAudio: false,
-      imageFormatGroup: ImageFormatGroup.jpeg,
+      imageFormatGroup: FaceRecognitionService.preferredImageFormat(),
     );
 
     try {
       await _cameraController!.initialize();
-      if (mounted) {
-        setState(() {
-          _isInit = true;
-          _hasError = false;
-          _faceDetected = false;
-        });
-        _startFacePreviewCheck();
-      }
+      if (!mounted) return;
+      setState(() {
+        _isInit = true;
+        _hasError = false;
+        _faceDetected = false;
+        _latestEmbedding = null;
+      });
+      await _startFaceStream();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -131,55 +144,53 @@ class _AddFaceScreenState extends State<AddFaceScreen> with SingleTickerProvider
     }
   }
 
+  Future<void> _startFaceStream() async {
+    final controller = _cameraController;
+    final faceService = context.read<FaceRecognitionService>();
+    if (controller == null || !controller.value.isInitialized || _streaming) return;
+
+    faceService.deviceOrientationDegrees = 0; // portrait app
+    _streaming = true;
+    await controller.startImageStream((CameraImage image) async {
+      if (!mounted || _saving || !_streaming) return;
+      final embedding = await faceService.processCameraImage(
+        image: image,
+        camera: controller.description,
+      );
+      if (!mounted || _saving) return;
+      final detected = embedding != null;
+      if (detected) {
+        _latestEmbedding = embedding;
+      }
+      if (detected != _faceDetected) {
+        setState(() => _faceDetected = detected);
+      }
+    });
+  }
+
   void _toggleCamera() async {
     if (_cameras == null || _cameras!.length < 2) return;
     _selectedCameraIndex = (_selectedCameraIndex + 1) % _cameras!.length;
     setState(() {
       _isInit = false;
       _faceDetected = false;
+      _latestEmbedding = null;
     });
     await _startCamera(_selectedCameraIndex);
-  }
-
-  CameraCaptureInfo? get _captureInfo {
-    final controller = _cameraController;
-    if (controller == null || !controller.value.isInitialized) return null;
-    return CameraCaptureInfo(
-      sensorOrientation: controller.description.sensorOrientation,
-      lensDirection: controller.description.lensDirection,
-    );
-  }
-
-  Future<void> _startFacePreviewCheck() async {
-    if (!mounted || _checkingFace || _saving || _captureLocked) return;
-    final controller = _cameraController;
-    final captureInfo = _captureInfo;
-    final faceService = context.read<FaceRecognitionService>();
-    if (controller == null || captureInfo == null || !faceService.isModelLoaded) return;
-
-    _checkingFace = true;
-    try {
-      final file = await controller.takePicture();
-      final embedding = await faceService.getEmbeddingFromCameraFile(
-        file.path,
-        captureInfo: captureInfo,
-      );
-      if (!mounted) return;
-      setState(() => _faceDetected = embedding != null);
-    } catch (_) {
-      if (mounted) setState(() => _faceDetected = false);
-    } finally {
-      _checkingFace = false;
-      if (mounted && _isInit && !_saving) {
-        Future.delayed(const Duration(milliseconds: 900), _startFacePreviewCheck);
-      }
-    }
   }
 
   @override
   void dispose() {
     _scanAnimController.dispose();
-    _cameraController?.dispose();
+    final c = _cameraController;
+    _cameraController = null;
+    if (c != null) {
+      if (_streaming && c.value.isStreamingImages) {
+        c.stopImageStream().whenComplete(() => c.dispose());
+      } else {
+        c.dispose();
+      }
+    }
     super.dispose();
   }
 
@@ -198,17 +209,17 @@ class _AddFaceScreenState extends State<AddFaceScreen> with SingleTickerProvider
       'ClientCode': employee.clientCode ?? '',
       'BranchId': employee.defaultBranchId,
       'UserType': employee.designation ?? 'User',
-      'Width': 480,
-      'Height': 640,
-      'FaceWidth': 200,
-      'FaceHeight': 200,
-      'Top': 150,
-      'Left': 140,
-      'Right': 340,
-      'Bottom': 350,
-      'SmilingProbability': 0.8,
-      'LeftEyeOpenProbability': 0.95,
-      'RightEyeOpenProbability': 0.95,
+      'Width': 0,
+      'Height': 0,
+      'FaceWidth': 0,
+      'FaceHeight': 0,
+      'Top': 0,
+      'Left': 0,
+      'Right': 0,
+      'Bottom': 0,
+      'SmilingProbability': 0.0,
+      'LeftEyeOpenProbability': 0.0,
+      'RightEyeOpenProbability': 0.0,
       'FaceTimestamp': DateTime.now().toIso8601String(),
       'FaceTimeMs': DateTime.now().millisecondsSinceEpoch,
       'Embedding': embeddingString,
@@ -245,47 +256,34 @@ class _AddFaceScreenState extends State<AddFaceScreen> with SingleTickerProvider
     }
 
     setState(() => _saving = true);
-    _captureLocked = true;
-
-    // Wait for any in-flight preview takePicture to finish.
-    for (var i = 0; i < 20 && _checkingFace; i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-    }
 
     try {
-      final captureInfo = _captureInfo;
-      if (captureInfo == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(s.errorWithMessage('Camera not ready')), backgroundColor: Colors.red),
-          );
-        }
-        return;
+      // Prefer live-stream embedding (Sparkle style).
+      List<double>? embeddingList = _latestEmbedding;
+      for (var i = 0; i < 25 && embeddingList == null; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+        embeddingList = _latestEmbedding;
       }
 
-      List<double>? embeddingList;
-      for (var attempt = 0; attempt < 4; attempt++) {
-        try {
-          await Future<void>.delayed(Duration(milliseconds: 150 + attempt * 150));
-          if (!_cameraController!.value.isInitialized || _cameraController!.value.isTakingPicture) {
-            continue;
+      // Fallback: stop stream → takePicture JPEG → detect (most reliable).
+      if (embeddingList == null || embeddingList.isEmpty) {
+        await _stopStream();
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        for (var attempt = 0; attempt < 3 && (embeddingList == null || embeddingList.isEmpty); attempt++) {
+          try {
+            final file = await _cameraController!.takePicture();
+            embeddingList = await faceRecognitionService.getEmbeddingFromJpegFile(file.path);
+          } catch (e) {
+            debugPrint('FACE save takePicture attempt $attempt failed: $e');
           }
-          final file = await _cameraController!.takePicture();
-          embeddingList = await faceRecognitionService.getEmbeddingFromCameraFile(
-            file.path,
-            captureInfo: captureInfo,
-          );
-          if (embeddingList != null) break;
-        } catch (e) {
-          if (attempt == 3 && mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(s.errorWithMessage(e)), backgroundColor: Colors.red),
-            );
-          }
+        }
+        // Restart stream if still on screen
+        if (mounted && !_streaming) {
+          await _startFaceStream();
         }
       }
 
-      if (embeddingList == null) {
+      if (embeddingList == null || embeddingList.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(s.noFaceDetectedLabel), backgroundColor: Colors.red),
@@ -322,7 +320,6 @@ class _AddFaceScreenState extends State<AddFaceScreen> with SingleTickerProvider
         );
       }
     } finally {
-      _captureLocked = false;
       if (mounted) setState(() => _saving = false);
     }
   }
@@ -414,7 +411,10 @@ class _AddFaceScreenState extends State<AddFaceScreen> with SingleTickerProvider
                     height: 258,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      border: Border.all(color: const Color(0xFF5231A7), width: 4),
+                      border: Border.all(
+                        color: _faceDetected ? const Color(0xFF4CAF50) : const Color(0xFF5231A7),
+                        width: 4,
+                      ),
                     ),
                   ),
                   AnimatedBuilder(

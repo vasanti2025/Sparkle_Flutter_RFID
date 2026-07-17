@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -27,6 +28,9 @@ class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProv
   bool _matching = false;
   bool _modelReady = false;
   int _selectedCameraIndex = 0;
+  bool _streaming = false;
+  bool _faceDetected = false;
+  List<double>? _latestEmbedding;
 
   late AnimationController _scanAnimController;
   late Animation<double> _scanAnimation;
@@ -62,7 +66,7 @@ class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProv
     setState(() => _modelReady = true);
     await _initCamera();
     if (mounted && _isInit) {
-      await Future<void>.delayed(const Duration(milliseconds: 800));
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
       if (mounted) await _performFaceMatching();
     }
   }
@@ -100,7 +104,19 @@ class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProv
     }
   }
 
+  Future<void> _stopStream() async {
+    final c = _cameraController;
+    if (c == null) return;
+    if (_streaming && c.value.isStreamingImages) {
+      try {
+        await c.stopImageStream();
+      } catch (_) {}
+    }
+    _streaming = false;
+  }
+
   Future<void> _startCamera(int index) async {
+    await _stopStream();
     if (_cameraController != null) {
       await _cameraController!.dispose();
     }
@@ -109,17 +125,19 @@ class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProv
       _cameras![index],
       ResolutionPreset.medium,
       enableAudio: false,
-      imageFormatGroup: ImageFormatGroup.jpeg,
+      imageFormatGroup: FaceRecognitionService.preferredImageFormat(),
     );
 
     try {
       await _cameraController!.initialize();
-      if (mounted) {
-        setState(() {
-          _isInit = true;
-          _hasError = false;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _isInit = true;
+        _hasError = false;
+        _faceDetected = false;
+        _latestEmbedding = null;
+      });
+      await _startFaceStream();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -130,17 +148,53 @@ class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProv
     }
   }
 
+  Future<void> _startFaceStream() async {
+    final controller = _cameraController;
+    final faceService = context.read<FaceRecognitionService>();
+    if (controller == null || !controller.value.isInitialized || _streaming) return;
+
+    faceService.deviceOrientationDegrees = 0;
+    _streaming = true;
+    await controller.startImageStream((CameraImage image) async {
+      if (!mounted || _matching || !_streaming) return;
+      final embedding = await faceService.processCameraImage(
+        image: image,
+        camera: controller.description,
+      );
+      if (!mounted || _matching) return;
+      final detected = embedding != null;
+      if (detected) {
+        _latestEmbedding = embedding;
+      }
+      if (detected != _faceDetected) {
+        setState(() => _faceDetected = detected);
+      }
+    });
+  }
+
   void _toggleCamera() async {
     if (_cameras == null || _cameras!.length < 2) return;
     _selectedCameraIndex = (_selectedCameraIndex + 1) % _cameras!.length;
-    setState(() => _isInit = false);
+    setState(() {
+      _isInit = false;
+      _faceDetected = false;
+      _latestEmbedding = null;
+    });
     await _startCamera(_selectedCameraIndex);
   }
 
   @override
   void dispose() {
     _scanAnimController.dispose();
-    _cameraController?.dispose();
+    final c = _cameraController;
+    _cameraController = null;
+    if (c != null) {
+      if (_streaming && c.value.isStreamingImages) {
+        c.stopImageStream().whenComplete(() => c.dispose());
+      } else {
+        c.dispose();
+      }
+    }
     super.dispose();
   }
 
@@ -160,7 +214,7 @@ class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProv
 
     for (final rawFace in dataList) {
       if (rawFace is! Map) continue;
-      final face = Map<String, dynamic>.from(rawFace as Map);
+      final face = Map<String, dynamic>.from(rawFace);
       final embString = (face['Embedding'] ?? face['embedding'])?.toString() ?? '';
       if (embString.isEmpty) continue;
 
@@ -175,8 +229,10 @@ class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProv
     }
 
     if (bestFace != null && bestDistance < FaceRecognitionService.matchThreshold) {
+      debugPrint('Face match distance=$bestDistance');
       return bestFace;
     }
+    debugPrint('Face best distance=$bestDistance (threshold=${FaceRecognitionService.matchThreshold})');
     return null;
   }
 
@@ -221,15 +277,6 @@ class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProv
     }
   }
 
-  CameraCaptureInfo? get _captureInfo {
-    final controller = _cameraController;
-    if (controller == null || !controller.value.isInitialized) return null;
-    return CameraCaptureInfo(
-      sensorOrientation: controller.description.sensorOrientation,
-      lensDirection: controller.description.lensDirection,
-    );
-  }
-
   Future<void> _performFaceMatching() async {
     if (!mounted || _matching) return;
     final pref = context.read<PrefService>();
@@ -254,20 +301,28 @@ class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProv
     setState(() => _matching = true);
 
     try {
-      final captureInfo = _captureInfo;
-      if (captureInfo == null) {
-        throw Exception(s.errorWithMessage('Camera not ready'));
+      // Wait for live stream embedding.
+      List<double>? liveEmbedding = _latestEmbedding;
+      for (var i = 0; i < 40 && (liveEmbedding == null || liveEmbedding.isEmpty); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        liveEmbedding = _latestEmbedding;
       }
 
-      List<double>? liveEmbedding;
-      for (var attempt = 0; attempt < 3; attempt++) {
-        await Future<void>.delayed(Duration(milliseconds: attempt * 200));
-        final file = await _cameraController!.takePicture();
-        liveEmbedding = await faceRecognitionService.getEmbeddingFromCameraFile(
-          file.path,
-          captureInfo: captureInfo,
-        );
-        if (liveEmbedding != null && liveEmbedding.isNotEmpty) break;
+      // Fallback: stop stream and take a still JPEG.
+      if (liveEmbedding == null || liveEmbedding.isEmpty) {
+        await _stopStream();
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+        for (var attempt = 0; attempt < 3 && (liveEmbedding == null || liveEmbedding.isEmpty); attempt++) {
+          try {
+            final file = await _cameraController!.takePicture();
+            liveEmbedding = await faceRecognitionService.getEmbeddingFromJpegFile(file.path);
+          } catch (e) {
+            debugPrint('FACE login takePicture attempt $attempt failed: $e');
+          }
+        }
+        if (mounted && !_streaming) {
+          await _startFaceStream();
+        }
       }
 
       if (liveEmbedding == null || liveEmbedding.isEmpty) {
@@ -275,7 +330,12 @@ class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProv
       }
 
       // Kotlin loads all faces with empty clientCode.
-      var dataList = _extractFaceList(await api.getAllFaceLogin(''));
+      List<dynamic> dataList = const [];
+      try {
+        dataList = _extractFaceList(await api.getAllFaceLogin(''));
+      } catch (e) {
+        debugPrint('GetAllFaceLogin empty clientCode failed: $e');
+      }
       if (dataList.isEmpty) {
         final clientCode = pref.getClient()?.clientCode ?? pref.getEmployee()?.clientCode ?? '';
         if (clientCode.isNotEmpty) {
@@ -411,7 +471,10 @@ class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProv
                   height: 208,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: const Color(0xFF0077D4), width: 3),
+                    border: Border.all(
+                      color: _faceDetected ? const Color(0xFF4CAF50) : const Color(0xFF0077D4),
+                      width: 3,
+                    ),
                   ),
                 ),
                 AnimatedBuilder(
@@ -445,8 +508,15 @@ class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProv
             ),
             const SizedBox(height: 8),
             Text(
-              _matching ? s.pleaseWaitItemsLoading : s.scanningFace,
-              style: GoogleFonts.poppins(fontSize: 14, color: Colors.white54),
+              _matching
+                  ? s.pleaseWaitItemsLoading
+                  : _faceDetected
+                      ? 'Face detected — matching…'
+                      : s.scanningFace,
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                color: _faceDetected ? const Color(0xFF4CAF50) : Colors.white54,
+              ),
             ),
             const SizedBox(height: 24),
             ElevatedButton(
