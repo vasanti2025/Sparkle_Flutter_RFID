@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Downloads RFIDManager.xcframework if missing (used by Codemagic / fresh clones).
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$ROOT/Frameworks/RFIDManager.xcframework"
 ZIP="$ROOT/Frameworks/RFIDManager.xcframework.zip"
 URL="https://github.com/RFID-Devs/RFID-IOS-SDK/releases/download/v2.0.1/RFIDManager.xcframework.zip"

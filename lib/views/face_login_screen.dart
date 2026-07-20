@@ -19,7 +19,8 @@ class FaceLoginScreen extends StatefulWidget {
   State<FaceLoginScreen> createState() => _FaceLoginScreenState();
 }
 
-class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProviderStateMixin {
+class _FaceLoginScreenState extends State<FaceLoginScreen>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   CameraController? _cameraController;
   List<CameraDescription>? _cameras;
   bool _isInit = false;
@@ -31,6 +32,7 @@ class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProv
   bool _streaming = false;
   bool _faceDetected = false;
   List<double>? _latestEmbedding;
+  bool _cameraPermissionDenied = false;
 
   late AnimationController _scanAnimController;
   late Animation<double> _scanAnimation;
@@ -47,7 +49,15 @@ class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProv
       CurvedAnimation(parent: _scanAnimController, curve: Curves.easeInOut),
     );
 
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _cameraPermissionDenied && mounted) {
+      _retryCameraPermission();
+    }
   }
 
   Future<void> _bootstrap() async {
@@ -71,16 +81,25 @@ class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProv
     }
   }
 
+  Future<void> _handleCameraFailure(Object error) async {
+    if (!mounted) return;
+    final openSettings = await shouldOpenSettingsForCamera(error);
+    final permissionIssue = isCameraPermissionError(error) || openSettings || await isCameraPermissionBlocked();
+    final message = context.sRead.cameraPermissionRequired;
+    setState(() {
+      _hasError = true;
+      _cameraPermissionDenied = permissionIssue;
+      _errorText = permissionIssue ? message : error.toString();
+    });
+  }
+
   Future<void> _initCamera() async {
-    final granted = await ensureCameraPermission();
-    if (!granted) {
-      if (mounted) {
-        setState(() {
-          _hasError = true;
-          _errorText = 'Camera permission is required for face login';
-        });
-      }
-      return;
+    if (mounted) {
+      setState(() {
+        _cameraPermissionDenied = false;
+        _hasError = false;
+        _errorText = '';
+      });
     }
 
     try {
@@ -95,12 +114,26 @@ class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProv
       _selectedCameraIndex = frontIndex != -1 ? frontIndex : 0;
       await _startCamera(_selectedCameraIndex);
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _hasError = true;
-          _errorText = e.toString();
-        });
-      }
+      await _handleCameraFailure(e);
+    }
+  }
+
+  Future<void> _retryCameraPermission() async {
+    if (!mounted) return;
+    setState(() {
+      _hasError = false;
+      _errorText = '';
+      _cameraPermissionDenied = false;
+    });
+    await _initCamera();
+    if (!mounted) return;
+    if (_cameraPermissionDenied) {
+      await openCameraPermissionSettings();
+      return;
+    }
+    if (_isInit) {
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      if (mounted) await _performFaceMatching();
     }
   }
 
@@ -139,12 +172,7 @@ class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProv
       });
       await _startFaceStream();
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _hasError = true;
-          _errorText = e.toString();
-        });
-      }
+      await _handleCameraFailure(e);
     }
   }
 
@@ -185,6 +213,7 @@ class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProv
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _scanAnimController.dispose();
     final c = _cameraController;
     _cameraController = null;
@@ -519,17 +548,30 @@ class _FaceLoginScreenState extends State<FaceLoginScreen> with SingleTickerProv
               ),
             ),
             const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: (_matching || !_isInit || !_modelReady) ? null : _performFaceMatching,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0077D4),
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+            if (_cameraPermissionDenied)
+              ElevatedButton(
+                onPressed: _retryCameraPermission,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0077D4),
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                ),
+                child: Text(
+                  'Allow Camera Access',
+                  style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600),
+                ),
+              )
+            else
+              ElevatedButton(
+                onPressed: (_matching || !_isInit || !_modelReady) ? null : _performFaceMatching,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0077D4),
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                ),
+                child: Text(
+                  _matching ? s.pleaseWaitItemsLoading : s.faceLogin,
+                  style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600),
+                ),
               ),
-              child: Text(
-                _matching ? s.pleaseWaitItemsLoading : s.faceLogin,
-                style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600),
-              ),
-            ),
           ],
         ),
       ),

@@ -29,13 +29,19 @@ flutter_ios_podfile_setup
 
 # Ensure Chainway RFIDManager.xcframework is present (Codemagic / fresh clones).
 framework_path = File.join(__dir__, 'Frameworks', 'RFIDManager.xcframework')
+scripts_framework = File.join(__dir__, 'scripts', 'Frameworks', 'RFIDManager.xcframework')
 unless File.directory?(framework_path)
-  fetch_script = File.join(__dir__, 'scripts', 'fetch_rfid_sdk.sh')
-  system('bash', fetch_script) or raise 'Failed to download RFIDManager.xcframework'
+  if File.directory?(scripts_framework)
+    FileUtils.mkdir_p(File.join(__dir__, 'Frameworks'))
+    FileUtils.ln_sf('../scripts/Frameworks/RFIDManager.xcframework', framework_path)
+  else
+    fetch_script = File.join(__dir__, 'scripts', 'fetch_rfid_sdk.sh')
+    system('bash', fetch_script) or raise 'Failed to download RFIDManager.xcframework'
+  end
 end
 
 target 'Runner' do
-  use_frameworks!
+  use_frameworks! :linkage => :static
   use_modular_headers!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
@@ -53,6 +59,28 @@ post_install do |installer|
       if config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_f < 14.0
         config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
       end
+      # Match Flutter Generated.xcconfig so all pods use the same simulator arch.
+      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'i386 arm64'
+      definitions = config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
+      %w[
+        PERMISSION_CAMERA=1
+        PERMISSION_PHOTOS=1
+        PERMISSION_LOCATION=1
+        PERMISSION_BLUETOOTH=1
+      ].each do |definition|
+        definitions << definition unless definitions.include?(definition)
+      end
+      config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = definitions
+    end
+  end
+  installer.pods_project.build_configurations.each do |config|
+    config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'i386 arm64'
+  end
+  # MLKit and Flutter plugins ship conflicting EXCLUDED_ARCHS values; unify Pods-Runner.
+  installer.aggregate_targets.each do |aggregate_target|
+    aggregate_target.xcconfigs.each do |config_name, xcconfig|
+      xcconfig.attributes['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'i386 arm64'
+      xcconfig.save_as(Pathname.new(aggregate_target.xcconfig_path(config_name)))
     end
   end
 end

@@ -19,7 +19,8 @@ class AddFaceScreen extends StatefulWidget {
   State<AddFaceScreen> createState() => _AddFaceScreenState();
 }
 
-class _AddFaceScreenState extends State<AddFaceScreen> with SingleTickerProviderStateMixin {
+class _AddFaceScreenState extends State<AddFaceScreen>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   CameraController? _cameraController;
   List<CameraDescription>? _cameras;
   bool _isInit = false;
@@ -31,6 +32,7 @@ class _AddFaceScreenState extends State<AddFaceScreen> with SingleTickerProvider
   bool _faceDetected = false;
   bool _streaming = false;
   List<double>? _latestEmbedding;
+  bool _cameraPermissionDenied = false;
 
   late AnimationController _scanAnimController;
   late Animation<double> _scanAnimation;
@@ -47,7 +49,15 @@ class _AddFaceScreenState extends State<AddFaceScreen> with SingleTickerProvider
       CurvedAnimation(parent: _scanAnimController, curve: Curves.easeInOut),
     );
 
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _cameraPermissionDenied && mounted) {
+      _retryCameraPermission();
+    }
   }
 
   Future<void> _bootstrap() async {
@@ -67,16 +77,25 @@ class _AddFaceScreenState extends State<AddFaceScreen> with SingleTickerProvider
     await _initCamera();
   }
 
+  Future<void> _handleCameraFailure(Object error) async {
+    if (!mounted) return;
+    final openSettings = await shouldOpenSettingsForCamera(error);
+    final permissionIssue = isCameraPermissionError(error) || openSettings || await isCameraPermissionBlocked();
+    final message = context.sRead.cameraPermissionRequired;
+    setState(() {
+      _hasError = true;
+      _cameraPermissionDenied = permissionIssue;
+      _errorText = permissionIssue ? message : error.toString();
+    });
+  }
+
   Future<void> _initCamera() async {
-    final granted = await ensureCameraPermission();
-    if (!granted) {
-      if (mounted) {
-        setState(() {
-          _hasError = true;
-          _errorText = 'Camera permission is required to register face';
-        });
-      }
-      return;
+    if (mounted) {
+      setState(() {
+        _cameraPermissionDenied = false;
+        _hasError = false;
+        _errorText = '';
+      });
     }
 
     try {
@@ -91,12 +110,21 @@ class _AddFaceScreenState extends State<AddFaceScreen> with SingleTickerProvider
       _selectedCameraIndex = frontIndex != -1 ? frontIndex : 0;
       await _startCamera(_selectedCameraIndex);
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _hasError = true;
-          _errorText = e.toString();
-        });
-      }
+      await _handleCameraFailure(e);
+    }
+  }
+
+  Future<void> _retryCameraPermission() async {
+    if (!mounted) return;
+    setState(() {
+      _hasError = false;
+      _errorText = '';
+      _cameraPermissionDenied = false;
+    });
+    await _initCamera();
+    if (!mounted) return;
+    if (_cameraPermissionDenied) {
+      await openCameraPermissionSettings();
     }
   }
 
@@ -135,12 +163,7 @@ class _AddFaceScreenState extends State<AddFaceScreen> with SingleTickerProvider
       });
       await _startFaceStream();
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _hasError = true;
-          _errorText = e.toString();
-        });
-      }
+      await _handleCameraFailure(e);
     }
   }
 
@@ -181,6 +204,7 @@ class _AddFaceScreenState extends State<AddFaceScreen> with SingleTickerProvider
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _scanAnimController.dispose();
     final c = _cameraController;
     _cameraController = null;
@@ -470,24 +494,38 @@ class _AddFaceScreenState extends State<AddFaceScreen> with SingleTickerProvider
                   ),
                 ),
                 const SizedBox(height: 32),
-                ElevatedButton(
-                  onPressed: (_saving || !_isInit || !_modelReady) ? null : _onSaveFace,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    backgroundColor: const Color(0xFFD32940),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                if (_cameraPermissionDenied)
+                  ElevatedButton(
+                    onPressed: _retryCameraPermission,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      backgroundColor: const Color(0xFF0077D4),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: Text(
+                      'Allow Camera Access',
+                      style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
+                    ),
+                  )
+                else
+                  ElevatedButton(
+                    onPressed: (_saving || !_isInit || !_modelReady) ? null : _onSaveFace,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      backgroundColor: const Color(0xFFD32940),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: _saving
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                          )
+                        : Text(
+                            s.saveFaceLabel,
+                            style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
+                          ),
                   ),
-                  child: _saving
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                        )
-                      : Text(
-                          s.saveFaceLabel,
-                          style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
-                        ),
-                ),
               ],
             ),
           ),

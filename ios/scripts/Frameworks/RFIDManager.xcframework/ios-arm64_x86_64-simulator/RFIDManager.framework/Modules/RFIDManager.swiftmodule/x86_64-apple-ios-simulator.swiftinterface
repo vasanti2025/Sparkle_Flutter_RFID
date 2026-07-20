@@ -1,0 +1,1047 @@
+// swift-interface-format-version: 1.0
+// swift-compiler-version: Apple Swift version 6.2.4 effective-5.10 (swiftlang-6.2.4.1.4 clang-1700.6.4.2)
+// swift-module-flags: -target x86_64-apple-ios13.0-simulator -enable-objc-interop -enable-library-evolution -swift-version 5 -enforce-exclusivity=checked -O -enable-experimental-feature DebugDescriptionMacro -enable-bare-slash-regex -module-name RFIDManager
+// swift-module-flags-ignorable:  -formal-cxx-interoperability-mode=off -interface-compiler-version 6.2.4
+import Combine
+import CoreBluetooth
+import CoreLocation
+import Foundation
+import Swift
+import _Concurrency
+import _StringProcessing
+import _SwiftConcurrencyShims
+@objc @objcMembers public class BluetoothParameter : ObjectiveC.NSObject {
+  @objc public var bluetoothName: Swift.String
+  @objc public var baudRate: Swift.Int
+  @objc public var pinKey: Swift.String
+  @objc public var keyboardLayout: Swift.Int
+  @objc public var bluetoothMac: Swift.String
+  @objc public var hidKeyInterval: Swift.Int
+  @objc public var bindAttribute: Swift.Bool
+  @objc public var connectionReadyTime: Swift.Int
+  @objc public var minConnectionTime: Swift.Int
+  @objc public var maxConnectionTime: Swift.Int
+  @objc public var minSendTime: Swift.Int
+  @objc public var keyboardService: Swift.Bool
+  @objc public var serialService: Swift.Bool
+  @objc public var bluetoothInfo: RFIDManager.BluetoothParameter.BluetoothInfo
+  @objc public init(bluetoothName: Swift.String = "", baudRate: Swift.Int = 115_200, pinKey: Swift.String = "", keyboardLayout: Swift.Int = 0, bluetoothMac: Swift.String = "", hidKeyInterval: Swift.Int = -1, bindAttribute: Swift.Bool = true, connectionReadyTime: Swift.Int = -1, minConnectionTime: Swift.Int = -1, maxConnectionTime: Swift.Int = -1, minSendTime: Swift.Int = -1, keyboardService: Swift.Bool = true, serialService: Swift.Bool = true, bluetoothInfo: RFIDManager.BluetoothParameter.BluetoothInfo = BluetoothInfo())
+  @objc override dynamic public var description: Swift.String {
+    @objc get
+  }
+  @objc @objcMembers public class BluetoothInfo : ObjectiveC.NSObject {
+    @objc public var hardwareVersion: Swift.String
+    @objc public var firmwareVersion: Swift.String
+    @objc public var softwareVersion: Swift.String
+    @objc public var manufacturerName: Swift.String
+    @objc public init(hardwareVersion: Swift.String = "", firmwareVersion: Swift.String = "", softwareVersion: Swift.String = "", manufacturerName: Swift.String = "")
+    @objc deinit
+  }
+  @objc deinit
+}
+@objc public enum RFIDBank : Swift.Int, Swift.CaseIterable {
+  case RESERVED = 0
+  case EPC = 1
+  case TID = 2
+  case USER = 3
+  public var description: Swift.String {
+    get
+  }
+  #if compiler(>=5.3) && $NonescapableTypes
+  public init?(rawValue: Swift.Int)
+  #endif
+  public typealias AllCases = [RFIDManager.RFIDBank]
+  public typealias RawValue = Swift.Int
+  nonisolated public static var allCases: [RFIDManager.RFIDBank] {
+    get
+  }
+  public var rawValue: Swift.Int {
+    get
+  }
+}
+@objc @_hasMissingDesignatedInitializers @objcMembers public class RFIDBarcodeInfo : ObjectiveC.NSObject {
+  @objc final public let result: Swift.Bool
+  @objc final public let barcode: Swift.String
+  @objc final public let barcodeData: Foundation.Data
+  final public let codeId: RFIDManager.RFIDBarcodeTypeInCodeID
+  @objc final public let ssiId: Swift.Int
+  @objc override dynamic public var description: Swift.String {
+    @objc get
+  }
+  @objc deinit
+}
+public enum RFIDBarcodeTypeInCodeID : Swift.String, Swift.CaseIterable {
+  case None
+  case A
+  case B
+  case C
+  case D
+  case E
+  case F
+  case G
+  case H
+  case J
+  case K
+  case L
+  case M
+  case N
+  case R
+  case S
+  case T
+  case U
+  case V
+  case X
+  case z
+  case P00
+  case P01
+  case P02
+  case P03
+  case P04
+  case P05
+  case P06
+  case P08
+  case P09
+  case P0A
+  case P0B
+  case P0H
+  case P0X
+  #if compiler(>=5.3) && $NonescapableTypes
+  public init?(rawValue: Swift.String)
+  #endif
+  public typealias AllCases = [RFIDManager.RFIDBarcodeTypeInCodeID]
+  public typealias RawValue = Swift.String
+  nonisolated public static var allCases: [RFIDManager.RFIDBarcodeTypeInCodeID] {
+    get
+  }
+  public var rawValue: Swift.String {
+    get
+  }
+}
+@_hasMissingDesignatedInitializers @objcMembers public class RFIDBarcodeTypeInSSIID {
+  @objc public static func getBarcodeType(_ ssiId: Swift.Int) -> Swift.String
+  @objc deinit
+}
+@objc @_hasMissingDesignatedInitializers @objcMembers public class RFIDBleVersion : ObjectiveC.NSObject {
+  @objc final public let hardware: Swift.String
+  @objc final public let firmware: Swift.String
+  @objc final public let software: Swift.String
+  @objc override dynamic public var description: Swift.String {
+    @objc get
+  }
+  @objc deinit
+}
+@objc public enum RFIDConnectionType : Swift.Int, Swift.CaseIterable {
+  case Bluetooth = 0
+  case USB = 1
+  #if compiler(>=5.3) && $NonescapableTypes
+  public init?(rawValue: Swift.Int)
+  #endif
+  public typealias AllCases = [RFIDManager.RFIDConnectionType]
+  public typealias RawValue = Swift.Int
+  nonisolated public static var allCases: [RFIDManager.RFIDConnectionType] {
+    get
+  }
+  public var rawValue: Swift.Int {
+    get
+  }
+}
+@objc public enum RFIDConnectState : Swift.Int, Swift.CaseIterable {
+  case disconnected = 0
+  case connecting = 1
+  case connected = 2
+  case disconnecting = 3
+  #if compiler(>=5.3) && $NonescapableTypes
+  public init?(rawValue: Swift.Int)
+  #endif
+  public typealias AllCases = [RFIDManager.RFIDConnectState]
+  public typealias RawValue = Swift.Int
+  nonisolated public static var allCases: [RFIDManager.RFIDConnectState] {
+    get
+  }
+  public var rawValue: Swift.Int {
+    get
+  }
+}
+@objc @_inheritsConvenienceInitializers @objcMembers public class RFIDFilter : ObjectiveC.NSObject {
+  @objc public var enable: Swift.Bool
+  @objc public var bank: Swift.Int
+  @objc public var offset: Swift.Int
+  @objc public var length: Swift.Int
+  @objc public var data: Swift.String
+  @objc public init(_ enable: Swift.Bool)
+  @objc public init(enable: Swift.Bool, bank: Swift.Int, offset: Swift.Int, length: Swift.Int, data: Swift.String)
+  @objc override dynamic public init()
+  @objc override dynamic public var description: Swift.String {
+    @objc get
+  }
+  @objc deinit
+}
+@objc public enum RFIDFrequency : Swift.Int, Swift.CaseIterable, Swift.Identifiable {
+  public var id: Swift.Int {
+    get
+  }
+  case China1 = 0x01
+  case China2 = 0x02
+  case Europe = 0x04
+  case USA = 0x08
+  case Korea = 0x16
+  case Japan = 0x32
+  case SouthAfrica = 0x33
+  case Taiwan = 0x34
+  case Vietnam = 0x35
+  case Peru = 0x36
+  case Russia = 0x37
+  case Malaysia = 0x3B
+  case Brazil = 0x3C
+  case ETSI_UPPER = 0x3D
+  case Australia = 0x3E
+  case Indonesia = 0x3F
+  case Israel = 0x40
+  case HongKong = 0x41
+  case NewZealand = 0x42
+  public var description: Swift.String {
+    get
+  }
+  #if compiler(>=5.3) && $NonescapableTypes
+  public init?(rawValue: Swift.Int)
+  #endif
+  public typealias AllCases = [RFIDManager.RFIDFrequency]
+  public typealias ID = Swift.Int
+  public typealias RawValue = Swift.Int
+  nonisolated public static var allCases: [RFIDManager.RFIDFrequency] {
+    get
+  }
+  public var rawValue: Swift.Int {
+    get
+  }
+}
+@objc @_hasMissingDesignatedInitializers @objcMembers public class RFIDGen2 : ObjectiveC.NSObject {
+  @objc public var selectTarget: Swift.Int
+  @objc public var selectAction: Swift.Int
+  @objc public var selectTruncate: Swift.Int
+  @objc public var q: Swift.Int
+  @objc public var startQ: Swift.Int
+  @objc public var minQ: Swift.Int
+  @objc public var maxQ: Swift.Int
+  @objc public var queryDR: Swift.Int
+  @objc public var queryM: Swift.Int
+  @objc public var queryTRext: Swift.Int
+  @objc public var querySel: Swift.Int
+  @objc public var querySession: Swift.Int
+  @objc public var queryTarget: Swift.Int
+  @objc public var linkFrequency: Swift.Int
+  @objc override dynamic public var description: Swift.String {
+    @objc get
+  }
+  @objc public enum SelectTarget : Swift.Int, Swift.CaseIterable, Swift.Identifiable {
+    public var id: Swift.Int {
+      get
+    }
+    case S0 = 0x00
+    case S1 = 0x01
+    case S2 = 0x02
+    case S3 = 0x03
+    case SL = 0x04
+    public var description: Swift.String {
+      get
+    }
+    #if compiler(>=5.3) && $NonescapableTypes
+    public init?(rawValue: Swift.Int)
+    #endif
+    public typealias AllCases = [RFIDManager.RFIDGen2.SelectTarget]
+    public typealias ID = Swift.Int
+    public typealias RawValue = Swift.Int
+    nonisolated public static var allCases: [RFIDManager.RFIDGen2.SelectTarget] {
+      get
+    }
+    public var rawValue: Swift.Int {
+      get
+    }
+  }
+  @objc public enum SelectTruncate : Swift.Int, Swift.CaseIterable, Swift.Identifiable {
+    public var id: Swift.Int {
+      get
+    }
+    case Disable = 0
+    case Enable = 1
+    public var description: Swift.String {
+      get
+    }
+    #if compiler(>=5.3) && $NonescapableTypes
+    public init?(rawValue: Swift.Int)
+    #endif
+    public typealias AllCases = [RFIDManager.RFIDGen2.SelectTruncate]
+    public typealias ID = Swift.Int
+    public typealias RawValue = Swift.Int
+    nonisolated public static var allCases: [RFIDManager.RFIDGen2.SelectTruncate] {
+      get
+    }
+    public var rawValue: Swift.Int {
+      get
+    }
+  }
+  @objc public enum Q : Swift.Int, Swift.CaseIterable, Swift.Identifiable {
+    public var id: Swift.Int {
+      get
+    }
+    case Static = 0
+    case Dynamic = 1
+    public var description: Swift.String {
+      get
+    }
+    #if compiler(>=5.3) && $NonescapableTypes
+    public init?(rawValue: Swift.Int)
+    #endif
+    public typealias AllCases = [RFIDManager.RFIDGen2.Q]
+    public typealias ID = Swift.Int
+    public typealias RawValue = Swift.Int
+    nonisolated public static var allCases: [RFIDManager.RFIDGen2.Q] {
+      get
+    }
+    public var rawValue: Swift.Int {
+      get
+    }
+  }
+  @objc public enum QueryDR : Swift.Int, Swift.CaseIterable, Swift.Identifiable {
+    public var id: Swift.Int {
+      get
+    }
+    case DR_8 = 0
+    case DR_64_3 = 1
+    public var description: Swift.String {
+      get
+    }
+    #if compiler(>=5.3) && $NonescapableTypes
+    public init?(rawValue: Swift.Int)
+    #endif
+    public typealias AllCases = [RFIDManager.RFIDGen2.QueryDR]
+    public typealias ID = Swift.Int
+    public typealias RawValue = Swift.Int
+    nonisolated public static var allCases: [RFIDManager.RFIDGen2.QueryDR] {
+      get
+    }
+    public var rawValue: Swift.Int {
+      get
+    }
+  }
+  @objc public enum QueryM : Swift.Int, Swift.CaseIterable, Swift.Identifiable {
+    public var id: Swift.Int {
+      get
+    }
+    case FM0 = 0
+    case Miller2 = 1
+    case Miller4 = 2
+    case Miller8 = 3
+    public var description: Swift.String {
+      get
+    }
+    #if compiler(>=5.3) && $NonescapableTypes
+    public init?(rawValue: Swift.Int)
+    #endif
+    public typealias AllCases = [RFIDManager.RFIDGen2.QueryM]
+    public typealias ID = Swift.Int
+    public typealias RawValue = Swift.Int
+    nonisolated public static var allCases: [RFIDManager.RFIDGen2.QueryM] {
+      get
+    }
+    public var rawValue: Swift.Int {
+      get
+    }
+  }
+  @objc public enum QueryTRext : Swift.Int, Swift.CaseIterable, Swift.Identifiable {
+    public var id: Swift.Int {
+      get
+    }
+    case NoPilot = 0
+    case UsePilot = 1
+    public var description: Swift.String {
+      get
+    }
+    #if compiler(>=5.3) && $NonescapableTypes
+    public init?(rawValue: Swift.Int)
+    #endif
+    public typealias AllCases = [RFIDManager.RFIDGen2.QueryTRext]
+    public typealias ID = Swift.Int
+    public typealias RawValue = Swift.Int
+    nonisolated public static var allCases: [RFIDManager.RFIDGen2.QueryTRext] {
+      get
+    }
+    public var rawValue: Swift.Int {
+      get
+    }
+  }
+  @objc public enum QuerySel : Swift.Int, Swift.CaseIterable, Swift.Identifiable {
+    public var id: Swift.Int {
+      get
+    }
+    case All = 0
+    case All2 = 1
+    case NotSL = 2
+    case SL = 3
+    public var description: Swift.String {
+      get
+    }
+    #if compiler(>=5.3) && $NonescapableTypes
+    public init?(rawValue: Swift.Int)
+    #endif
+    public typealias AllCases = [RFIDManager.RFIDGen2.QuerySel]
+    public typealias ID = Swift.Int
+    public typealias RawValue = Swift.Int
+    nonisolated public static var allCases: [RFIDManager.RFIDGen2.QuerySel] {
+      get
+    }
+    public var rawValue: Swift.Int {
+      get
+    }
+  }
+  @objc public enum QuerySession : Swift.Int, Swift.CaseIterable, Swift.Identifiable {
+    public var id: Swift.Int {
+      get
+    }
+    case S0 = 0
+    case S1 = 1
+    case S2 = 2
+    case S3 = 3
+    public var description: Swift.String {
+      get
+    }
+    #if compiler(>=5.3) && $NonescapableTypes
+    public init?(rawValue: Swift.Int)
+    #endif
+    public typealias AllCases = [RFIDManager.RFIDGen2.QuerySession]
+    public typealias ID = Swift.Int
+    public typealias RawValue = Swift.Int
+    nonisolated public static var allCases: [RFIDManager.RFIDGen2.QuerySession] {
+      get
+    }
+    public var rawValue: Swift.Int {
+      get
+    }
+  }
+  @objc public enum QueryTarget : Swift.Int, Swift.CaseIterable, Swift.Identifiable {
+    public var id: Swift.Int {
+      get
+    }
+    case A = 0
+    case B = 1
+    public var description: Swift.String {
+      get
+    }
+    #if compiler(>=5.3) && $NonescapableTypes
+    public init?(rawValue: Swift.Int)
+    #endif
+    public typealias AllCases = [RFIDManager.RFIDGen2.QueryTarget]
+    public typealias ID = Swift.Int
+    public typealias RawValue = Swift.Int
+    nonisolated public static var allCases: [RFIDManager.RFIDGen2.QueryTarget] {
+      get
+    }
+    public var rawValue: Swift.Int {
+      get
+    }
+  }
+  @objc deinit
+}
+@objc @objcMembers public class RFIDInventoryParam : ObjectiveC.NSObject {
+  @objc public var unique: Swift.Bool
+  @objc public init(unique: Swift.Bool = false)
+  @objc override dynamic public var description: Swift.String {
+    @objc get
+  }
+  @objc deinit
+}
+@objc public class RFIDKeyEvent : ObjectiveC.NSObject {
+  final public let keyCode: Swift.Int
+  final public let action: Swift.Int
+  final public let timestamp: Foundation.TimeInterval
+  public init(keyCode: Swift.Int, action: Swift.Int)
+  public var isKeyDown: Swift.Bool {
+    get
+  }
+  public var isKeyUp: Swift.Bool {
+    get
+  }
+  @objc override dynamic public var description: Swift.String {
+    @objc get
+  }
+  @objc deinit
+}
+@objc @objcMembers public class RFIDLocateInfo : ObjectiveC.NSObject, Swift.Identifiable, Foundation.NSCopying {
+  @objc public var tag: RFIDManager.RFIDTagInfo
+  @objc public var value: Swift.Double
+  @objc public var angle: Swift.Double
+  @objc public var id: Swift.String {
+    @objc get
+  }
+  @objc public init(tag: RFIDManager.RFIDTagInfo, value: Swift.Double)
+  @objc public init(tag: RFIDManager.RFIDTagInfo, angle: Swift.Double, value: Swift.Double)
+  @objc override dynamic public var description: Swift.String {
+    @objc get
+  }
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc public func copy(with zone: ObjectiveC.NSZone? = nil) -> Any
+  #endif
+  public typealias ID = Swift.String
+  @objc deinit
+}
+@objc public enum RFIDLockMode : Swift.Int, Swift.CaseIterable {
+  case Open = 0x10
+  case Lock = 0x20
+  case PermanentOpen = 0x30
+  case PermanentLock = 0x40
+  #if compiler(>=5.3) && $NonescapableTypes
+  public init?(rawValue: Swift.Int)
+  #endif
+  public typealias AllCases = [RFIDManager.RFIDLockMode]
+  public typealias RawValue = Swift.Int
+  nonisolated public static var allCases: [RFIDManager.RFIDLockMode] {
+    get
+  }
+  public var rawValue: Swift.Int {
+    get
+  }
+}
+@objc public enum RFIDLockBank : Swift.Int, Swift.CaseIterable {
+  case Kill = 0x10
+  case Access = 0x20
+  case EPC = 0x30
+  case TID = 0x40
+  case USER = 0x50
+  #if compiler(>=5.3) && $NonescapableTypes
+  public init?(rawValue: Swift.Int)
+  #endif
+  public typealias AllCases = [RFIDManager.RFIDLockBank]
+  public typealias RawValue = Swift.Int
+  nonisolated public static var allCases: [RFIDManager.RFIDLockBank] {
+    get
+  }
+  public var rawValue: Swift.Int {
+    get
+  }
+}
+@objc @objcMembers public class RFIDMemoryBank : ObjectiveC.NSObject {
+  @objc public var inventoryBank: Swift.Int
+  @objc public var offset: Swift.Int
+  @objc public var length: Swift.Int
+  @objc public init(bank: Swift.Int)
+  @objc public init(bank: Swift.Int, offset: Swift.Int, length: Swift.Int)
+  @objc override dynamic public var description: Swift.String {
+    @objc get
+  }
+  @objc public enum InventoryBank : Swift.Int, Swift.CaseIterable, Swift.Identifiable {
+    public var id: Swift.Int {
+      get
+    }
+    case EPC = 0
+    case EPC_TID = 1
+    case EPC_TID_USER = 2
+    case EPC_RESERVED = 0x0A
+    public var description: Swift.String {
+      get
+    }
+    #if compiler(>=5.3) && $NonescapableTypes
+    public init?(rawValue: Swift.Int)
+    #endif
+    public typealias AllCases = [RFIDManager.RFIDMemoryBank.InventoryBank]
+    public typealias ID = Swift.Int
+    public typealias RawValue = Swift.Int
+    nonisolated public static var allCases: [RFIDManager.RFIDMemoryBank.InventoryBank] {
+      get
+    }
+    public var rawValue: Swift.Int {
+      get
+    }
+  }
+  @objc deinit
+}
+@objc public enum RFIDResultCode : Swift.Int, Swift.CaseIterable {
+  case pending = 1
+  case success = 0
+  case failure = -1
+  case disconnect = -2
+  case timeout = -3
+  case inventorying = -4
+  case barcodeScanning = -5
+  case parameterInvalid = -6
+  #if compiler(>=5.3) && $NonescapableTypes
+  public init?(rawValue: Swift.Int)
+  #endif
+  public typealias AllCases = [RFIDManager.RFIDResultCode]
+  public typealias RawValue = Swift.Int
+  nonisolated public static var allCases: [RFIDManager.RFIDResultCode] {
+    get
+  }
+  public var rawValue: Swift.Int {
+    get
+  }
+}
+@objc @objcMembers public class RFIDResult : ObjectiveC.NSObject {
+  @objc final public let code: RFIDManager.RFIDResultCode
+  @objc final public let data: ObjectiveC.NSObject?
+  @objc final public let message: Swift.String?
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc public init(_ code: RFIDManager.RFIDResultCode, data: ObjectiveC.NSObject?, message: Swift.String?)
+  #endif
+  @objc override dynamic public var description: Swift.String {
+    @objc get
+  }
+  @objc deinit
+}
+@objc public enum RFIDRFLink : Swift.Int, Swift.CaseIterable, Swift.Identifiable {
+  public var id: Swift.Int {
+    get
+  }
+  case PR_ASK_Miller8_160KHz = 0x00
+  case PR_ASK_Miller4_250KHz = 0x01
+  case PR_ASK_Miller4_320KHz = 0x02
+  case PR_ASK_Miller4_640KHz = 0x03
+  case PR_ASK_Miller2_320KHz = 0x04
+  case PR_ASK_Miller2_640KHz = 0x05
+  case Gen2X_Miller8_160KHz = 0x0A
+  case Gen2X_Miller4_250KHz = 0x0B
+  case Gen2X_Miller4_320KHz = 0x0C
+  case Gen2X_Miller4_640KHz = 0x0D
+  case Gen2X_Miller2_320KHz = 0x0E
+  case Gen2X_Miller2_640KHz = 0x0F
+  public var description: Swift.String {
+    get
+  }
+  #if compiler(>=5.3) && $NonescapableTypes
+  public init?(rawValue: Swift.Int)
+  #endif
+  public typealias AllCases = [RFIDManager.RFIDRFLink]
+  public typealias ID = Swift.Int
+  public typealias RawValue = Swift.Int
+  nonisolated public static var allCases: [RFIDManager.RFIDRFLink] {
+    get
+  }
+  public var rawValue: Swift.Int {
+    get
+  }
+}
+@objc public enum RFIDState : Swift.Int, Swift.CaseIterable {
+  case stop = 0
+  case inventory = 1
+  case radar = 2
+  case location = 3
+  #if compiler(>=5.3) && $NonescapableTypes
+  public init?(rawValue: Swift.Int)
+  #endif
+  public typealias AllCases = [RFIDManager.RFIDState]
+  public typealias RawValue = Swift.Int
+  nonisolated public static var allCases: [RFIDManager.RFIDState] {
+    get
+  }
+  public var rawValue: Swift.Int {
+    get
+  }
+}
+@objc @objcMembers public class RFIDTagInfo : ObjectiveC.NSObject, Swift.Identifiable, Swift.Comparable, Foundation.NSCopying {
+  @objc final public let reserved: Swift.String
+  @objc final public let epc: Swift.String
+  @objc final public let tid: Swift.String
+  @objc final public let user: Swift.String
+  @objc final public let pc: Swift.String
+  @objc public var rssi: Swift.Float
+  @objc public var count: Swift.Int
+  @objc public var antenna: Swift.Int
+  @objc final public let timestamp: Foundation.TimeInterval
+  @objc public var id: Swift.String {
+    @objc get
+  }
+  @objc public init(epc: Swift.String)
+  @objc public init(epc: Swift.String, tid: Swift.String)
+  @objc public init(reserved: Swift.String, epc: Swift.String, tid: Swift.String, user: Swift.String, pc: Swift.String, rssi: Swift.Float, antenna: Swift.Int)
+  @objc override dynamic public var description: Swift.String {
+    @objc get
+  }
+  @objc public var tagDescription: Swift.String {
+    @objc get
+  }
+  public static func == (lhs: RFIDManager.RFIDTagInfo, rhs: RFIDManager.RFIDTagInfo) -> Swift.Bool
+  public static func < (lhs: RFIDManager.RFIDTagInfo, rhs: RFIDManager.RFIDTagInfo) -> Swift.Bool
+  public static func > (lhs: RFIDManager.RFIDTagInfo, rhs: RFIDManager.RFIDTagInfo) -> Swift.Bool
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc public func copy(with zone: ObjectiveC.NSZone? = nil) -> Any
+  #endif
+  public typealias ID = Swift.String
+  @objc deinit
+}
+@objc public enum RFIDUpgradeType : Swift.Int, Swift.CaseIterable {
+  public var id: Swift.Int {
+    get
+  }
+  case Mainboard = 0
+  case UHF = 1
+  case Bluetooth = 2
+  public var description: Swift.String {
+    get
+  }
+  #if compiler(>=5.3) && $NonescapableTypes
+  public init?(rawValue: Swift.Int)
+  #endif
+  public typealias AllCases = [RFIDManager.RFIDUpgradeType]
+  public typealias RawValue = Swift.Int
+  nonisolated public static var allCases: [RFIDManager.RFIDUpgradeType] {
+    get
+  }
+  public var rawValue: Swift.Int {
+    get
+  }
+}
+@objc public protocol BarcodeProtocol {
+  @objc @available(*, deprecated, message: "Use startBarcode(barcodeBlock:(_ barcode: RFIDBarcodeInfo) -> Void) instead")
+  func startBarcode(continuous: Swift.Bool, unique: Swift.Bool, barcodeBlock: @escaping (_ barcode: RFIDManager.RFIDBarcodeInfo) -> Swift.Void) -> RFIDManager.RFIDResult
+  @objc func startBarcode(barcodeBlock: @escaping (_ barcode: RFIDManager.RFIDBarcodeInfo) -> Swift.Void) -> RFIDManager.RFIDResult
+  @objc func stopBarcode() -> RFIDManager.RFIDResult
+  @objc func setBarcodeType(_ barcodeType: Swift.Bool, saveFlag: Swift.Bool) -> RFIDManager.RFIDResult
+  @objc func getBarcodeType() -> RFIDManager.RFIDResult
+  @objc func setBarcodeParameter(key: Swift.String, value: Swift.String, saveFlag: Swift.Bool) -> RFIDManager.RFIDResult
+  @objc func getBarcodeParameter(_ key: Swift.String) -> RFIDManager.RFIDResult
+}
+@objc public protocol BleProtocol {
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc func scanForPeripherals(serviceUUIDS: [CoreBluetooth.CBUUID]?, options: [Swift.String : Any]?, blePeripheralsBlock: ((_ peripheral: CoreBluetooth.CBPeripheral, _ advertisementData: [Swift.String : Any], _ RSSI: Foundation.NSNumber) -> Swift.Void)?)
+  #endif
+  @objc func setBlePeripheralsBlock(_ blePeripheralsBlock: @escaping (_ peripheral: CoreBluetooth.CBPeripheral, _ advertisementData: [Swift.String : Any], _ RSSI: Foundation.NSNumber) -> Swift.Void)
+  @objc func stopForPeripherals()
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc func connectPeripheral(peripheral: CoreBluetooth.CBPeripheral, didConnectBlock: ((_ peripheral: CoreBluetooth.CBPeripheral) -> Swift.Void)?, didFailToConnectBlock: ((_ peripheral: CoreBluetooth.CBPeripheral, _ error: (any Swift.Error)?) -> Swift.Void)?)
+  #endif
+  @objc func setConnectStateUpdateBlock(_ bleStateUpdateBlock: @escaping (_ peripheral: CoreBluetooth.CBPeripheral, _ state: CoreBluetooth.CBPeripheralState) -> Swift.Void)
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc func disconnectPeripheral(_ peripheral: CoreBluetooth.CBPeripheral?)
+  #endif
+  @objc func retrieveConnectedPeripherals() -> [CoreBluetooth.CBPeripheral]
+  @objc func setBluetoothParameter(_ bluetoothParameter: RFIDManager.BluetoothParameter) -> RFIDManager.RFIDResult
+  @objc func getBluetoothParameter() -> RFIDManager.RFIDResult
+  @objc func removeBondedDevices() -> RFIDManager.RFIDResult
+  @objc func resetBluetooth() -> RFIDManager.RFIDResult
+}
+@objc public protocol MainBoardProtocol {
+  @objc func getSN() -> RFIDManager.RFIDResult
+  @objc func getBattery() -> RFIDManager.RFIDResult
+  @objc func getBluetoothVersion() -> RFIDManager.RFIDResult
+  @objc func getMainboardVersion() -> RFIDManager.RFIDResult
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc func setKeyEvent(keyDownBlock: ((_ keyCode: Swift.Int) -> Swift.Void)?, keyUpBlock: ((_ keyCode: Swift.Int) -> Swift.Void)?)
+  #endif
+  @objc func upgrade(type: Swift.Int, fileData: Foundation.Data, callback: @escaping (_ result: RFIDManager.RFIDResult) -> Swift.Void)
+  @objc func setRssi(_ rssi: Swift.Bool) -> RFIDManager.RFIDResult
+  @objc func getRssi() -> RFIDManager.RFIDResult
+  @objc func setBuzzer(_ buzzer: Swift.Bool) -> RFIDManager.RFIDResult
+  @objc func getBuzzer() -> RFIDManager.RFIDResult
+  @objc func triggerBeep(duration: Swift.Int)
+  @objc func setKeyMode(_ keyMode: Swift.Int) -> RFIDManager.RFIDResult
+  @objc func getKeyMode() -> RFIDManager.RFIDResult
+  @objc func resetMainboard() -> RFIDManager.RFIDResult
+  @objc func setMainBoardParameter(key: Foundation.Data, value: Foundation.Data) -> RFIDManager.RFIDResult
+  @objc func getMainBoardParameter(key: Foundation.Data) -> RFIDManager.RFIDResult
+}
+@objc public protocol RFIDInterface : RFIDManager.BarcodeProtocol, RFIDManager.MainBoardProtocol, RFIDManager.UHFProtocol {
+  @objc func initialize() -> RFIDManager.RFIDResult
+}
+@objc public protocol UHFProtocol {
+  @objc func getInventoryFlag() -> RFIDManager.RFIDState
+  @objc func setFilter(_ filter: RFIDManager.RFIDFilter) -> RFIDManager.RFIDResult
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc func singleInventory(filter: RFIDManager.RFIDFilter?) -> RFIDManager.RFIDResult
+  #endif
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc func setTagInfoListBlock(_ tagInfoListBlock: ((_ tagInfoList: [RFIDManager.RFIDTagInfo]) -> Swift.Void)?)
+  #endif
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc func startInventory(filter: RFIDManager.RFIDFilter?, inventoryParam: RFIDManager.RFIDInventoryParam?, tagInfoListBlock: ((_ tagInfoList: [RFIDManager.RFIDTagInfo]) -> Swift.Void)?) -> RFIDManager.RFIDResult
+  #endif
+  @objc func stopInventory() -> RFIDManager.RFIDResult
+  @objc func readData(filter: RFIDManager.RFIDFilter, bank: Swift.Int, offset: Swift.Int, length: Swift.Int, password: Swift.String) -> RFIDManager.RFIDResult
+  @objc func writeData(filter: RFIDManager.RFIDFilter, bank: Swift.Int, offset: Swift.Int, length: Swift.Int, password: Swift.String, data: Swift.String) -> RFIDManager.RFIDResult
+  @objc func lockMem(filter: RFIDManager.RFIDFilter, lockMode: Swift.Int, lockBank: [Swift.Int], password: Swift.String) -> RFIDManager.RFIDResult
+  @objc func killTag(filter: RFIDManager.RFIDFilter, password: Swift.String) -> RFIDManager.RFIDResult
+  @objc func setDynamicDistance(_ distance: Swift.Int)
+  @objc func startRadarLocation(filter: RFIDManager.RFIDFilter, radarInfoBlock: @escaping (_ radarInfo: [RFIDManager.RFIDLocateInfo]) -> Swift.Void, radarAngleBlock: @escaping (_ angle: Swift.Double) -> Swift.Void) -> RFIDManager.RFIDResult
+  @objc func stopRadarLocation() -> RFIDManager.RFIDResult
+  @objc func startLocation(filter: RFIDManager.RFIDFilter, locateInfoBlock: @escaping (_ locateInfo: RFIDManager.RFIDLocateInfo) -> Swift.Void) -> RFIDManager.RFIDResult
+  @objc func stopLocation() -> RFIDManager.RFIDResult
+  @objc func setFrequency(_ region: Swift.Int) -> RFIDManager.RFIDResult
+  @objc func getFrequency() -> RFIDManager.RFIDResult
+  @objc func setPower(_ power: Swift.Int) -> RFIDManager.RFIDResult
+  @objc func getPower() -> RFIDManager.RFIDResult
+  @objc func setAntennaStates(_ states: [Swift.Int : Swift.Bool]) -> RFIDManager.RFIDResult
+  @objc func getAntennaStates() -> RFIDManager.RFIDResult
+  @objc func setRFLink(_ rfLink: Swift.Int) -> RFIDManager.RFIDResult
+  @objc func getRFLink() -> RFIDManager.RFIDResult
+  @objc func setGen2(_ gen2: RFIDManager.RFIDGen2) -> RFIDManager.RFIDResult
+  @objc func getGen2() -> RFIDManager.RFIDResult
+  @objc func setMemoryBank(_ memoryBank: RFIDManager.RFIDMemoryBank) -> RFIDManager.RFIDResult
+  @objc func getMemoryBank() -> RFIDManager.RFIDResult
+  @objc func setFastID(_ fastID: Swift.Bool) -> RFIDManager.RFIDResult
+  @objc func getFastID() -> RFIDManager.RFIDResult
+  @objc func setTagFocus(_ tagFocus: Swift.Bool) -> RFIDManager.RFIDResult
+  @objc func getTagFocus() -> RFIDManager.RFIDResult
+  @objc func getUHFHardwareVersion() -> RFIDManager.RFIDResult
+  @objc func getUHFFirmwareVersion() -> RFIDManager.RFIDResult
+  @objc func getUHFTemperature() -> RFIDManager.RFIDResult
+  @objc func resetUHF() -> RFIDManager.RFIDResult
+}
+@objc @_inheritsConvenienceInitializers @_hasMissingDesignatedInitializers @objcMembers public class LogUtil : ObjectiveC.NSObject {
+  @objc public static let shared: RFIDManager.LogUtil
+  @objc public var showLog: Swift.Bool
+  @objc public var saveLog: Swift.Bool
+  @objc public func clearAllLogs()
+  @objc public func getLogFiles() -> [Foundation.URL]
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc public func readLogFileContent(_ logFilePath: Foundation.URL) -> Swift.String?
+  #endif
+  @objc deinit
+}
+@objc @_inheritsConvenienceInitializers @_hasMissingDesignatedInitializers @objcMembers public class RFIDBleManager : ObjectiveC.NSObject, RFIDManager.RFIDInterface {
+  @objc public static let shared: RFIDManager.RFIDBleManager
+  final public let keyEventPublisher: Combine.PassthroughSubject<RFIDManager.RFIDKeyEvent, Swift.Never>
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc public var peripheral: CoreBluetooth.CBPeripheral? {
+    @objc get
+  }
+  #endif
+  @objc public func initialize() -> RFIDManager.RFIDResult
+  @objc deinit
+}
+extension RFIDManager.RFIDBleManager : RFIDManager.BleProtocol {
+  @objc dynamic public func retrieveConnectedPeripherals() -> [CoreBluetooth.CBPeripheral]
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc dynamic public func scanForPeripherals(serviceUUIDS: [CoreBluetooth.CBUUID]? = nil, options: [Swift.String : Any]? = nil, blePeripheralsBlock: ((_ peripheral: CoreBluetooth.CBPeripheral, _ advertisementData: [Swift.String : Any], _ RSSI: Foundation.NSNumber) -> Swift.Void)? = nil)
+  #endif
+  @objc dynamic public func setBlePeripheralsBlock(_ blePeripheralsBlock: @escaping (_ peripheral: CoreBluetooth.CBPeripheral, _ advertisementData: [Swift.String : Any], _ RSSI: Foundation.NSNumber) -> Swift.Void)
+  @objc dynamic public func stopForPeripherals()
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc dynamic public func connectPeripheral(peripheral: CoreBluetooth.CBPeripheral, didConnectBlock: ((_ peripheral: CoreBluetooth.CBPeripheral) -> Swift.Void)? = nil, didFailToConnectBlock: ((_ peripheral: CoreBluetooth.CBPeripheral, _ error: (any Swift.Error)?) -> Swift.Void)? = nil)
+  #endif
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc dynamic public func disconnectPeripheral(_ peripheral: CoreBluetooth.CBPeripheral? = nil)
+  #endif
+  @objc dynamic public func setConnectStateUpdateBlock(_ bleStateUpdateBlock: @escaping (_ peripheral: CoreBluetooth.CBPeripheral, _ state: CoreBluetooth.CBPeripheralState) -> Swift.Void)
+  @objc dynamic public func setBluetoothParameter(_ bluetoothParameter: RFIDManager.BluetoothParameter) -> RFIDManager.RFIDResult
+  @objc dynamic public func getBluetoothParameter() -> RFIDManager.RFIDResult
+  @objc dynamic public func removeBondedDevices() -> RFIDManager.RFIDResult
+  @objc dynamic public func resetBluetooth() -> RFIDManager.RFIDResult
+}
+extension RFIDManager.RFIDBleManager : RFIDManager.UHFProtocol {
+  @objc dynamic public func getInventoryFlag() -> RFIDManager.RFIDState
+  @objc dynamic public func setFilter(_ filter: RFIDManager.RFIDFilter) -> RFIDManager.RFIDResult
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc dynamic public func singleInventory(filter: RFIDManager.RFIDFilter?) -> RFIDManager.RFIDResult
+  #endif
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc dynamic public func setTagInfoListBlock(_ tagInfoListBlock: ((_ tagInfoList: [RFIDManager.RFIDTagInfo]) -> Swift.Void)?)
+  #endif
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc dynamic public func startInventory(filter: RFIDManager.RFIDFilter?, inventoryParam: RFIDManager.RFIDInventoryParam? = nil, tagInfoListBlock: ((_ tagInfoList: [RFIDManager.RFIDTagInfo]) -> Swift.Void)? = nil) -> RFIDManager.RFIDResult
+  #endif
+  @objc dynamic public func stopInventory() -> RFIDManager.RFIDResult
+  @objc dynamic public func readData(filter: RFIDManager.RFIDFilter = RFIDFilter(false), bank: Swift.Int, offset: Swift.Int, length: Swift.Int, password: Swift.String) -> RFIDManager.RFIDResult
+  @objc dynamic public func writeData(filter: RFIDManager.RFIDFilter = RFIDFilter(false), bank: Swift.Int, offset: Swift.Int, length: Swift.Int, password: Swift.String, data: Swift.String) -> RFIDManager.RFIDResult
+  @objc dynamic public func lockMem(filter: RFIDManager.RFIDFilter = RFIDFilter(false), lockMode: Swift.Int, lockBank: [Swift.Int], password: Swift.String) -> RFIDManager.RFIDResult
+  @objc dynamic public func killTag(filter: RFIDManager.RFIDFilter = RFIDFilter(false), password: Swift.String) -> RFIDManager.RFIDResult
+  @objc dynamic public func setFrequency(_ region: Swift.Int) -> RFIDManager.RFIDResult
+  @objc dynamic public func getFrequency() -> RFIDManager.RFIDResult
+  @objc dynamic public func setPower(_ power: Swift.Int) -> RFIDManager.RFIDResult
+  @objc dynamic public func getPower() -> RFIDManager.RFIDResult
+  @objc dynamic public func setAntennaStates(_ states: [Swift.Int : Swift.Bool]) -> RFIDManager.RFIDResult
+  @objc dynamic public func getAntennaStates() -> RFIDManager.RFIDResult
+  @objc dynamic public func setRFLink(_ rfLink: Swift.Int) -> RFIDManager.RFIDResult
+  @objc dynamic public func getRFLink() -> RFIDManager.RFIDResult
+  @objc dynamic public func setGen2(_ gen2: RFIDManager.RFIDGen2) -> RFIDManager.RFIDResult
+  @objc dynamic public func getGen2() -> RFIDManager.RFIDResult
+  @objc dynamic public func setMemoryBank(_ memoryBank: RFIDManager.RFIDMemoryBank) -> RFIDManager.RFIDResult
+  @objc dynamic public func getMemoryBank() -> RFIDManager.RFIDResult
+  @objc dynamic public func setFastID(_ fastID: Swift.Bool) -> RFIDManager.RFIDResult
+  @objc dynamic public func getFastID() -> RFIDManager.RFIDResult
+  @objc dynamic public func setTagFocus(_ tagFocus: Swift.Bool) -> RFIDManager.RFIDResult
+  @objc dynamic public func getTagFocus() -> RFIDManager.RFIDResult
+  @objc dynamic public func startRadarLocation(filter: RFIDManager.RFIDFilter, radarInfoBlock: @escaping (_ radarInfo: [RFIDManager.RFIDLocateInfo]) -> Swift.Void, radarAngleBlock: @escaping (_ angle: Swift.Double) -> Swift.Void) -> RFIDManager.RFIDResult
+  @objc dynamic public func stopRadarLocation() -> RFIDManager.RFIDResult
+  @objc dynamic public func setDynamicDistance(_ distance: Swift.Int)
+  @objc dynamic public func startLocation(filter: RFIDManager.RFIDFilter, locateInfoBlock: @escaping (_ locateInfo: RFIDManager.RFIDLocateInfo) -> Swift.Void) -> RFIDManager.RFIDResult
+  @objc dynamic public func stopLocation() -> RFIDManager.RFIDResult
+  @objc dynamic public func getUHFHardwareVersion() -> RFIDManager.RFIDResult
+  @objc dynamic public func getUHFFirmwareVersion() -> RFIDManager.RFIDResult
+  @objc dynamic public func getUHFTemperature() -> RFIDManager.RFIDResult
+  @objc dynamic public func resetUHF() -> RFIDManager.RFIDResult
+}
+extension RFIDManager.RFIDBleManager : RFIDManager.BarcodeProtocol {
+  @available(*, deprecated, message: "Use startBarcode(barcodeBlock:(_ barcode: RFIDBarcodeInfo) -> Void) instead")
+  @objc dynamic public func startBarcode(continuous: Swift.Bool, unique: Swift.Bool, barcodeBlock: @escaping (_ barcode: RFIDManager.RFIDBarcodeInfo) -> Swift.Void) -> RFIDManager.RFIDResult
+  @objc dynamic public func startBarcode(barcodeBlock: @escaping (_ barcode: RFIDManager.RFIDBarcodeInfo) -> Swift.Void) -> RFIDManager.RFIDResult
+  @objc dynamic public func stopBarcode() -> RFIDManager.RFIDResult
+  @objc dynamic public func setBarcodeType(_ barcodeType: Swift.Bool, saveFlag: Swift.Bool = false) -> RFIDManager.RFIDResult
+  @objc dynamic public func getBarcodeType() -> RFIDManager.RFIDResult
+  @objc dynamic public func setBarcodeParameter(key: Swift.String, value: Swift.String, saveFlag: Swift.Bool = false) -> RFIDManager.RFIDResult
+  @objc dynamic public func getBarcodeParameter(_ key: Swift.String) -> RFIDManager.RFIDResult
+}
+extension RFIDManager.RFIDBleManager : RFIDManager.MainBoardProtocol {
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc dynamic public func setKeyEvent(keyDownBlock: ((_ keyCode: Swift.Int) -> Swift.Void)?, keyUpBlock: ((_ keyCode: Swift.Int) -> Swift.Void)?)
+  #endif
+  @objc dynamic public func setRssi(_ rssi: Swift.Bool) -> RFIDManager.RFIDResult
+  @objc dynamic public func getRssi() -> RFIDManager.RFIDResult
+  @objc dynamic public func setBuzzer(_ buzzer: Swift.Bool) -> RFIDManager.RFIDResult
+  @objc dynamic public func getBuzzer() -> RFIDManager.RFIDResult
+  @objc dynamic public func triggerBeep(duration: Swift.Int = 40)
+  @objc dynamic public func getBluetoothVersion() -> RFIDManager.RFIDResult
+  @objc dynamic public func getMainboardVersion() -> RFIDManager.RFIDResult
+  @objc dynamic public func getBattery() -> RFIDManager.RFIDResult
+  @objc dynamic public func resetMainboard() -> RFIDManager.RFIDResult
+  @objc dynamic public func setMainBoardParameter(key: Foundation.Data, value: Foundation.Data) -> RFIDManager.RFIDResult
+  @objc dynamic public func getMainBoardParameter(key: Foundation.Data) -> RFIDManager.RFIDResult
+  @objc dynamic public func setKeyMode(_ keyMode: Swift.Int) -> RFIDManager.RFIDResult
+  @objc dynamic public func getKeyMode() -> RFIDManager.RFIDResult
+  @objc dynamic public func getSN() -> RFIDManager.RFIDResult
+  @objc dynamic public func upgrade(type: Swift.Int, fileData: Foundation.Data, callback: @escaping (_ result: RFIDManager.RFIDResult) -> Swift.Void)
+}
+@objc @_inheritsConvenienceInitializers @_hasMissingDesignatedInitializers @objcMembers public class RFIDUsbManager : ObjectiveC.NSObject, RFIDManager.RFIDInterface {
+  @objc public static let shared: RFIDManager.RFIDUsbManager
+  final public let keyEventPublisher: Combine.PassthroughSubject<RFIDManager.RFIDKeyEvent, Swift.Never>
+  @objc public func initialize() -> RFIDManager.RFIDResult
+  @objc public func connect() -> RFIDManager.RFIDResult
+  @objc public func disconnect() -> RFIDManager.RFIDResult
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc public func setConnectStateUpdateBlock(_ updateBlock: ((_ state: RFIDManager.RFIDConnectState) -> Swift.Void)?)
+  #endif
+  @objc deinit
+}
+extension RFIDManager.RFIDUsbManager : RFIDManager.UHFProtocol {
+  @objc dynamic public func getInventoryFlag() -> RFIDManager.RFIDState
+  @objc dynamic public func setFilter(_ filter: RFIDManager.RFIDFilter) -> RFIDManager.RFIDResult
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc dynamic public func singleInventory(filter: RFIDManager.RFIDFilter?) -> RFIDManager.RFIDResult
+  #endif
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc dynamic public func setTagInfoListBlock(_ tagInfoListBlock: ((_ tagInfoList: [RFIDManager.RFIDTagInfo]) -> Swift.Void)?)
+  #endif
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc dynamic public func startInventory(filter: RFIDManager.RFIDFilter?, inventoryParam: RFIDManager.RFIDInventoryParam? = nil, tagInfoListBlock: ((_ tagInfoList: [RFIDManager.RFIDTagInfo]) -> Swift.Void)? = nil) -> RFIDManager.RFIDResult
+  #endif
+  @objc dynamic public func stopInventory() -> RFIDManager.RFIDResult
+  @objc dynamic public func readData(filter: RFIDManager.RFIDFilter = RFIDFilter(false), bank: Swift.Int, offset: Swift.Int, length: Swift.Int, password: Swift.String) -> RFIDManager.RFIDResult
+  @objc dynamic public func writeData(filter: RFIDManager.RFIDFilter = RFIDFilter(false), bank: Swift.Int, offset: Swift.Int, length: Swift.Int, password: Swift.String, data: Swift.String) -> RFIDManager.RFIDResult
+  @objc dynamic public func lockMem(filter: RFIDManager.RFIDFilter = RFIDFilter(false), lockMode: Swift.Int, lockBank: [Swift.Int], password: Swift.String) -> RFIDManager.RFIDResult
+  @objc dynamic public func killTag(filter: RFIDManager.RFIDFilter = RFIDFilter(false), password: Swift.String) -> RFIDManager.RFIDResult
+  @objc dynamic public func setFrequency(_ region: Swift.Int) -> RFIDManager.RFIDResult
+  @objc dynamic public func getFrequency() -> RFIDManager.RFIDResult
+  @objc dynamic public func setPower(_ power: Swift.Int) -> RFIDManager.RFIDResult
+  @objc dynamic public func getPower() -> RFIDManager.RFIDResult
+  @objc dynamic public func setAntennaStates(_ states: [Swift.Int : Swift.Bool]) -> RFIDManager.RFIDResult
+  @objc dynamic public func getAntennaStates() -> RFIDManager.RFIDResult
+  @objc dynamic public func setRFLink(_ rfLink: Swift.Int) -> RFIDManager.RFIDResult
+  @objc dynamic public func getRFLink() -> RFIDManager.RFIDResult
+  @objc dynamic public func setGen2(_ gen2: RFIDManager.RFIDGen2) -> RFIDManager.RFIDResult
+  @objc dynamic public func getGen2() -> RFIDManager.RFIDResult
+  @objc dynamic public func setMemoryBank(_ memoryBank: RFIDManager.RFIDMemoryBank) -> RFIDManager.RFIDResult
+  @objc dynamic public func getMemoryBank() -> RFIDManager.RFIDResult
+  @objc dynamic public func setFastID(_ fastID: Swift.Bool) -> RFIDManager.RFIDResult
+  @objc dynamic public func getFastID() -> RFIDManager.RFIDResult
+  @objc dynamic public func setTagFocus(_ tagFocus: Swift.Bool) -> RFIDManager.RFIDResult
+  @objc dynamic public func getTagFocus() -> RFIDManager.RFIDResult
+  @objc dynamic public func startRadarLocation(filter: RFIDManager.RFIDFilter, radarInfoBlock: @escaping (_ radarInfo: [RFIDManager.RFIDLocateInfo]) -> Swift.Void, radarAngleBlock: @escaping (_ angle: Swift.Double) -> Swift.Void) -> RFIDManager.RFIDResult
+  @objc dynamic public func stopRadarLocation() -> RFIDManager.RFIDResult
+  @objc dynamic public func setDynamicDistance(_ distance: Swift.Int)
+  @objc dynamic public func startLocation(filter: RFIDManager.RFIDFilter, locateInfoBlock: @escaping (_ locateInfo: RFIDManager.RFIDLocateInfo) -> Swift.Void) -> RFIDManager.RFIDResult
+  @objc dynamic public func stopLocation() -> RFIDManager.RFIDResult
+  @objc dynamic public func getUHFHardwareVersion() -> RFIDManager.RFIDResult
+  @objc dynamic public func getUHFFirmwareVersion() -> RFIDManager.RFIDResult
+  @objc dynamic public func getUHFTemperature() -> RFIDManager.RFIDResult
+  @objc dynamic public func resetUHF() -> RFIDManager.RFIDResult
+}
+extension RFIDManager.RFIDUsbManager : RFIDManager.BarcodeProtocol {
+  @available(*, deprecated, message: "Use startBarcode(barcodeBlock:(_ barcode: RFIDBarcodeInfo) -> Void) instead")
+  @objc dynamic public func startBarcode(continuous: Swift.Bool, unique: Swift.Bool, barcodeBlock: @escaping (_ barcode: RFIDManager.RFIDBarcodeInfo) -> Swift.Void) -> RFIDManager.RFIDResult
+  @objc dynamic public func startBarcode(barcodeBlock: @escaping (_ barcode: RFIDManager.RFIDBarcodeInfo) -> Swift.Void) -> RFIDManager.RFIDResult
+  @objc dynamic public func stopBarcode() -> RFIDManager.RFIDResult
+  @objc dynamic public func setBarcodeType(_ barcodeType: Swift.Bool, saveFlag: Swift.Bool = false) -> RFIDManager.RFIDResult
+  @objc dynamic public func getBarcodeType() -> RFIDManager.RFIDResult
+  @objc dynamic public func setBarcodeParameter(key: Swift.String, value: Swift.String, saveFlag: Swift.Bool = false) -> RFIDManager.RFIDResult
+  @objc dynamic public func getBarcodeParameter(_ key: Swift.String) -> RFIDManager.RFIDResult
+}
+extension RFIDManager.RFIDUsbManager : RFIDManager.MainBoardProtocol {
+  #if compiler(>=5.3) && $NonescapableTypes
+  @objc dynamic public func setKeyEvent(keyDownBlock: ((_ keyCode: Swift.Int) -> Swift.Void)?, keyUpBlock: ((_ keyCode: Swift.Int) -> Swift.Void)?)
+  #endif
+  @objc dynamic public func setRssi(_ rssi: Swift.Bool) -> RFIDManager.RFIDResult
+  @objc dynamic public func getRssi() -> RFIDManager.RFIDResult
+  @objc dynamic public func setBuzzer(_ buzzer: Swift.Bool) -> RFIDManager.RFIDResult
+  @objc dynamic public func getBuzzer() -> RFIDManager.RFIDResult
+  @objc dynamic public func triggerBeep(duration: Swift.Int)
+  @objc dynamic public func getBluetoothVersion() -> RFIDManager.RFIDResult
+  @objc dynamic public func getMainboardVersion() -> RFIDManager.RFIDResult
+  @objc dynamic public func getBattery() -> RFIDManager.RFIDResult
+  @objc dynamic public func resetMainboard() -> RFIDManager.RFIDResult
+  @objc dynamic public func setMainBoardParameter(key: Foundation.Data, value: Foundation.Data) -> RFIDManager.RFIDResult
+  @objc dynamic public func getMainBoardParameter(key: Foundation.Data) -> RFIDManager.RFIDResult
+  @objc dynamic public func setKeyMode(_ keyMode: Swift.Int) -> RFIDManager.RFIDResult
+  @objc dynamic public func getKeyMode() -> RFIDManager.RFIDResult
+  @objc dynamic public func getSN() -> RFIDManager.RFIDResult
+  @objc dynamic public func upgrade(type: Swift.Int, fileData: Foundation.Data, callback: @escaping (_ result: RFIDManager.RFIDResult) -> Swift.Void)
+}
+extension RFIDManager.RFIDBank : Swift.Equatable {}
+extension RFIDManager.RFIDBank : Swift.Hashable {}
+extension RFIDManager.RFIDBank : Swift.RawRepresentable {}
+extension RFIDManager.RFIDBarcodeTypeInCodeID : Swift.Equatable {}
+extension RFIDManager.RFIDBarcodeTypeInCodeID : Swift.Hashable {}
+extension RFIDManager.RFIDBarcodeTypeInCodeID : Swift.RawRepresentable {}
+extension RFIDManager.RFIDConnectionType : Swift.Equatable {}
+extension RFIDManager.RFIDConnectionType : Swift.Hashable {}
+extension RFIDManager.RFIDConnectionType : Swift.RawRepresentable {}
+extension RFIDManager.RFIDConnectState : Swift.Equatable {}
+extension RFIDManager.RFIDConnectState : Swift.Hashable {}
+extension RFIDManager.RFIDConnectState : Swift.RawRepresentable {}
+extension RFIDManager.RFIDFrequency : Swift.Equatable {}
+extension RFIDManager.RFIDFrequency : Swift.Hashable {}
+extension RFIDManager.RFIDFrequency : Swift.RawRepresentable {}
+extension RFIDManager.RFIDGen2.SelectTarget : Swift.Equatable {}
+extension RFIDManager.RFIDGen2.SelectTarget : Swift.Hashable {}
+extension RFIDManager.RFIDGen2.SelectTarget : Swift.RawRepresentable {}
+extension RFIDManager.RFIDGen2.SelectTruncate : Swift.Equatable {}
+extension RFIDManager.RFIDGen2.SelectTruncate : Swift.Hashable {}
+extension RFIDManager.RFIDGen2.SelectTruncate : Swift.RawRepresentable {}
+extension RFIDManager.RFIDGen2.Q : Swift.Equatable {}
+extension RFIDManager.RFIDGen2.Q : Swift.Hashable {}
+extension RFIDManager.RFIDGen2.Q : Swift.RawRepresentable {}
+extension RFIDManager.RFIDGen2.QueryDR : Swift.Equatable {}
+extension RFIDManager.RFIDGen2.QueryDR : Swift.Hashable {}
+extension RFIDManager.RFIDGen2.QueryDR : Swift.RawRepresentable {}
+extension RFIDManager.RFIDGen2.QueryM : Swift.Equatable {}
+extension RFIDManager.RFIDGen2.QueryM : Swift.Hashable {}
+extension RFIDManager.RFIDGen2.QueryM : Swift.RawRepresentable {}
+extension RFIDManager.RFIDGen2.QueryTRext : Swift.Equatable {}
+extension RFIDManager.RFIDGen2.QueryTRext : Swift.Hashable {}
+extension RFIDManager.RFIDGen2.QueryTRext : Swift.RawRepresentable {}
+extension RFIDManager.RFIDGen2.QuerySel : Swift.Equatable {}
+extension RFIDManager.RFIDGen2.QuerySel : Swift.Hashable {}
+extension RFIDManager.RFIDGen2.QuerySel : Swift.RawRepresentable {}
+extension RFIDManager.RFIDGen2.QuerySession : Swift.Equatable {}
+extension RFIDManager.RFIDGen2.QuerySession : Swift.Hashable {}
+extension RFIDManager.RFIDGen2.QuerySession : Swift.RawRepresentable {}
+extension RFIDManager.RFIDGen2.QueryTarget : Swift.Equatable {}
+extension RFIDManager.RFIDGen2.QueryTarget : Swift.Hashable {}
+extension RFIDManager.RFIDGen2.QueryTarget : Swift.RawRepresentable {}
+extension RFIDManager.RFIDLockMode : Swift.Equatable {}
+extension RFIDManager.RFIDLockMode : Swift.Hashable {}
+extension RFIDManager.RFIDLockMode : Swift.RawRepresentable {}
+extension RFIDManager.RFIDLockBank : Swift.Equatable {}
+extension RFIDManager.RFIDLockBank : Swift.Hashable {}
+extension RFIDManager.RFIDLockBank : Swift.RawRepresentable {}
+extension RFIDManager.RFIDMemoryBank.InventoryBank : Swift.Equatable {}
+extension RFIDManager.RFIDMemoryBank.InventoryBank : Swift.Hashable {}
+extension RFIDManager.RFIDMemoryBank.InventoryBank : Swift.RawRepresentable {}
+extension RFIDManager.RFIDResultCode : Swift.Equatable {}
+extension RFIDManager.RFIDResultCode : Swift.Hashable {}
+extension RFIDManager.RFIDResultCode : Swift.RawRepresentable {}
+extension RFIDManager.RFIDRFLink : Swift.Equatable {}
+extension RFIDManager.RFIDRFLink : Swift.Hashable {}
+extension RFIDManager.RFIDRFLink : Swift.RawRepresentable {}
+extension RFIDManager.RFIDState : Swift.Equatable {}
+extension RFIDManager.RFIDState : Swift.Hashable {}
+extension RFIDManager.RFIDState : Swift.RawRepresentable {}
+extension RFIDManager.RFIDUpgradeType : Swift.Equatable {}
+extension RFIDManager.RFIDUpgradeType : Swift.Hashable {}
+extension RFIDManager.RFIDUpgradeType : Swift.RawRepresentable {}
