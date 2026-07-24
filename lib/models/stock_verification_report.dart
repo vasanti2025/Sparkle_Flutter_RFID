@@ -26,18 +26,26 @@ class ReportSessionItem {
   });
 
   factory ReportSessionItem.fromJson(Map<String, dynamic> json) {
+    int asInt(dynamic v) {
+      if (v is int) return v;
+      if (v is double) return v.round();
+      return int.tryParse(v?.toString() ?? '') ?? 0;
+    }
+
     return ReportSessionItem(
-      sessionNumber: json['SessionNumber'] as int? ?? 0,
+      sessionNumber: asInt(json['SessionNumber']),
       sessionId: json['SessionId']?.toString() ?? '',
       scanBatchId: json['ScanBatchId']?.toString() ?? '',
       batchName: json['BatchName']?.toString() ?? '',
-      branchId: json['BranchId'] as int?,
+      branchId: json['BranchId'] is int
+          ? json['BranchId'] as int
+          : int.tryParse(json['BranchId']?.toString() ?? ''),
       branchName: json['BranchName']?.toString(),
       startedOn: json['StartedOn']?.toString() ?? '',
       endedOn: json['EndedOn']?.toString() ?? '',
-      totalQty: json['TotalQty'] as int? ?? 0,
-      matchQty: json['MatchQty'] as int? ?? 0,
-      unmatchQty: json['UnmatchQty'] as int? ?? 0,
+      totalQty: asInt(json['TotalQty']),
+      matchQty: asInt(json['MatchQty']),
+      unmatchQty: asInt(json['UnmatchQty']),
     );
   }
 }
@@ -295,6 +303,24 @@ class BatchReportItem {
       rfidCode: json['RFIDCode']?.toString(),
     );
   }
+
+  factory BatchReportItem.fromCompact(Map<String, String?> json) {
+    return BatchReportItem(
+      itemCode: json['itemCode'],
+      productName: json['productName'],
+      branchName: json['branchName'],
+      categoryName: json['categoryName'],
+      rfidCode: json['rfidCode'],
+    );
+  }
+
+  Map<String, String?> toCompact() => {
+        'itemCode': itemCode,
+        'productName': productName,
+        'branchName': branchName,
+        'categoryName': categoryName,
+        'rfidCode': rfidCode,
+      };
 }
 
 class BatchDetailsResponse {
@@ -313,14 +339,47 @@ class BatchDetailsResponse {
   });
 
   factory BatchDetailsResponse.fromJson(Map<String, dynamic> json) {
-    final matched = json['MatchedList'] as List? ?? [];
-    final unmatched = json['UnmatchedList'] as List? ?? [];
+    List<BatchReportItem> parseList(dynamic raw) {
+      if (raw is! List) return [];
+      return raw
+          .whereType<Map>()
+          .map((e) => BatchReportItem.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    }
+
     return BatchDetailsResponse(
       message: json['Message']?.toString(),
       scanBatchId: json['ScanBatchId']?.toString(),
       batchName: json['BatchName']?.toString(),
-      matchedList: matched.map((e) => BatchReportItem.fromJson(e as Map<String, dynamic>)).toList(),
-      unmatchedList: unmatched.map((e) => BatchReportItem.fromJson(e as Map<String, dynamic>)).toList(),
+      matchedList: parseList(json['MatchedList'] ?? json['matchedList']),
+      unmatchedList: parseList(json['UnmatchedList'] ?? json['unmatchedList']),
+    );
+  }
+
+  factory BatchDetailsResponse.fromCompact(Map<String, dynamic> compact) {
+    List<BatchReportItem> parseList(dynamic raw) {
+      if (raw is! List) return [];
+      return raw.map((e) {
+        if (e is Map<String, String?>) return BatchReportItem.fromCompact(e);
+        if (e is Map) {
+          return BatchReportItem.fromCompact({
+            'itemCode': e['itemCode']?.toString(),
+            'productName': e['productName']?.toString(),
+            'branchName': e['branchName']?.toString(),
+            'categoryName': e['categoryName']?.toString(),
+            'rfidCode': e['rfidCode']?.toString(),
+          });
+        }
+        return BatchReportItem();
+      }).toList();
+    }
+
+    return BatchDetailsResponse(
+      message: compact['message']?.toString(),
+      scanBatchId: compact['scanBatchId']?.toString(),
+      batchName: compact['batchName']?.toString(),
+      matchedList: parseList(compact['matchedList']),
+      unmatchedList: parseList(compact['unmatchedList']),
     );
   }
 }

@@ -13,7 +13,9 @@ import '../viewmodels/quotation_view_model.dart';
 import 'widgets/scan_bottom_bar.dart';
 import 'widgets/order_details_dialog.dart';
 import 'widgets/add_customer_dialog.dart';
+import 'widgets/quotation_pdf.dart';
 import '../utils/tag_scan_batcher.dart';
+import '../utils/barcode_scan_mixin.dart';
 import 'widgets/order_bulk_details_dialog.dart';
 
 const _brandGradient = LinearGradient(
@@ -27,7 +29,7 @@ class QuotationScreen extends StatefulWidget {
   State<QuotationScreen> createState() => _QuotationScreenState();
 }
 
-class _QuotationScreenState extends State<QuotationScreen> {
+class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin {
   final _customerSearchCtrl = TextEditingController();
   final _itemCodeCtrl = TextEditingController();
   final _focusNode = FocusNode();
@@ -90,8 +92,29 @@ class _QuotationScreenState extends State<QuotationScreen> {
       }
     });
 
+    bindBarcodeScanner();
+
     _dataVScroll.addListener(() => _syncVScroll(_dataVScroll, _actionVScroll));
     _actionVScroll.addListener(() => _syncVScroll(_actionVScroll, _dataVScroll));
+  }
+
+  @override
+  void onBarcodeScanned(String code) {
+    _itemCodeCtrl.text = code;
+    setState(() => _showItemSuggestions = false);
+    unawaited(_addItemByBarcode(code));
+  }
+
+  Future<void> _addItemByBarcode(String code) async {
+    final error = await context.read<QuotationViewModel>().addProductByCodeOrRfid(code);
+    if (!mounted) return;
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+    } else {
+      _itemCodeCtrl.clear();
+      setState(() => _showItemSuggestions = false);
+      _itemCodeFocus.unfocus();
+    }
   }
 
   void _syncVScroll(ScrollController from, ScrollController to) {
@@ -105,6 +128,7 @@ class _QuotationScreenState extends State<QuotationScreen> {
 
   @override
   void dispose() {
+    unbindBarcodeScanner();
     _tagBatcher.dispose();
     _suggestTimer?.cancel();
     _rfidSubscription?.cancel();
@@ -494,7 +518,7 @@ class _QuotationScreenState extends State<QuotationScreen> {
                                 _itemCodeCtrl.clear();
                                 setState(() => _showItemSuggestions = false);
                               } else {
-                                addByCode(_itemCodeCtrl.text);
+                                unawaited(startBarcodeFromIcon());
                               }
                             },
                             child: Padding(
@@ -840,6 +864,14 @@ class _QuotationScreenState extends State<QuotationScreen> {
               if (res != null) {
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                     content: Text(vm.isEditMode ? s.quotationUpdatedSuccessfully : s.quotationSavedSuccessfully)));
+                final prefs = await PrefService.init();
+                if (!mounted) return;
+                await printQuotationPdf(
+                  context: context,
+                  quotation: res,
+                  orgName: prefs.getOrganisationName() ?? '',
+                );
+                if (!mounted) return;
                 vm.clearQuotation();
                 vm.clearEditMode();
                 _customerSearchCtrl.clear();

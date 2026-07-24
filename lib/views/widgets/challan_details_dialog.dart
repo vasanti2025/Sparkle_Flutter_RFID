@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../models/delivery_challan.dart';
 import '../../l10n/l10n_extension.dart';
+import '../../utils/app_dropdown.dart';
 
 /// Rich per-item editor for a Delivery Challan line item, mirroring the Kotlin
 /// `DeliveryChallanDialogEditAndDisplay` composable and the Flutter
@@ -487,6 +488,7 @@ class _ChallanDetailsDialogState extends State<ChallanDetailsDialog> {
                     ? null
                     : selectedValue,
                 isExpanded: true,
+                menuMaxHeight: kDropdownMenuMaxHeight,
                 hint: Text(context.s.selectOption(label), style: GoogleFonts.poppins(fontSize: 13)),
                 icon: const Icon(Icons.arrow_drop_down),
                 style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),

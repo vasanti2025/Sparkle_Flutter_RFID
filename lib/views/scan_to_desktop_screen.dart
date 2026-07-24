@@ -11,6 +11,7 @@ import '../services/db_service.dart';
 import '../services/pref_service.dart';
 import '../services/api_service.dart';
 import '../utils/tag_scan_batcher.dart';
+import '../utils/app_dropdown.dart';
 import 'widgets/scan_bottom_bar.dart';
 
 class DesktopTag {
@@ -564,6 +565,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
               Center(
                 child: PopupMenuButton<int>(
                   offset: const Offset(0, 45),
+                  constraints: const BoxConstraints(maxHeight: kDropdownMenuMaxHeight, minWidth: 60),
                   onSelected: (int val) {
                     setState(() => _selectedPower = val);
                     _rfidService.setPower(val);

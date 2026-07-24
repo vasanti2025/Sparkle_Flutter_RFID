@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -28,151 +29,212 @@ import 'viewmodels/stock_transfer_view_model.dart';
 import 'services/auto_sync_service.dart';
 import 'services/order_sync_service.dart';
 import 'services/rfid_service.dart';
+import 'utils/app_dropdown.dart';
 import 'app_routes.dart';
 
-
-void main() async {
+/// Paint first frame IMMEDIATELY — never await prefs/RFID before runApp.
+void main() {
+  final sw = Stopwatch()..start();
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialize shared preferences wrapper
-  final prefService = await PrefService.init();
-  final apiService = ApiService(prefService);
-  final dbService = DbService();
-  
-  // Face model loads lazily when face login / add-face is opened.
-  final faceRecognitionService = FaceRecognitionService();
+  GoogleFonts.config.allowRuntimeFetching = false;
+  debugPrint('STARTUP binding ${sw.elapsedMilliseconds}ms');
 
-  // Pre-create screen view-models so first navigation does not block on lazy init.
-  final localeService = LocaleService(prefService);
-  final dashboardViewModel = DashboardViewModel(prefService: prefService);
-  final productViewModel = ProductViewModel(
-    prefService: prefService,
-    dbService: dbService,
-    apiService: apiService,
-  );
-  final orderViewModel = OrderViewModel(
-    prefService: prefService,
-    dbService: dbService,
-    apiService: apiService,
-  );
-  final deliveryChallanViewModel = DeliveryChallanViewModel(
-    prefService: prefService,
-    dbService: dbService,
-    apiService: apiService,
-  );
-  final dailyRateViewModel = DailyRateViewModel(
-    prefService: prefService,
-    apiService: apiService,
-  );
-  final quotationViewModel = QuotationViewModel(
-    prefService: prefService,
-    dbService: dbService,
-    apiService: apiService,
-  );
-  final sampleInViewModel = SampleInViewModel(
-    prefService: prefService,
-    dbService: dbService,
-    apiService: apiService,
-  );
-  final sampleOutViewModel = SampleOutViewModel(
-    prefService: prefService,
-    dbService: dbService,
-    apiService: apiService,
-  );
-  final stockVerificationViewModel = StockVerificationViewModel(
-    prefService: prefService,
-    apiService: apiService,
-  );
-  final settingsViewModel = SettingsViewModel(
-    prefService: prefService,
-    dbService: dbService,
-    apiService: apiService,
-  );
-  final stockTransferViewModel = StockTransferViewModel(
-    apiService: apiService,
-    dbService: dbService,
-    prefService: prefService,
-  );
-
-  // Warm font glyph cache before any screen builds.
-  try {
-    GoogleFonts.poppins();
-  } catch (_) {}
-
+  // Instant white frame dismisses native splash; real app replaces this ASAP.
   runApp(
-    MultiProvider(
-      providers: [
-        Provider<PrefService>.value(value: prefService),
-        Provider<ApiService>.value(value: apiService),
-        Provider<DbService>.value(value: dbService),
-        Provider<FaceRecognitionService>.value(value: faceRecognitionService),
-        ChangeNotifierProvider<LocaleService>.value(value: localeService),
-        ChangeNotifierProvider<LoginViewModel>(
-          lazy: true,
-          create: (_) => LoginViewModel(
-            apiService: apiService,
-            prefService: prefService,
-          ),
-        ),
-        ChangeNotifierProvider<DashboardViewModel>.value(value: dashboardViewModel),
-        ChangeNotifierProvider<ProductViewModel>.value(value: productViewModel),
-        ChangeNotifierProvider<OrderViewModel>.value(value: orderViewModel),
-        ChangeNotifierProvider<DeliveryChallanViewModel>.value(value: deliveryChallanViewModel),
-        ChangeNotifierProvider<DailyRateViewModel>.value(value: dailyRateViewModel),
-        ChangeNotifierProvider<QuotationViewModel>.value(value: quotationViewModel),
-        ChangeNotifierProvider<SampleInViewModel>.value(value: sampleInViewModel),
-        ChangeNotifierProvider<SampleOutViewModel>.value(value: sampleOutViewModel),
-        ChangeNotifierProvider<StockVerificationViewModel>.value(value: stockVerificationViewModel),
-        ChangeNotifierProvider<SingleProductViewModel>(
-          lazy: true,
-          create: (ctx) => SingleProductViewModel(
-            prefService: prefService,
-            apiService: apiService,
-          ),
-        ),
-        ChangeNotifierProvider<BulkProductViewModel>(
-          lazy: true,
-          create: (ctx) => BulkProductViewModel(dbService: dbService),
-        ),
-        ChangeNotifierProvider<ImportExcelViewModel>(
-          lazy: true,
-          create: (ctx) => ImportExcelViewModel(
-            dbService: dbService,
-            apiService: apiService,
-            prefService: prefService,
-          ),
-        ),
-        ChangeNotifierProvider<SettingsViewModel>.value(value: settingsViewModel),
-        ChangeNotifierProvider<StockTransferViewModel>.value(value: stockTransferViewModel),
-
-      ],
-      child: MyApp(prefService: prefService),
+    const MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(backgroundColor: Colors.white),
     ),
   );
+  debugPrint('STARTUP first runApp ${sw.elapsedMilliseconds}ms');
 
-  Future<void>(() async {
+  unawaited(_bootRealApp(sw));
+}
+
+Future<void> _bootRealApp(Stopwatch sw) async {
+  try {
+    late final PrefService prefService;
     try {
-      await dbService.database;
-      GoogleFonts.poppins();
-    } catch (e, st) {
-      debugPrint('DB init deferred error: $e\n$st');
+      prefService = await PrefService.init().timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('STARTUP prefs slow/fail ($e) — waiting without timeout');
+      prefService = await PrefService.init();
     }
+    debugPrint('STARTUP prefs ${sw.elapsedMilliseconds}ms');
+
+    final apiService = ApiService(prefService);
+    final dbService = DbService();
+    final localeService = LocaleService(prefService);
+
+    runApp(
+      MultiProvider(
+        providers: [
+          Provider<PrefService>.value(value: prefService),
+          Provider<ApiService>.value(value: apiService),
+          Provider<DbService>.value(value: dbService),
+          Provider<FaceRecognitionService>(
+            lazy: true,
+            create: (_) => FaceRecognitionService(),
+          ),
+          ChangeNotifierProvider<LocaleService>.value(value: localeService),
+          ChangeNotifierProvider<LoginViewModel>(
+            lazy: true,
+            create: (_) => LoginViewModel(
+              apiService: apiService,
+              prefService: prefService,
+            ),
+          ),
+          ChangeNotifierProvider<DashboardViewModel>(
+            lazy: true,
+            create: (_) => DashboardViewModel(
+              prefService: prefService,
+              dbService: dbService,
+            ),
+          ),
+          ChangeNotifierProvider<ProductViewModel>(
+            lazy: true,
+            create: (_) => ProductViewModel(
+              prefService: prefService,
+              dbService: dbService,
+              apiService: apiService,
+            ),
+          ),
+          ChangeNotifierProvider<OrderViewModel>(
+            lazy: true,
+            create: (_) => OrderViewModel(
+              prefService: prefService,
+              dbService: dbService,
+              apiService: apiService,
+            ),
+          ),
+          ChangeNotifierProvider<DeliveryChallanViewModel>(
+            lazy: true,
+            create: (_) => DeliveryChallanViewModel(
+              prefService: prefService,
+              dbService: dbService,
+              apiService: apiService,
+            ),
+          ),
+          ChangeNotifierProvider<DailyRateViewModel>(
+            lazy: true,
+            create: (_) => DailyRateViewModel(
+              prefService: prefService,
+              apiService: apiService,
+            ),
+          ),
+          ChangeNotifierProvider<QuotationViewModel>(
+            lazy: true,
+            create: (_) => QuotationViewModel(
+              prefService: prefService,
+              dbService: dbService,
+              apiService: apiService,
+            ),
+          ),
+          ChangeNotifierProvider<SampleInViewModel>(
+            lazy: true,
+            create: (_) => SampleInViewModel(
+              prefService: prefService,
+              dbService: dbService,
+              apiService: apiService,
+            ),
+          ),
+          ChangeNotifierProvider<SampleOutViewModel>(
+            lazy: true,
+            create: (_) => SampleOutViewModel(
+              prefService: prefService,
+              dbService: dbService,
+              apiService: apiService,
+            ),
+          ),
+          ChangeNotifierProvider<StockVerificationViewModel>(
+            lazy: true,
+            create: (_) => StockVerificationViewModel(
+              prefService: prefService,
+              apiService: apiService,
+            ),
+          ),
+          ChangeNotifierProvider<SingleProductViewModel>(
+            lazy: true,
+            create: (_) => SingleProductViewModel(
+              prefService: prefService,
+              apiService: apiService,
+            ),
+          ),
+          ChangeNotifierProvider<BulkProductViewModel>(
+            lazy: true,
+            create: (_) => BulkProductViewModel(dbService: dbService),
+          ),
+          ChangeNotifierProvider<ImportExcelViewModel>(
+            lazy: true,
+            create: (_) => ImportExcelViewModel(
+              dbService: dbService,
+              apiService: apiService,
+              prefService: prefService,
+            ),
+          ),
+          ChangeNotifierProvider<SettingsViewModel>(
+            lazy: true,
+            create: (_) => SettingsViewModel(
+              prefService: prefService,
+              dbService: dbService,
+              apiService: apiService,
+            ),
+          ),
+          ChangeNotifierProvider<StockTransferViewModel>(
+            lazy: true,
+            create: (_) => StockTransferViewModel(
+              apiService: apiService,
+              dbService: dbService,
+              prefService: prefService,
+            ),
+          ),
+        ],
+        child: MyApp(prefService: prefService),
+      ),
+    );
+    debugPrint('STARTUP real app ${sw.elapsedMilliseconds}ms');
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_warmAfterFirstFrame(prefService, dbService));
+    });
+  } catch (e, st) {
+    debugPrint('STARTUP boot failed: $e\n$st');
+  }
+}
+
+Future<void> _warmAfterFirstFrame(PrefService prefService, DbService dbService) async {
+  try {
+    await dbService.database;
+  } catch (e, st) {
+    debugPrint('DB init deferred error: $e\n$st');
+  }
+
+  Future<void>.delayed(const Duration(seconds: 3), () async {
     try {
       await AutoSyncService.initialize();
     } catch (e, st) {
       debugPrint('AutoSync init skipped: $e\n$st');
     }
+  });
+
+  Future<void>.delayed(const Duration(seconds: 8), () async {
     try {
       await LocationSyncService.initializeIfEnabled();
     } catch (e, st) {
       debugPrint('LocationSync init skipped: $e\n$st');
     }
+  });
+
+  Future<void>.delayed(const Duration(seconds: 12), () async {
     try {
       await OrderSyncService.initializeIfEnabled();
-      await OrderSyncService.syncNow();
     } catch (e, st) {
       debugPrint('OrderSync init skipped: $e\n$st');
     }
+  });
+
+  // Never touch RFID UART at startup — DeviceAPI can hang 2–3 minutes.
+  Future<void>.delayed(const Duration(seconds: 20), () async {
     try {
       if (prefService.isTrayModeEnabled()) {
         await RfidService().restoreTrayModeFromPrefs(
@@ -186,14 +248,13 @@ void main() async {
         );
       }
     } catch (e, st) {
-      debugPrint('Tray mode init skipped: $e\n$st');
+      debugPrint('Tray/R6 mode init skipped: $e\n$st');
     }
   });
 }
 
 class MyApp extends StatelessWidget {
   final PrefService prefService;
-
   const MyApp({super.key, required this.prefService});
 
   @override
@@ -219,7 +280,14 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         primarySwatch: Colors.blue,
-        textTheme: GoogleFonts.poppinsTextTheme(),
+        textTheme: ThemeData.light().textTheme,
+        dropdownMenuTheme: DropdownMenuThemeData(
+          menuStyle: MenuStyle(
+            maximumSize: WidgetStatePropertyAll(
+              Size(double.infinity, kDropdownMenuMaxHeight),
+            ),
+          ),
+        ),
       ),
       builder: (context, child) {
         return Directionality(

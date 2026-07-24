@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../l10n/l10n_extension.dart';
+import '../../utils/app_dropdown.dart';
 
 class AddCustomerDialog extends StatefulWidget {
   final String title;
@@ -302,6 +303,7 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
         child: DropdownButton<String>(
           value: value,
           isExpanded: true,
+          menuMaxHeight: kDropdownMenuMaxHeight,
           style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
           items: items.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
           onChanged: onChanged,

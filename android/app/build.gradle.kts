@@ -35,7 +35,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Keep debuggable=true for hot reload / breakpoints.
+            // Flutter debug (JIT) is slow to open — use profile/release for real speed.
+            isDebuggable = true
+        }
         release {
+            // AOT + non-debuggable — cold start close to Sparkle Kotlin.
+            isDebuggable = false
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
@@ -49,5 +56,7 @@ flutter {
 
 dependencies {
     implementation(files("libs/DeviceAPI_ver20250209_release.aar"))
+    // Xprinter POSConnect Bluetooth thermal printer (Delivery Challan) — same as Sparkle Kotlin
+    implementation(files("libs/printer-lib-3.2.0.aar"))
 }
 

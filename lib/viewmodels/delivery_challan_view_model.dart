@@ -5,6 +5,7 @@ import '../models/delivery_challan.dart';
 import '../models/customer_tunch.dart';
 import '../services/api_service.dart';
 import '../services/db_service.dart';
+import '../services/list_json_cache.dart';
 import '../services/pref_service.dart';
 
 class DeliveryChallanViewModel extends ChangeNotifier {
@@ -143,10 +144,41 @@ class DeliveryChallanViewModel extends ChangeNotifier {
   }
 
   Future<void> loadChallanList() async {
-    _isListLoading = true;
-    notifyListeners();
+    final code = _prefService.getEmployee()?.clientCode ?? '';
+    final branchId = _prefService.getEmployee()?.branchNo ??
+        _prefService.getEmployee()?.defaultBranchId ??
+        _prefService.getBranchId();
+    final cacheKey = 'delivery_challan_${code}_$branchId';
+
+    // Show memory / disk cache immediately (Sparkle DeliveryChallanListCache).
+    if (_challans.isEmpty) {
+      final mem = ListJsonCache.instance.readMemory(cacheKey);
+      if (mem != null && mem.isNotEmpty) {
+        _challans = mem
+            .whereType<Map>()
+            .map((c) => DeliveryChallanModel.fromJson(Map<String, dynamic>.from(c)))
+            .toList();
+        notifyListeners();
+      } else {
+        final cached = await ListJsonCache.instance.load(cacheKey);
+        if (cached.isNotEmpty) {
+          _challans = cached
+              .whereType<Map>()
+              .map((c) => DeliveryChallanModel.fromJson(Map<String, dynamic>.from(c)))
+              .toList();
+          notifyListeners();
+        }
+      }
+    }
+
+    final hasCached = _challans.isNotEmpty;
+    if (!hasCached) {
+      _isListLoading = true;
+      notifyListeners();
+    }
+
     try {
-      await fetchAllChallans();
+      await fetchAllChallans(cacheKey: cacheKey);
     } finally {
       _isListLoading = false;
       notifyListeners();
@@ -154,14 +186,23 @@ class DeliveryChallanViewModel extends ChangeNotifier {
   }
 
   // Reload challans only
-  Future<void> fetchAllChallans() async {
+  Future<void> fetchAllChallans({String? cacheKey}) async {
     try {
       final code = _prefService.getEmployee()?.clientCode ?? '';
-      final branchId = _prefService.getEmployee()?.branchNo ?? 0;
+      final branchId = _prefService.getEmployee()?.branchNo ??
+          _prefService.getEmployee()?.defaultBranchId ??
+          _prefService.getBranchId();
+      final key = cacheKey ?? 'delivery_challan_${code}_$branchId';
       final rawChallans = await _apiService.getAllDeliveryChallans(code, branchId);
-      _challans = rawChallans.map((c) => DeliveryChallanModel.fromJson(c as Map<String, dynamic>)).toList();
+      _challans = rawChallans
+          .whereType<Map>()
+          .map((c) => DeliveryChallanModel.fromJson(Map<String, dynamic>.from(c)))
+          .toList();
+      await ListJsonCache.instance.save(key, rawChallans);
     } catch (e) {
-      _errorMessage = e.toString();
+      if (_challans.isEmpty) {
+        _errorMessage = e.toString();
+      }
     }
     notifyListeners();
   }

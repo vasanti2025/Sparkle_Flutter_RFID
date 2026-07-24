@@ -6,8 +6,10 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../l10n/l10n_extension.dart';
 import '../models/bulk_item.dart';
+import '../services/pref_service.dart';
 import '../viewmodels/product_view_model.dart';
 import '../theme/list_text_styles.dart';
+import '../utils/app_dropdown.dart';
 import 'widgets/scan_bottom_bar.dart';
 
 class ProductListScreen extends StatefulWidget {
@@ -250,6 +252,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
           const SizedBox(height: 4),
           DropdownButtonFormField<String>(
             initialValue: currentVal,
+            menuMaxHeight: kDropdownMenuMaxHeight,
             onChanged: (val) => onChanged(val == s.all ? '' : val),
             items: list.map((opt) {
               return DropdownMenuItem<String>(
@@ -1090,7 +1093,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
 
   Widget _buildItemImage(BulkItem item) {
     if (item.imageUrl.isNotEmpty) {
-      final baseUrl = 'https://rrgold.loyalstring.co.in/';
+      final baseUrl = PrefService.defaultApiBaseUrl;
       var storedUrl = item.imageUrl.trim();
       if (storedUrl.endsWith(',')) {
         storedUrl = storedUrl.substring(0, storedUrl.length - 1).trim();

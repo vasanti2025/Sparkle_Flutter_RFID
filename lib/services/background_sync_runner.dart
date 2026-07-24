@@ -31,7 +31,7 @@ class BackgroundSyncRunner {
     SyncIsolate.run({
       'token': null,
       'sendPort': receivePort.sendPort,
-      'baseUrl': prefService.getCustomApi() ?? 'https://rrgold.loyalstring.co.in/',
+      'baseUrl': prefService.getEffectiveApiBaseUrl(),
       'clientCode': employee.clientCode ?? '',
       'roleId': employee.roleId ?? 0,
       'branchIds': prefService.getBranchIds(),

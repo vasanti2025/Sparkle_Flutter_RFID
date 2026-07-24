@@ -21,8 +21,10 @@ class _LocationListScreenState extends State<LocationListScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<SettingsViewModel>().fetchLocationsFromDb();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      // Fast open: local DB only. GPS/API sync is pull-to-refresh / background timer.
+      await context.read<SettingsViewModel>().fetchLocationsFromDb();
     });
   }
 
@@ -66,6 +68,16 @@ class _LocationListScreenState extends State<LocationListScreen> {
     await MapsHelper.openDayRoute(dayLocations);
   }
 
+  Future<void> _refresh() async {
+    final error = await context.read<SettingsViewModel>().syncAndRefreshLocations();
+    if (!mounted) return;
+    if (error != null && error.isNotEmpty && error != 'Sync already running') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Location sync: $error')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = context.watch<LocaleService>().strings;
@@ -76,89 +88,105 @@ class _LocationListScreenState extends State<LocationListScreen> {
       child: Scaffold(
         backgroundColor: Colors.white,
         appBar: productGradientAppBar(context: context, title: s.locationList),
-        body: vm.loadingLocations
-            ? const Center(child: CircularProgressIndicator())
-            : vm.locations.isEmpty
-                ? Center(child: Text(s.noLocationsFound, style: GoogleFonts.poppins(fontSize: 14)))
-                : Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(10),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: _pickDate,
-                                child: Text(
-                                  _selectedDate == null ? s.selectDate : DateFormat('dd/MM/yyyy').format(_selectedDate!),
-                                  style: GoogleFonts.poppins(fontSize: 13),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton(
-                              tooltip: s.route,
-                              onPressed: _selectedDate == null ? null : () => _openRoute(vm.locations),
-                              icon: const Icon(Icons.navigation, color: Color(0xFF5231A7)),
-                            ),
-                          ],
-                        ),
+        body: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _pickDate,
+                      child: Text(
+                        _selectedDate == null ? s.selectDate : DateFormat('dd/MM/yyyy').format(_selectedDate!),
+                        style: GoogleFonts.poppins(fontSize: 13),
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      Container(
-                        color: Colors.black,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        child: Row(
-                          children: [
-                            Expanded(flex: 1, child: Text(s.headerSr, style: _headerStyle())),
-                            Expanded(flex: 2, child: Text(s.date, style: _headerStyle())),
-                            Expanded(flex: 2, child: Text(s.userId, style: _headerStyle(), textAlign: TextAlign.center)),
-                            Expanded(flex: 3, child: Text(s.address, style: _headerStyle())),
-                            const SizedBox(width: 36),
-                          ],
-                        ),
-                      ),
-                      const Divider(height: 1, color: Colors.grey),
-                      Expanded(
-                        child: ListView.separated(
-                          itemCount: vm.locations.length,
-                          separatorBuilder: (_, __) => const Divider(height: 1),
-                          itemBuilder: (context, index) {
-                            final item = vm.locations[index];
-                            final dateLabel = _formatCreatedOn(item.createdOn);
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  Expanded(flex: 1, child: Text('${index + 1}', style: _cellStyle())),
-                                  Expanded(flex: 2, child: Text(dateLabel, style: _cellStyle())),
-                                  Expanded(
-                                    flex: 2,
-                                    child: Text('${item.userId ?? '-'}', style: _cellStyle(), textAlign: TextAlign.center),
-                                  ),
-                                  Expanded(
-                                    flex: 3,
-                                    child: Text(item.address ?? '-', style: _cellStyle(), maxLines: 2, overflow: TextOverflow.ellipsis),
-                                  ),
-                                  IconButton(
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                                    icon: const Icon(Icons.location_on, color: Colors.red, size: 22),
-                                    onPressed: () => MapsHelper.openSinglePoint(
-                                      latitude: item.latitude,
-                                      longitude: item.longitude,
-                                      label: '$dateLabel - ${item.address ?? ''}',
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: s.route,
+                    onPressed: _selectedDate == null || vm.locations.isEmpty ? null : () => _openRoute(vm.locations),
+                    icon: const Icon(Icons.navigation, color: Color(0xFF5231A7)),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              color: Colors.black,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                children: [
+                  Expanded(flex: 1, child: Text(s.headerSr, style: _headerStyle())),
+                  Expanded(flex: 2, child: Text(s.date, style: _headerStyle())),
+                  Expanded(flex: 2, child: Text(s.userId, style: _headerStyle(), textAlign: TextAlign.center)),
+                  Expanded(flex: 3, child: Text(s.address, style: _headerStyle())),
+                  const SizedBox(width: 36),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: Colors.grey),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _refresh,
+                child: vm.loadingLocations && vm.locations.isEmpty
+                    ? ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        children: const [
+                          SizedBox(height: 160),
+                          Center(child: CircularProgressIndicator()),
+                        ],
+                      )
+                    : vm.locations.isEmpty
+                        ? ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            children: [
+                              SizedBox(height: MediaQuery.of(context).size.height * 0.25),
+                              Center(child: Text(s.noLocationsFound, style: GoogleFonts.poppins(fontSize: 14))),
+                            ],
+                          )
+                        : ListView.separated(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            itemCount: vm.locations.length,
+                            separatorBuilder: (_, _) => const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final item = vm.locations[index];
+                              final dateLabel = _formatCreatedOn(item.createdOn);
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Expanded(flex: 1, child: Text('${index + 1}', style: _cellStyle())),
+                                    Expanded(flex: 2, child: Text(dateLabel, style: _cellStyle())),
+                                    Expanded(
+                                      flex: 2,
+                                      child: Text('${item.userId ?? '-'}', style: _cellStyle(), textAlign: TextAlign.center),
+                                    ),
+                                    Expanded(
+                                      flex: 3,
+                                      child: Text(item.address ?? '-', style: _cellStyle(), maxLines: 2, overflow: TextOverflow.ellipsis),
+                                    ),
+                                    IconButton(
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                                      icon: const Icon(Icons.location_on, color: Colors.red, size: 22),
+                                      onPressed: () => MapsHelper.openSinglePoint(
+                                        latitude: item.latitude,
+                                        longitude: item.longitude,
+                                        label: '$dateLabel - ${item.address ?? ''}',
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -7,6 +7,7 @@ import '../services/rfid_service.dart';
 import '../viewmodels/product_view_model.dart';
 import '../viewmodels/single_product_view_model.dart';
 import '../utils/tag_scan_batcher.dart';
+import '../utils/barcode_scan_mixin.dart';
 import 'widgets/product_form_row.dart';
 import 'widgets/product_form_widgets.dart';
 import 'widgets/scan_bottom_bar.dart';
@@ -18,7 +19,7 @@ class AddProductScreen extends StatefulWidget {
   State<AddProductScreen> createState() => _AddProductScreenState();
 }
 
-class _AddProductScreenState extends State<AddProductScreen> {
+class _AddProductScreenState extends State<AddProductScreen> with BarcodeScanMixin {
   final _rfidService = RfidService();
   StreamSubscription<String>? _tagSub;
   StreamSubscription<void>? _triggerSub;
@@ -106,10 +107,17 @@ class _AddProductScreenState extends State<AddProductScreen> {
         _startGscan();
       }
     });
+    bindBarcodeScanner();
+  }
+
+  @override
+  void onBarcodeScanned(String code) {
+    setState(() => _updateField('RFID Code', code));
   }
 
   @override
   void dispose() {
+    unbindBarcodeScanner();
     _tagBatcher.dispose();
     _tagSub?.cancel();
     _triggerSub?.cancel();
@@ -156,8 +164,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
         raw = vm.skusForVendor(_get('Vendor')).map((s) => s.sku).where((n) => n.isNotEmpty).toList();
         break;
       case 'Category':
+        // Same metal order as Sparkle UX: Gold → Silver → Diamond → others
         raw = vm.categories.map((c) => c.name).where((n) => n.isNotEmpty).toList();
-        break;
+        return _sortCategoriesGoldSilverDiamond(raw);
       case 'Product':
         if (_get('Category').isEmpty) return [];
         final catId = vm.categoryByName(_get('Category'))?.id ?? 0;
@@ -177,6 +186,25 @@ class _AddProductScreenState extends State<AddProductScreen> {
         return [];
     }
     return raw.toSet().toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  }
+
+  /// Gold-related first, then Silver, then Diamond, then remaining A–Z.
+  List<String> _sortCategoriesGoldSilverDiamond(List<String> names) {
+    int priority(String name) {
+      final n = name.toLowerCase();
+      if (n.contains('gold')) return 0;
+      if (n.contains('silver')) return 1;
+      if (n.contains('diamond')) return 2;
+      return 3;
+    }
+
+    final unique = names.toSet().toList();
+    unique.sort((a, b) {
+      final cmp = priority(a).compareTo(priority(b));
+      if (cmp != 0) return cmp;
+      return a.toLowerCase().compareTo(b.toLowerCase());
+    });
+    return unique;
   }
 
   void _applySku(SingleProductViewModel vm, String skuName) {
@@ -415,6 +443,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
                         keyboardType: _keyboardFor(label),
                         numericInput: _isNumericField(label),
                         hintText: hintText,
+                        onScanTap: label == 'RFID Code'
+                            ? () => unawaited(startBarcodeFromIcon())
+                            : null,
                         onTapWhenEmpty: isDropdown
                             ? () {
                                 final msg = _emptyDropdownHint(label, context);

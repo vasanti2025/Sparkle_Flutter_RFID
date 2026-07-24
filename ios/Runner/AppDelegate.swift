@@ -10,11 +10,17 @@ import UIKit
     GeneratedPluginRegistrant.register(with: self)
     let ok = super.application(application, didFinishLaunchingWithOptions: launchOptions)
 
-    // Window may not be ready synchronously on all Flutter versions.
-    DispatchQueue.main.async { [weak self] in
-      guard let self = self else { return }
-      if let controller = self.window?.rootViewController as? FlutterViewController {
-        RfidBridge.shared.setup(messenger: controller.binaryMessenger)
+    // Register RFID bridge as early as possible so Dart isSupported / R6 restore work.
+    if let controller = window?.rootViewController as? FlutterViewController {
+      RfidBridge.shared.setup(messenger: controller.binaryMessenger)
+      PdfBridge.setup(messenger: controller.binaryMessenger)
+    } else {
+      DispatchQueue.main.async { [weak self] in
+        guard let self = self else { return }
+        if let controller = self.window?.rootViewController as? FlutterViewController {
+          RfidBridge.shared.setup(messenger: controller.binaryMessenger)
+          PdfBridge.setup(messenger: controller.binaryMessenger)
+        }
       }
     }
 

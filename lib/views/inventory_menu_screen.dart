@@ -42,6 +42,7 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
     try {
       if (key == 'Scan Counter') {
         final list = await viewModel.getCounters();
+        if (!mounted) return;
         if (list.isEmpty) {
           _showToast(s.noCountersFound);
         } else {
@@ -53,6 +54,7 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
         }
       } else if (key == 'Scan Box') {
         final list = await viewModel.getBoxes();
+        if (!mounted) return;
         if (list.isEmpty) {
           _showToast(s.noBoxesFound);
         } else {
@@ -64,6 +66,7 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
         }
       } else if (key == 'Scan Branch') {
         final list = await viewModel.getBranches();
+        if (!mounted) return;
         if (list.isEmpty) {
           _showToast(s.noBranchesFound);
         } else {
@@ -75,6 +78,7 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
         }
       } else if (key == 'Exhibition') {
         final list = await viewModel.getExhibitions();
+        if (!mounted) return;
         if (list.isEmpty) {
           _showToast(s.noExhibitionsFound);
         } else {

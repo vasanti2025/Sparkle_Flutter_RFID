@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 import 'package:intl/intl.dart';
 import '../../l10n/l10n_extension.dart';
 import '../../models/delivery_challan.dart';
+import '../../utils/pdf_open_util.dart';
 
 Future<void> printDeliveryChallanPdf({
   required BuildContext context,
@@ -246,14 +246,21 @@ Future<void> printDeliveryChallanPdf({
       ),
     );
 
-    await Printing.layoutPdf(
-      onLayout: (PdfPageFormat format) async => pdf.save(),
-      name: 'Challan_${challan.challanNo ?? challan.invoiceNo ?? challan.id}.pdf',
+    final ok = await PdfOpenUtil.openPdfBytes(
+      bytes: await pdf.save(),
+      fileName: 'Challan_${challan.challanNo ?? challan.invoiceNo ?? challan.id}.pdf',
     );
+    if (!ok && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.sRead.noPdfViewerInstalled)),
+      );
+    }
   } catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(context.sRead.failedToPrintPdfMessage('$e'))),
-    );
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.sRead.failedToPrintPdfMessage('$e'))),
+      );
+    }
   }
 }
 

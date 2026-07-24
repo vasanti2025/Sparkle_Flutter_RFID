@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
 import '../models/bulk_item.dart';
+import '../services/pref_service.dart';
 import '../viewmodels/product_view_model.dart';
 
 class EditProductScreen extends StatefulWidget {
@@ -236,19 +237,18 @@ class _EditProductScreenState extends State<EditProductScreen> {
     );
 
     final success = await viewModel.updateProductItem(updatedItem, _localImagePath);
-    
+
+    if (!mounted) return;
     setState(() {
       _isSaving = false;
     });
 
     if (success) {
-      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('✅ ${context.sRead.tr('productUpdatedSuccessfully')}')),
       );
       Navigator.pop(context, true);
     } else {
-      if (!mounted) return;
       final errorMsg = viewModel.errorMessage ?? context.sRead.tr('failedToUpdateProduct');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('❌ ${context.sRead.tr('errorWithMessage', args: {'message': errorMsg})}')),
@@ -683,7 +683,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
     }
     
     if (item.imageUrl.isNotEmpty) {
-      final baseUrl = 'https://rrgold.loyalstring.co.in/';
+      final baseUrl = PrefService.defaultApiBaseUrl;
       var storedUrl = item.imageUrl.trim();
       if (storedUrl.endsWith(',')) {
         storedUrl = storedUrl.substring(0, storedUrl.length - 1).trim();

@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../../models/order_item.dart';
 import '../../l10n/l10n_extension.dart';
+import '../../utils/app_dropdown.dart';
 
 class OrderDetailsDialog extends StatefulWidget {
   final OrderItem item;
@@ -597,6 +598,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                           ? null
                           : selectedValue,
                       isExpanded: true,
+                      menuMaxHeight: kDropdownMenuMaxHeight,
                       hint: Text(context.s.selectOption(label), style: GoogleFonts.poppins(fontSize: 13)),
                       icon: const Icon(Icons.arrow_drop_down),
                       style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),

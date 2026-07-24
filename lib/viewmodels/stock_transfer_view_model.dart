@@ -83,8 +83,41 @@ class StockTransferViewModel extends ChangeNotifier {
 
   bool _initialized = false;
 
-  Future<void> initialize() async {
-    if (_initialized) return;
+  void resetSession() {
+    _initialized = false;
+    transferTypes = [];
+    allLabelledItems = [];
+    filteredItems = [];
+    previewItems = [];
+    selectedTransferType = null;
+    selectedFrom = fromPlaceholder;
+    selectedTo = toPlaceholder;
+    appliedCategory = null;
+    appliedProduct = null;
+    appliedDesign = null;
+    sourceBranchId = null;
+    destinationBranchId = null;
+    _counterNames = [];
+    _branchNames = [];
+    _boxNames = [];
+    _packetNames = [];
+    _accessibleBranchNames = [];
+    allEmployees = [];
+    errorMessage = null;
+    transferStatusMessage = null;
+    isLoading = false;
+    isBootstrapping = false;
+    notifyListeners();
+  }
+
+  Future<void> initialize({bool forceReload = false}) async {
+    if (_initialized && !forceReload) {
+      // Keep existing in-memory stock for fast re-open; only refill if empty.
+      if (allLabelledItems.isEmpty) {
+        await loadAllLabelledStock();
+      }
+      return;
+    }
     _initialized = true;
 
     isBootstrapping = true;
@@ -95,8 +128,8 @@ class StockTransferViewModel extends ChangeNotifier {
         transferTypes = await _apiService.getStockTransferTypes(clientCode);
         unawaited(loadUserPermissions());
       }
-      allLabelledItems = [];
-      filteredItems = [];
+      // Same as Sparkle: show ALL labelled stock immediately (type not required).
+      await loadAllLabelledStock();
     } catch (e) {
       errorMessage = e.toString();
     } finally {
@@ -107,25 +140,48 @@ class StockTransferViewModel extends ChangeNotifier {
     unawaited(_loadFilterOptionsAndDefaults());
   }
 
+  Future<void> loadAllLabelledStock() async {
+    try {
+      allLabelledItems = await _dbService.getLabelledBulkItems();
+      // If From is set with a transfer type, keep that filter; else show all.
+      if (selectedTransferType != null &&
+          selectedFrom != fromPlaceholder &&
+          _fromType != null) {
+        filteredItems = await _dbService.getLabelledBulkItemsFiltered(
+          fromType: _fromType!,
+          fromValue: selectedFrom,
+        );
+      } else {
+        filteredItems = List.from(allLabelledItems);
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('loadAllLabelledStock error: $e');
+      errorMessage = e.toString();
+      notifyListeners();
+    }
+  }
+
   Future<void> _loadFilterOptionsAndDefaults() async {
     try {
+      final clientCode = _prefService.getEmployee()?.clientCode ?? '';
       final results = await Future.wait<List<String>>([
         _dbService.getDistinctValues('counterName'),
         _dbService.getDistinctValues('branchName'),
         _dbService.getDistinctValues('boxName'),
         _dbService.getDistinctPacketNames(),
       ]);
-      _counterNames = results[0];
+      final dbCounters = results[0];
+      final apiCounters = clientCode.isNotEmpty
+          ? await _apiService.getAllCounterNames(clientCode)
+          : <String>[];
+      // Union API + DB names so dropdown matches items we can actually filter.
+      final merged = <String>{...apiCounters, ...dbCounters}.toList()..sort();
+      _counterNames = merged.isNotEmpty ? merged : dbCounters;
       _branchNames = results[1];
       _boxNames = results[2];
       _packetNames = results[3];
       notifyListeners();
-
-      final employee = _prefService.getEmployee();
-      if (employee?.defaultBranch != null && employee!.defaultBranch!.trim().isNotEmpty) {
-        selectedFrom = employee.defaultBranch!.trim();
-        await _applyFromFilter();
-      }
     } catch (e) {
       errorMessage = e.toString();
       notifyListeners();
@@ -193,7 +249,8 @@ class StockTransferViewModel extends ChangeNotifier {
     if (transferTypeId == 15) {
       loadUserPermissions();
     }
-    notifyListeners();
+    // Keep showing all labelled stock until From is chosen.
+    unawaited(loadAllLabelledStock());
   }
 
   Future<void> selectFrom(String value) async {
@@ -217,13 +274,34 @@ class StockTransferViewModel extends ChangeNotifier {
   Future<void> _applyFromFilter() async {
     final fromType = _fromType;
     if (fromType == null || selectedFrom == fromPlaceholder) {
-      filteredItems = [];
+      await loadAllLabelledStock();
       return;
     }
-    filteredItems = await _dbService.getLabelledBulkItemsFiltered(
-      fromType: fromType,
-      fromValue: selectedFrom,
-    );
+    try {
+      filteredItems = await _dbService.getLabelledBulkItemsFiltered(
+        fromType: fromType,
+        fromValue: selectedFrom.trim(),
+      );
+      // If exact name match found nothing, try case-insensitive contains from local cache.
+      if (filteredItems.isEmpty && allLabelledItems.isNotEmpty) {
+        final needle = selectedFrom.trim().toLowerCase();
+        filteredItems = allLabelledItems.where((item) {
+          final value = switch (fromType) {
+            'counter' => item.counterName,
+            'branch' => item.branchName,
+            'box' => item.boxName,
+            'packet' => item.packetName,
+            _ => '',
+          };
+          return value.trim().toLowerCase() == needle ||
+              value.trim().toLowerCase().contains(needle);
+        }).toList();
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('_applyFromFilter error: $e');
+      notifyListeners();
+    }
   }
 
   void applyCategoryProductDesignFilters({
@@ -420,21 +498,59 @@ class StockTransferViewModel extends ChangeNotifier {
   Future<String?> approveRejectTransfer({
     required List<LabelledStockItem> items,
     required String requestTyp,
+    required int statusType,
   }) async {
     final employee = _prefService.getEmployee();
     if (employee == null) return null;
+    final payloadItems = items
+        .map((e) => e.approveId)
+        .where((id) => id > 0)
+        .map(
+          (id) => StApproveRejectItem(
+            id: id,
+            approved: statusType == 1,
+            status: statusType,
+          ),
+        )
+        .toList();
+    if (payloadItems.isEmpty) return 'Invalid transfer item id';
     return _apiService.approveStockTransfer(
       StApproveRejectRequest(
-        stockTransferItems: items
-            .map((e) => {
-                  'ItemCode': e.itemCode ?? '',
-                  'RFID': e.rfidCode ?? '',
-                })
-            .toList(),
+        stockTransferItems: payloadItems,
         clientCode: employee.clientCode ?? '',
         userId: employee.id.toString(),
         requestTyp: requestTyp,
       ),
     );
+  }
+
+  /// Ranked item-code suggestions (itemCode only) — same as Sparkle StockTransferItemCode.
+  List<BulkItem> searchItemCodeSuggestions(String query, {int limit = 100}) {
+    final q = query.trim();
+    if (q.isEmpty) return const [];
+    final matches = displayItems.where((i) {
+      return i.itemCode.trim().toLowerCase().contains(q.toLowerCase());
+    }).toList();
+    matches.sort((a, b) {
+      int rank(BulkItem i) {
+        final code = i.itemCode.trim();
+        if (code.toLowerCase() == q.toLowerCase()) return 0;
+        if (code.toLowerCase().startsWith(q.toLowerCase())) return 1;
+        if (code.toLowerCase().contains(q.toLowerCase())) return 2;
+        return 3;
+      }
+      return rank(a).compareTo(rank(b));
+    });
+    if (matches.length <= limit) return matches;
+    return matches.sublist(0, limit);
+  }
+
+  BulkItem? findExactItemCode(String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return null;
+    for (final i in displayItems) {
+      if (i.itemCode.trim().toLowerCase() == q) return i;
+    }
+    return null;
   }
 }

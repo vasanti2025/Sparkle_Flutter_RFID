@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../l10n/l10n_extension.dart';
 import '../../models/user_permission.dart';
+import '../../utils/app_dropdown.dart';
 
 Future<bool?> showStockTransferSubmitDialog({
   required BuildContext context,
@@ -65,18 +66,11 @@ class _StockTransferSubmitDialogState extends State<_StockTransferSubmitDialog> 
       );
       return;
     }
-    final picked = await showModalBottomSheet<UserPermission>(
+    final picked = await showScrollableOptionSheet<UserPermission>(
       context: context,
-      builder: (c) => ListView(
-        children: widget.employees
-            .map(
-              (e) => ListTile(
-                title: Text('${e.displayName} (${e.employeeId})', style: GoogleFonts.poppins()),
-                onTap: () => Navigator.pop(c, e),
-              ),
-            )
-            .toList(),
-      ),
+      options: widget.employees,
+      labelOf: (e) => '${e.displayName} (${e.employeeId})',
+      title: context.sRead.tr('selectEmployee'),
     );
     if (picked != null) {
       setState(() => _selectedEmployeeId = picked.employeeId.toString());

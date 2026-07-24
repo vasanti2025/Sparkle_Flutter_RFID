@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../../l10n/l10n_extension.dart';
+import '../../utils/app_dropdown.dart';
 
 class OrderBulkDetailsDialog extends StatefulWidget {
   final List<dynamic> branches;
@@ -408,6 +409,7 @@ class _OrderBulkDetailsDialogState extends State<OrderBulkDetailsDialog> {
                       ? null
                       : cleanSelected,
                   isExpanded: true,
+                  menuMaxHeight: kDropdownMenuMaxHeight,
                   hint: Text(s.selectLabel(label), style: GoogleFonts.poppins(fontSize: 12)),
                   icon: const Icon(Icons.arrow_drop_down, size: 18),
                   style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),

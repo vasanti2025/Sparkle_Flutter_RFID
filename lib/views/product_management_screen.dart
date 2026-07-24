@@ -17,6 +17,44 @@ class ProductManagementScreen extends StatefulWidget {
 class _ProductManagementScreenState extends State<ProductManagementScreen> {
   bool _dialogShown = false;
   bool _exporting = false;
+  String? _lastShownError;
+  ProductViewModel? _vm;
+
+  @override
+  void initState() {
+    super.initState();
+    _vm = context.read<ProductViewModel>();
+    _vm!.addListener(_onVmChanged);
+  }
+
+  @override
+  void dispose() {
+    _vm?.removeListener(_onVmChanged);
+    super.dispose();
+  }
+
+  void _onVmChanged() {
+    if (!mounted || _vm == null) return;
+    final viewModel = _vm!;
+    if (viewModel.syncCompleted && !_dialogShown) {
+      _dialogShown = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _showSuccessDialog(context, viewModel);
+      });
+    }
+    final err = viewModel.errorMessage;
+    if (err != null && err != _lastShownError) {
+      _lastShownError = err;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(err), backgroundColor: Colors.red),
+        );
+        viewModel.clearErrorMessage();
+      });
+    }
+  }
 
   Future<void> _exportExcel(BuildContext context) async {
     final s = context.sRead;
@@ -47,27 +85,6 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
   Widget build(BuildContext context) {
     final s = context.s;
     final viewModel = context.watch<ProductViewModel>();
-
-    // Expiry/Success Dialog trigger
-    if (viewModel.syncCompleted && !_dialogShown) {
-      _dialogShown = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _showSuccessDialog(context, viewModel);
-      });
-    }
-
-    // Error message trigger
-    if (viewModel.errorMessage != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(viewModel.errorMessage!),
-            backgroundColor: Colors.red,
-          ),
-        );
-        viewModel.clearErrorMessage();
-      });
-    }
 
     // Define Grid Items matching original Kotlin project
     final List<Map<String, dynamic>> productItems = [

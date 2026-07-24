@@ -1,7 +1,13 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../models/employee.dart';
 import '../models/login_request.dart';
 import '../models/login_response.dart';
+import '../models/user_permission.dart';
 import '../services/api_service.dart';
+import '../services/location_sync_service.dart';
 import '../services/pref_service.dart';
 
 class LoginViewModel extends ChangeNotifier {
@@ -82,16 +88,7 @@ class LoginViewModel extends ChangeNotifier {
   }
 
   Future<void> saveCustomApiUrl(String url) async {
-    String finalUrl = url.trim();
-    if (finalUrl.isNotEmpty) {
-      if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
-        finalUrl = 'http://$finalUrl';
-      }
-      if (!finalUrl.endsWith('/')) {
-        finalUrl += '/';
-      }
-    }
-    await _prefService.saveCustomApi(finalUrl);
+    await _prefService.saveCustomApi(url);
     notifyListeners();
   }
 
@@ -192,6 +189,9 @@ class LoginViewModel extends ChangeNotifier {
       await _prefService.saveClient(client);
     }
 
+    // Save all permitted branch IDs (same as Sparkle Home) so product sync covers them.
+    await _saveBranchIdsForEmployee(employee);
+
     await _prefService.saveLoginCredentials(
       username: _username.trim(),
       password: _password,
@@ -202,8 +202,47 @@ class LoginViewModel extends ChangeNotifier {
       organisationName: client?.organisationName ?? '',
     );
 
+    // Start 15-min location upload after login (deferred so navigation stays smooth).
+    if (_prefService.isLocationSyncEnabled()) {
+      unawaited(LocationSyncService.applySettings(true));
+      Future<void>.delayed(const Duration(seconds: 5), () {
+        unawaited(LocationSyncService.syncNow().then((_) {}));
+      });
+    }
+
     _isLoading = false;
     _errorMessage = null;
     notifyListeners();
+  }
+
+  Future<void> _saveBranchIdsForEmployee(Employee employee) async {
+    final clientCode = employee.clientCode ?? '';
+    final fallback = <int>[
+      if (employee.defaultBranchId > 0) employee.defaultBranchId,
+      if ((employee.branchNo ?? 0) > 0) employee.branchNo!,
+    ].toSet().toList();
+    if (clientCode.isEmpty) {
+      await _prefService.saveBranchIds(fallback.isEmpty ? [1] : fallback);
+      return;
+    }
+    try {
+      final permissions = await _apiService.getAllUserPermissionsAll(clientCode);
+      UserPermission? current;
+      for (final p in permissions) {
+        if (p.userId == employee.id || p.employeeId == (employee.employeeId ?? -1)) {
+          current = p;
+          break;
+        }
+      }
+      final fromPerm = parseBranchSelectionJson(current?.branchSelectionJson)
+          .map((b) => b.id)
+          .where((id) => id > 0)
+          .toList();
+      final ids = fromPerm.isNotEmpty ? fromPerm : fallback;
+      await _prefService.saveBranchIds(ids.isEmpty ? [employee.defaultBranchId] : ids);
+    } catch (e) {
+      debugPrint('_saveBranchIdsForEmployee: $e');
+      await _prefService.saveBranchIds(fallback.isEmpty ? [employee.defaultBranchId] : fallback);
+    }
   }
 }

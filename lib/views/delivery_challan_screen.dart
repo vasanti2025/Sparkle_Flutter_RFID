@@ -10,10 +10,11 @@ import '../services/db_service.dart';
 import '../services/pref_service.dart';
 import '../viewmodels/delivery_challan_view_model.dart';
 import 'widgets/scan_bottom_bar.dart';
-import 'widgets/delivery_challan_pdf.dart';
+import 'widgets/delivery_challan_print_dialog.dart';
 import 'widgets/delivery_challan_fields_dialog.dart';
 import 'widgets/add_customer_dialog.dart';
 import '../utils/tag_scan_batcher.dart';
+import '../utils/barcode_scan_mixin.dart';
 import 'widgets/challan_details_dialog.dart';
 
 class DeliveryChallanScreen extends StatefulWidget {
@@ -23,7 +24,7 @@ class DeliveryChallanScreen extends StatefulWidget {
   State<DeliveryChallanScreen> createState() => _DeliveryChallanScreenState();
 }
 
-class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> {
+class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with BarcodeScanMixin {
   final RfidService _rfidService = RfidService();
   final FocusNode _focusNode = FocusNode();
   final TextEditingController _customerSearchCtrl = TextEditingController();
@@ -82,6 +83,8 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> {
       }
     });
 
+    bindBarcodeScanner();
+
     // Vertical scrolls synchronization
     _leftVScroll.addListener(() {
       if (_activeVScrollController == _leftVScroll) {
@@ -104,7 +107,27 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> {
   }
 
   @override
+  void onBarcodeScanned(String code) {
+    _itemCodeCtrl.text = code;
+    setState(() => _showItemSuggestions = false);
+    unawaited(_addItemByBarcode(code));
+  }
+
+  Future<void> _addItemByBarcode(String code) async {
+    final error = await context.read<DeliveryChallanViewModel>().addProductByCodeOrRfid(code);
+    if (!mounted) return;
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+    } else {
+      _itemCodeCtrl.clear();
+      setState(() => _showItemSuggestions = false);
+      _itemCodeFocus.unfocus();
+    }
+  }
+
+  @override
   void dispose() {
+    unbindBarcodeScanner();
     _tagBatcher.dispose();
     _suggestTimer?.cancel();
     _rfidSubscription?.cancel();
@@ -488,7 +511,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> {
                                 _itemCodeCtrl.clear();
                                 setState(() => _showItemSuggestions = false);
                               } else {
-                                addByCode(_itemCodeCtrl.text);
+                                unawaited(startBarcodeFromIcon());
                               }
                             },
                             child: Padding(
@@ -992,10 +1015,10 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> {
                   ? vm.selectedChallan!
                   : DeliveryChallanModel.fromJson(res as Map<String, dynamic>);
 
-              await printDeliveryChallanPdf(
+              // After save: print options (PDF / Bluetooth) like Kotlin list flow.
+              await showDeliveryChallanPrintOptions(
                 context: context,
                 challan: savedChallan,
-                orgName: '',
               );
 
               vm.clearChallan();

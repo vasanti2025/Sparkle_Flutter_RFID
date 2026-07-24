@@ -6,6 +6,7 @@ import '../models/delivery_challan.dart';
 import '../models/sample_out.dart';
 import '../services/api_service.dart';
 import '../services/db_service.dart';
+import '../services/list_json_cache.dart';
 import '../services/pref_service.dart';
 import '../views/widgets/sample_print_pdf.dart';
 
@@ -109,23 +110,57 @@ class SampleOutViewModel extends ChangeNotifier {
   }
 
   Future<void> loadSampleOutList() async {
-    _isListLoading = true;
-    notifyListeners();
+    final code = _prefService.getEmployee()?.clientCode ?? '';
+    final cacheKey = 'sample_out_$code';
+
+    if (_sampleOutList.isEmpty) {
+      final mem = ListJsonCache.instance.readMemory(cacheKey);
+      if (mem != null && mem.isNotEmpty) {
+        _sampleOutList = mem
+            .whereType<Map>()
+            .map((c) => SampleOutModel.fromJson(Map<String, dynamic>.from(c)))
+            .toList();
+        notifyListeners();
+      } else {
+        final cached = await ListJsonCache.instance.load(cacheKey);
+        if (cached.isNotEmpty) {
+          _sampleOutList = cached
+              .whereType<Map>()
+              .map((c) => SampleOutModel.fromJson(Map<String, dynamic>.from(c)))
+              .toList();
+          notifyListeners();
+        }
+      }
+    }
+
+    final hasCached = _sampleOutList.isNotEmpty;
+    if (!hasCached) {
+      _isListLoading = true;
+      notifyListeners();
+    }
+
     try {
-      await fetchAllSampleOut();
+      await fetchAllSampleOut(cacheKey: cacheKey);
     } finally {
       _isListLoading = false;
       notifyListeners();
     }
   }
 
-  Future<void> fetchAllSampleOut() async {
+  Future<void> fetchAllSampleOut({String? cacheKey}) async {
     try {
       final code = _prefService.getEmployee()?.clientCode ?? '';
+      final key = cacheKey ?? 'sample_out_$code';
       final raw = await _apiService.getAllSampleOut(code);
-      _sampleOutList = raw.map((c) => SampleOutModel.fromJson(c as Map<String, dynamic>)).toList();
+      _sampleOutList = raw
+          .whereType<Map>()
+          .map((c) => SampleOutModel.fromJson(Map<String, dynamic>.from(c)))
+          .toList();
+      await ListJsonCache.instance.save(key, raw);
     } catch (e) {
-      _errorMessage = e.toString();
+      if (_sampleOutList.isEmpty) {
+        _errorMessage = e.toString();
+      }
     }
     notifyListeners();
   }
