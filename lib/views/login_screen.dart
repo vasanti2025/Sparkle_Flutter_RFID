@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
+import '../viewmodels/dashboard_view_model.dart';
 import '../viewmodels/login_view_model.dart';
+import '../viewmodels/product_view_model.dart';
+import '../viewmodels/stock_transfer_view_model.dart';
 import 'widgets/curved_header_painter.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -16,6 +20,9 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _apiController = TextEditingController();
+  bool _expiryDialogQueued = false;
+  String? _lastShownError;
+  LoginViewModel? _loginVm;
 
   @override
   void initState() {
@@ -23,6 +30,8 @@ class _LoginScreenState extends State<LoginScreen> {
     // Pre-populate username and password if they were remembered
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final viewModel = Provider.of<LoginViewModel>(context, listen: false);
+      _loginVm = viewModel;
+      viewModel.addListener(_onLoginVmChanged);
       _usernameController.text = viewModel.username;
       _passwordController.text = viewModel.password;
     });
@@ -30,83 +39,183 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    _loginVm?.removeListener(_onLoginVmChanged);
     _usernameController.dispose();
     _passwordController.dispose();
     _apiController.dispose();
     super.dispose();
   }
 
+  void _onLoginVmChanged() {
+    if (!mounted || _loginVm == null) return;
+    final viewModel = _loginVm!;
+    if (viewModel.showExpiryWarning && !_expiryDialogQueued) {
+      _expiryDialogQueued = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _showExpiryWarningDialog(context, viewModel);
+        _expiryDialogQueued = false;
+      });
+    }
+    final err = viewModel.errorMessage;
+    if (err != null && err != _lastShownError) {
+      _lastShownError = err;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(err), backgroundColor: Colors.red),
+        );
+        viewModel.clearErrorMessage();
+      });
+    }
+  }
+
   void _showCustomApiDialog(BuildContext context, LoginViewModel viewModel) {
     final s = context.sRead;
     _apiController.text = viewModel.getCustomApiUrl();
 
-    showDialog(
+    showDialog<void>(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: roundedCornerShape(12),
-          title: Text(
-            s.configureCustomApi,
-            style: GoogleFonts.poppins(
-              fontWeight: FontWeight.bold,
-              fontSize: 18,
-            ),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                s.apiUrlAuthorizedMessage,
-                style: GoogleFonts.poppins(
-                  color: Colors.grey,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _apiController,
-                decoration: InputDecoration(
-                  border: const OutlineInputBorder(),
-                  labelText: s.enterApiUrl,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            Row(
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  child: TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: Text(
-                      s.cancel,
-                      style: GoogleFonts.poppins(color: Colors.grey),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Color(0xFF5231A7), Color(0xFFD32940)],
                     ),
                   ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          s.configureCustomApi,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white),
+                        onPressed: () => Navigator.pop(dialogContext),
+                      ),
+                    ],
+                  ),
                 ),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: () {
-                      viewModel.saveCustomApiUrl(_apiController.text);
-                      Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(s.customApiSaved)),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF315BA3),
-                    ),
-                    child: Text(
-                      s.save,
-                      style: GoogleFonts.poppins(color: Colors.white),
-                    ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        s.apiUrlAuthorizedMessage,
+                        style: TextStyle(
+                          color: const Color(0xFF666666),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        s.enterApiUrl,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF222222),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _apiController,
+                        keyboardType: TextInputType.url,
+                        style: TextStyle(fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText: s.customApiUrlHint,
+                          hintStyle: TextStyle(fontSize: 13, color: Colors.grey),
+                          isDense: true,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(color: Color(0xFF5231A7), width: 1.5),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(dialogContext),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            side: const BorderSide(color: Color(0xFFD0D0D0)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          child: Text(
+                            s.cancel,
+                            style: TextStyle(
+                              color: const Color(0xFF666666),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                            ),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: ElevatedButton(
+                            onPressed: () {
+                              viewModel.saveCustomApiUrl(_apiController.text.trim());
+                              Navigator.pop(dialogContext);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(s.customApiSaved)),
+                              );
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shadowColor: Colors.transparent,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            child: Text(
+                              s.save,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
-          ],
+          ),
         );
       },
     );
@@ -138,7 +247,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(width: 8),
                 Text(
                   s.expiryWarning,
-                  style: GoogleFonts.poppins(
+                  style: TextStyle(
                     color: Colors.white,
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -149,7 +258,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           content: Text(
             viewModel.expiryWarningMessage,
-            style: GoogleFonts.poppins(
+            style: TextStyle(
               color: Colors.black87,
               fontSize: 14,
             ),
@@ -166,7 +275,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     },
                     child: Text(
                       s.cancel,
-                      style: GoogleFonts.poppins(color: Colors.grey),
+                      style: TextStyle(color: Colors.grey),
                     ),
                   ),
                 ),
@@ -176,6 +285,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       Navigator.pop(context);
                       await viewModel.confirmExpiryAndLogin();
                       if (context.mounted) {
+                        final productVm = context.read<ProductViewModel>();
+                        context.read<StockTransferViewModel>().resetSession();
+                        context.read<DashboardViewModel>().loadUser();
+                        unawaited(productVm.syncProducts(force: true));
                         Navigator.pushReplacementNamed(context, '/dashboard');
                       }
                     },
@@ -184,7 +297,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     child: Text(
                       s.continueLabel,
-                      style: GoogleFonts.poppins(color: Colors.white),
+                      style: TextStyle(color: Colors.white),
                     ),
                   ),
                 ),
@@ -207,26 +320,6 @@ class _LoginScreenState extends State<LoginScreen> {
     final s = context.s;
     final viewModel = context.watch<LoginViewModel>();
 
-    // Listen for expiry warning dialog trigger
-    if (viewModel.showExpiryWarning) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _showExpiryWarningDialog(context, viewModel);
-      });
-    }
-
-    // Listen for error messages
-    if (viewModel.errorMessage != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(viewModel.errorMessage!),
-            backgroundColor: Colors.red,
-          ),
-        );
-        viewModel.clearErrorMessage();
-      });
-    }
-
     return Scaffold(
       backgroundColor: Colors.white,
       body: SingleChildScrollView(
@@ -244,7 +337,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 20),
                     Text(
                       s.welcomeTo,
-                      style: GoogleFonts.poppins(
+                      style: TextStyle(
                         color: Colors.white,
                         fontSize: 34,
                         fontWeight: FontWeight.bold,
@@ -252,7 +345,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     Text(
                       s.sparkleRfid,
-                      style: GoogleFonts.poppins(
+                      style: TextStyle(
                         color: Colors.white,
                         fontSize: 34,
                         fontWeight: FontWeight.bold,
@@ -261,7 +354,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 24),
                     Text(
                       s.pleaseLoginToContinue,
-                      style: GoogleFonts.poppins(
+                      style: TextStyle(
                         color: Colors.white,
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
@@ -300,7 +393,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 alignment: Alignment.center,
                                 child: Text(
                                   s.password,
-                                  style: GoogleFonts.poppins(
+                                  style: TextStyle(
                                     color: viewModel.selectedLoginMode == 'password'
                                         ? Colors.white
                                         : Colors.black,
@@ -397,13 +490,13 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                                 Text(
                                   s.rememberMe,
-                                  style: GoogleFonts.poppins(fontSize: 14),
+                                  style: TextStyle(fontSize: 14),
                                 ),
                               ],
                             ),
                             Text(
                               s.forgotPassword,
-                              style: GoogleFonts.poppins(
+                              style: TextStyle(
                                 color: Colors.blue,
                                 fontWeight: FontWeight.w500,
                               ),
@@ -416,7 +509,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 24),
                       Text(
                         s.useFaceDetectionLogin,
-                        style: GoogleFonts.poppins(
+                        style: TextStyle(
                           fontSize: 15,
                           color: Colors.grey,
                         ),
@@ -442,6 +535,11 @@ class _LoginScreenState extends State<LoginScreen> {
                                 if (viewModel.selectedLoginMode == 'password') {
                                   final success = await viewModel.login(context);
                                   if (success && context.mounted) {
+                                    // Reset sticky sync state and start fresh sync for this account.
+                                    final productVm = context.read<ProductViewModel>();
+                                    context.read<StockTransferViewModel>().resetSession();
+                                    context.read<DashboardViewModel>().loadUser();
+                                    unawaited(productVm.syncProducts(force: true));
                                     Navigator.pushReplacementNamed(context, '/dashboard');
                                   }
                                 } else {
@@ -468,7 +566,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   viewModel.selectedLoginMode == 'password'
                                       ? s.logIn
                                       : s.logInWithFace,
-                                  style: GoogleFonts.poppins(
+                                  style: TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 16,
@@ -485,7 +583,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       children: [
                         Text(
                           s.troubleLogin,
-                          style: GoogleFonts.poppins(color: Colors.grey),
+                          style: TextStyle(color: Colors.grey),
                         ),
                         GestureDetector(
                           onTap: () {
@@ -495,7 +593,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           },
                           child: Text(
                             s.contactUs,
-                            style: GoogleFonts.poppins(
+                            style: TextStyle(
                               color: Colors.blue,
                               fontWeight: FontWeight.bold,
                             ),
@@ -510,10 +608,12 @@ class _LoginScreenState extends State<LoginScreen> {
                       onTap: () => _showCustomApiDialog(context, viewModel),
                       child: Text(
                         s.configureCustomApi,
-                        style: GoogleFonts.poppins(
-                          color: Colors.blue,
+                        style: TextStyle(
+                          color: const Color(0xFF5231A7),
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
+                          decoration: TextDecoration.underline,
+                          decorationColor: const Color(0xFF5231A7),
                         ),
                       ),
                     ),

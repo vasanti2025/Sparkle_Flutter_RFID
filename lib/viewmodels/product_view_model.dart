@@ -130,9 +130,48 @@ class ProductViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Trigger non-blocking database sync from API using Dart Isolate
-  Future<void> syncProducts() async {
-    if (_isLoading) return;
+  /// Cancel any in-flight sync and clear sticky loading (needed after logout / stuck sync).
+  Future<void> resetForLogout() async {
+    await _syncSubscription?.cancel();
+    _syncSubscription = null;
+    _isLoading = false;
+    _syncProgress = 0.0;
+    _syncStatusText = '';
+    _syncTotalCount = 0;
+    _syncSyncedCount = 0;
+    _syncCompleted = false;
+    _skippedItemCodes = [];
+    _errorMessage = null;
+    _products.clear();
+    _offset = 0;
+    _hasReachedEnd = false;
+    _isListLoading = false;
+    resetFiltersWithoutRefresh();
+    notifyListeners();
+  }
+
+  void resetFiltersWithoutRefresh() {
+    _searchQuery = '';
+    _selectedSku = '';
+    _selectedCategory = '';
+    _selectedProduct = '';
+    _selectedDesign = '';
+    _selectedPurity = '';
+    _skuOptions = [];
+    _categoryOptions = [];
+    _productOptions = [];
+    _designOptions = [];
+    _purityOptions = [];
+  }
+
+  /// Force-start sync even if a previous attempt left `_isLoading` stuck.
+  Future<void> syncProducts({bool force = false}) async {
+    if (_isLoading && !force) return;
+    if (_isLoading && force) {
+      await _syncSubscription?.cancel();
+      _syncSubscription = null;
+      _isLoading = false;
+    }
 
     await _syncSubscription?.cancel();
     _syncSubscription = null;
@@ -159,7 +198,7 @@ class ProductViewModel extends ChangeNotifier {
     final clientCode = employee.clientCode ?? '';
     final roleId = employee.roleId ?? 0;
     final branchIds = _prefService.getBranchIds();
-    final baseUrl = _prefService.getCustomApi() ?? 'https://rrgold.loyalstring.co.in/';
+    final baseUrl = _prefService.getEffectiveApiBaseUrl();
     final tagType = _prefService.getRfidType();
     final allowSingleAndWebReusable = _prefService.isWebReusableTagEnabled();
 
@@ -242,7 +281,17 @@ class ProductViewModel extends ChangeNotifier {
       }
     });
 
-    await Isolate.spawn(SyncIsolate.run, params);
+    try {
+      await Isolate.spawn(SyncIsolate.run, params);
+    } catch (e) {
+      _isLoading = false;
+      _errorMessage = 'Failed to start sync: $e';
+      _syncStatusText = 'Sync failed';
+      receivePort.close();
+      await _syncSubscription?.cancel();
+      _syncSubscription = null;
+      notifyListeners();
+    }
   }
 
   @override

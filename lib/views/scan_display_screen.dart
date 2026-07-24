@@ -103,7 +103,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   @override
   void initState() {
     super.initState();
-    _selectedPower = context.read<PrefService>().inventoryPower;
+    _selectedPower = context.read<PrefService>().inventoryPower.clamp(1, 30);
     _rfidService.preWarmReader();
     _rfidService.clearSearchTags();
     _tagsSubscription = _rfidService.tagsStream.listen(_onTagScanned);
@@ -1213,7 +1213,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                       autofocus: true,
                     )
                   : Text(
-                      _filterValue.isNotEmpty ? _filterValue : s.inventory,
+                      _filterType == 'Scan Display'
+                          ? s.scanDisplay
+                          : (_filterValue.isNotEmpty ? _filterValue : s.inventory),
                       style: GoogleFonts.poppins(
                         color: Colors.white,
                         fontWeight: FontWeight.w600,
@@ -1232,27 +1234,42 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                     },
                   )
                 else ...[
-                  DropdownButton<int>(
-                    value: _selectedPower,
-                    dropdownColor: const Color(0xFF5231A7),
-                    icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
-                    underline: Container(),
-                    style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
-                    onChanged: (int? newValue) {
-                      if (newValue != null) {
-                        setState(() => _selectedPower = newValue);
-                        _rfidService.setPower(newValue);
-                        context.read<PrefService>().savePower(PrefService.keyInventoryCount, newValue);
-                      }
+                  // White counter box showing selected power (1-30), same as Delivery Challan.
+                  PopupMenuButton<int>(
+                    tooltip: s.rfidPower,
+                    color: Colors.white,
+                    constraints: const BoxConstraints(maxHeight: 320, minWidth: 60),
+                    onSelected: (val) {
+                      setState(() => _selectedPower = val);
+                      _rfidService.setPower(val);
+                      context.read<PrefService>().savePower(PrefService.keyInventoryCount, val);
                     },
-                    items: [5, 10, 15, 20, 25, 30].map<DropdownMenuItem<int>>((int val) {
-                      return DropdownMenuItem<int>(
-                        value: val,
-                        child: Text(s.powerLabel(val), style: GoogleFonts.poppins(color: Colors.white)),
-                      );
-                    }).toList(),
+                    itemBuilder: (context) => List.generate(30, (i) => i + 1)
+                        .map((p) => PopupMenuItem<int>(
+                              value: p,
+                              height: 36,
+                              child: Text('$p', style: GoogleFonts.poppins(fontSize: 14)),
+                            ))
+                        .toList(),
+                    child: Container(
+                      width: 32,
+                      height: 32,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '$_selectedPower',
+                        style: GoogleFonts.poppins(
+                          color: Colors.red,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 12),
                 ]
               ],
             ),

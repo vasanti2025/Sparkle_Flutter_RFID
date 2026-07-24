@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -7,10 +8,14 @@ import 'package:provider/provider.dart';
 
 import '../l10n/l10n_extension.dart';
 import '../models/employee.dart';
+import '../models/user_permission.dart';
 import '../services/api_service.dart';
 import '../services/pref_service.dart';
 import '../services/face_recognition_service.dart';
 import '../utils/camera_permission_util.dart';
+import '../viewmodels/dashboard_view_model.dart';
+import '../viewmodels/product_view_model.dart';
+import '../viewmodels/stock_transfer_view_model.dart';
 
 class FaceLoginScreen extends StatefulWidget {
   const FaceLoginScreen({super.key});
@@ -298,7 +303,39 @@ class _FaceLoginScreenState extends State<FaceLoginScreen>
       organisationName: employee.clients?.organisationName ?? '',
     );
 
+    // Save permitted branches + start product sync (same as password login).
+    try {
+      final clientCode = employee.clientCode ?? '';
+      final fallback = <int>{
+        if (employee.defaultBranchId > 0) employee.defaultBranchId,
+        if ((employee.branchNo ?? 0) > 0) employee.branchNo!,
+      }.toList();
+      if (clientCode.isNotEmpty) {
+        final api = context.read<ApiService>();
+        final permissions = await api.getAllUserPermissionsAll(clientCode);
+        UserPermission? current;
+        for (final p in permissions) {
+          if (p.userId == employee.id || p.employeeId == (employee.employeeId ?? -1)) {
+            current = p;
+            break;
+          }
+        }
+        final fromPerm = parseBranchSelectionJson(current?.branchSelectionJson)
+            .map((b) => b.id)
+            .where((id) => id > 0)
+            .toList();
+        await pref.saveBranchIds(fromPerm.isNotEmpty ? fromPerm : (fallback.isEmpty ? [employee.defaultBranchId] : fallback));
+      } else {
+        await pref.saveBranchIds(fallback.isEmpty ? [employee.defaultBranchId] : fallback);
+      }
+    } catch (_) {
+      await pref.saveBranchIds([employee.defaultBranchId]);
+    }
+
     if (mounted) {
+      context.read<DashboardViewModel>().loadUser();
+      context.read<StockTransferViewModel>().resetSession();
+      unawaited(context.read<ProductViewModel>().syncProducts(force: true));
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(s.faceMatchedSuccessfully), backgroundColor: Colors.green),
       );

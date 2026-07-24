@@ -6,52 +6,28 @@ import '../models/login_response.dart';
 import '../models/location_item.dart';
 import '../models/stock_transfer_models.dart';
 import '../models/user_permission.dart';
+import 'order_payload_builder.dart';
 import 'pref_service.dart';
 
 class ApiService {
-  static const String defaultBaseUrl = 'https://rrgold.loyalstring.co.in/';
+  static const String defaultBaseUrl = PrefService.defaultApiBaseUrl;
   
   final PrefService _prefService;
   final Dio _dio;
 
-  String get baseUrl {
-    String url = _prefService.getCustomApi()?.trim() ?? '';
-    if (url.isEmpty) {
-      url = defaultBaseUrl;
-    }
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      url = 'http://$url';
-    }
-    if (!url.endsWith('/')) {
-      url = '$url/';
-    }
-    return url;
-  }
+  String get baseUrl => _prefService.getEffectiveApiBaseUrl();
 
   ApiService(this._prefService) : _dio = Dio() {
     _dio.options.connectTimeout = const Duration(seconds: 60);
     _dio.options.receiveTimeout = const Duration(minutes: 5);
     _dio.options.sendTimeout = const Duration(minutes: 5);
+    // Default to rrgold; interceptor overrides when a custom API is saved.
+    _dio.options.baseUrl = PrefService.defaultApiBaseUrl;
     
     // Add interceptor to dynamically rewrite the base URL for every request
     _dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) {
-        String baseUrl = _prefService.getCustomApi()?.trim() ?? '';
-        if (baseUrl.isEmpty) {
-          baseUrl = defaultBaseUrl;
-        }
-        
-        // Ensure base URL starts with http/https
-        if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
-          baseUrl = 'http://$baseUrl';
-        }
-        
-        // Ensure base URL ends with trailing slash
-        if (!baseUrl.endsWith('/')) {
-          baseUrl = '$baseUrl/';
-        }
-
-        options.baseUrl = baseUrl;
+        options.baseUrl = _prefService.getEffectiveApiBaseUrl();
         
         // Add auth token if available
         final token = _prefService.getToken();
@@ -188,15 +164,37 @@ class ApiService {
     }
   }
 
+  // Full order list — Sparkle uses ClientCodeRequest only (NOT empty search fields).
+  Future<List<dynamic>> getAllOrders(String clientCode) async {
+    try {
+      final response = await _dio.post(
+        'api/Order/GetAllOrders',
+        data: {'ClientCode': clientCode},
+      );
+      if (response.statusCode == 200) {
+        final data = response.data;
+        if (data is List) return data;
+        if (data is Map && data['data'] is List) return data['data'] as List;
+      }
+      return [];
+    } on DioException catch (e) {
+      throw Exception('Failed to load orders: ${e.message}');
+    }
+  }
+
   // Search orders by RFID/Itemcode
   Future<List<dynamic>> searchOrdersByRfid(String clientCode, String query) async {
     try {
+      // Empty query → full list (same as Sparkle getAllOrderList).
+      if (query.trim().isEmpty) {
+        return getAllOrders(clientCode);
+      }
       final payload = {
         'ClientCode': clientCode,
         'RfidCode': query,
         'CustomOrderId': int.tryParse(query) ?? 0,
         'OrderId': null,
-        'OrderNo': query
+        'OrderNo': query,
       };
       final response = await _dio.post(
         'api/Order/GetAllOrders',
@@ -323,8 +321,8 @@ class ApiService {
         'api/Order/LastOrderNo',
         data: {'ClientCode': clientCode},
       );
-      if (response.statusCode == 200 && response.data is Map<String, dynamic>) {
-        return response.data as Map<String, dynamic>;
+      if (response.statusCode == 200 && response.data is Map) {
+        return Map<String, dynamic>.from(response.data as Map);
       }
       return null;
     } on DioException catch (e) {
@@ -332,12 +330,25 @@ class ApiService {
     }
   }
 
-  // Save/Create customer order
+  // Save/Create customer order — path matches Sparkle `@POST("/api/Order/AddCustomOrder")`
   Future<Map<String, dynamic>?> addCustomOrder(Map<String, dynamic> request) async {
     try {
+      // Omit nulls like Gson; keep CreatedOn as a real datetime (never null).
+      final body = OrderPayloadBuilder.omitNulls(Map<String, dynamic>.from(request));
+      body['CreatedOn'] = OrderPayloadBuilder.toIsoOffsetDateTime(
+        body['CreatedOn']?.toString() ?? body['OrderDate']?.toString(),
+      );
+      body['OrderDate'] = OrderPayloadBuilder.toIsoOffsetDateTime(
+        body['OrderDate']?.toString(),
+      );
+      body.remove('LastUpdated');
+      body.remove('DeliverDate');
+      debugPrint('AddCustomOrder POST OrderNo=${body['OrderNo']} '
+          'CustomerId=${body['CustomerId']} CreatedOn=${body['CreatedOn']} '
+          'OrderDate=${body['OrderDate']}');
       final response = await _dio.post(
-        'api/Order/AddCustomOrder',
-        data: request,
+        '/api/Order/AddCustomOrder',
+        data: body,
       );
       if (response.statusCode == 200) {
         final data = response.data;
@@ -348,21 +359,36 @@ class ApiService {
         if (data is String && data.trim().isNotEmpty) {
           return {'message': data, 'success': true};
         }
+        // Empty 200 body — treat as success (some servers return blank).
+        if (data == null || (data is String && data.trim().isEmpty)) {
+          return {'success': true, 'OrderNo': request['OrderNo']};
+        }
         throw Exception('AddCustomOrder unexpected response: $data');
       }
       throw Exception('AddCustomOrder failed: HTTP ${response.statusCode}');
     } on DioException catch (e) {
       final body = e.response?.data;
-      throw Exception('Failed to save order: ${e.message} | $body');
+      final status = e.response?.statusCode;
+      debugPrint('AddCustomOrder DioError status=$status body=$body');
+      throw Exception('Failed to save order (HTTP $status): $body');
     }
   }
 
   // Update customer order
   Future<Map<String, dynamic>?> updateCustomOrder(Map<String, dynamic> request) async {
     try {
+      final body = OrderPayloadBuilder.omitNulls(Map<String, dynamic>.from(request));
+      body['CreatedOn'] = OrderPayloadBuilder.toIsoOffsetDateTime(
+        body['CreatedOn']?.toString() ?? body['OrderDate']?.toString(),
+      );
+      body['OrderDate'] = OrderPayloadBuilder.toIsoOffsetDateTime(
+        body['OrderDate']?.toString(),
+      );
+      body.remove('LastUpdated');
+      body.remove('DeliverDate');
       final response = await _dio.post(
-        'api/Order/UpdateCustomOrder',
-        data: request,
+        '/api/Order/UpdateCustomOrder',
+        data: body,
       );
       if (response.statusCode == 200) {
         final data = response.data;
@@ -486,12 +512,15 @@ class ApiService {
 
   // ---- Quotation APIs (reuse the Order controller endpoints) -------------
 
-  // Get all quotations
-  Future<List<dynamic>> getAllQuotations(String clientCode) async {
+  // Get all quotations (BranchId required — same as Sparkle QuotationListRequest)
+  Future<List<dynamic>> getAllQuotations(String clientCode, int branchId) async {
     try {
       final response = await _dio.post(
         'api/Order/GetAllQuotation',
-        data: {'ClientCode': clientCode},
+        data: {
+          'ClientCode': clientCode,
+          'BranchId': branchId,
+        },
       );
       if (response.statusCode == 200 && response.data is List) {
         return response.data as List;
@@ -810,7 +839,8 @@ class ApiService {
     }
   }
 
-  Future<bool> addClientLocation({
+  /// Returns null on success, or an error message on failure.
+  Future<String?> addClientLocation({
     required String clientCode,
     required int userId,
     required int branchId,
@@ -830,9 +860,18 @@ class ApiService {
           'Address': address,
         },
       );
-      return response.statusCode == 200;
-    } on DioException {
-      return false;
+      final code = response.statusCode ?? 0;
+      if (code >= 200 && code < 300) {
+        debugPrint('AddClientLocation OK: ${response.data}');
+        return null;
+      }
+      final msg = 'HTTP $code: ${response.data}';
+      debugPrint('AddClientLocation $msg');
+      return msg;
+    } on DioException catch (e) {
+      final msg = '${e.response?.statusCode ?? ''} ${e.response?.data ?? e.message}'.trim();
+      debugPrint('AddClientLocation failed: $msg');
+      return msg.isEmpty ? 'Network error' : msg;
     }
   }
 
@@ -850,13 +889,31 @@ class ApiService {
           'BranchId': branchId,
         },
       );
-      if (response.statusCode != 200) return [];
-      final data = response.data;
-      if (data is List) {
-        return data.map((e) => LocationItem.fromJson(e as Map<String, dynamic>)).toList();
+      if (response.statusCode != 200) {
+        debugPrint('GetClientLocations HTTP ${response.statusCode}: ${response.data}');
+        return [];
       }
+      final data = response.data;
+      List<dynamic>? list;
+      if (data is List) {
+        list = data;
+      } else if (data is Map) {
+        final nested = data['locations'] ?? data['Locations'] ?? data['data'] ?? data['Data'];
+        if (nested is List) list = nested;
+      }
+      if (list == null) {
+        debugPrint('GetClientLocations: unexpected body type ${data.runtimeType}: $data');
+        return [];
+      }
+      return list
+          .whereType<Map>()
+          .map((e) => LocationItem.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    } on DioException catch (e) {
+      debugPrint('GetClientLocations failed: ${e.response?.statusCode} ${e.response?.data ?? e.message}');
       return [];
-    } on DioException {
+    } catch (e) {
+      debugPrint('GetClientLocations parse error: $e');
       return [];
     }
   }
@@ -1071,6 +1128,73 @@ class ApiService {
     } catch (e) {
       debugPrint('Error approveStockTransfer: $e');
       return null;
+    }
+  }
+
+  /// Same as Sparkle getCompanyDetails — used for Bluetooth print header (non-LS000053).
+  Future<String?> getCompanyName(String clientCode) async {
+    if (clientCode.trim().isEmpty) return null;
+    try {
+      final response = await _dio.post(
+        'api/ClientOnboarding/GetAllCompanyDetails',
+        data: {'ClientCode': clientCode},
+      );
+      if (response.statusCode != 200) return null;
+      final data = response.data;
+      List<dynamic>? list;
+      if (data is List) {
+        list = data;
+      } else if (data is Map) {
+        for (final key in ['data', 'Data', 'result', 'Result']) {
+          if (data[key] is List) {
+            list = data[key] as List;
+            break;
+          }
+        }
+      }
+      if (list == null || list.isEmpty) return null;
+      final first = list.first;
+      if (first is! Map) return null;
+      final name = first['compName']?.toString() ?? first['CompName']?.toString();
+      final trimmed = name?.trim() ?? '';
+      return trimmed.isEmpty ? null : trimmed;
+    } catch (e) {
+      debugPrint('Error getCompanyName: $e');
+      return null;
+    }
+  }
+
+  Future<List<String>> getAllCounterNames(String clientCode) async {
+    if (clientCode.trim().isEmpty) return [];
+    try {
+      final response = await _dio.post(
+        'api/ClientOnboarding/GetAllCounters',
+        data: {'ClientCode': clientCode},
+      );
+      if (response.statusCode != 200) return [];
+      final data = response.data;
+      List<dynamic>? list;
+      if (data is List) {
+        list = data;
+      } else if (data is Map) {
+        for (final key in ['data', 'Data', 'result', 'Result']) {
+          if (data[key] is List) {
+            list = data[key] as List;
+            break;
+          }
+        }
+      }
+      if (list == null) return [];
+      final names = <String>[];
+      for (final e in list) {
+        if (e is! Map) continue;
+        final name = (e['CounterName'] ?? e['counterName'])?.toString().trim() ?? '';
+        if (name.isNotEmpty) names.add(name);
+      }
+      return names.toSet().toList()..sort();
+    } catch (e) {
+      debugPrint('Error getAllCounterNames: $e');
+      return [];
     }
   }
 

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../l10n/l10n_extension.dart';
+import '../../utils/pdf_open_util.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 
 class SamplePrintItem {
   final String itemDetails;
@@ -195,10 +195,15 @@ Future<void> printSamplePrintPdf({
       ),
     );
 
-    await Printing.layoutPdf(
-      onLayout: (PdfPageFormat format) async => pdf.save(),
-      name: '${filePrefix}_${data.sampleOutNo.isNotEmpty ? data.sampleOutNo : 'Print'}.pdf',
+    final ok = await PdfOpenUtil.openPdfBytes(
+      bytes: await pdf.save(),
+      fileName: '${filePrefix}_${data.sampleOutNo.isNotEmpty ? data.sampleOutNo : 'Print'}.pdf',
     );
+    if (!ok && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.sRead.noPdfViewerInstalled)),
+      );
+    }
   } catch (e) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

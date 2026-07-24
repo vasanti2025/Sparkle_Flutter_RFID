@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../l10n/l10n_extension.dart';
+import '../../utils/app_dropdown.dart';
 
 const brandGradient = LinearGradient(
   colors: [Color(0xFF5231A7), Color(0xFFD32940)],
@@ -47,6 +48,7 @@ class FilterDropdown extends StatelessWidget {
         child: DropdownButtonHideUnderline(
           child: DropdownButton<String>(
             isExpanded: true,
+            menuMaxHeight: kDropdownMenuMaxHeight,
             value: selected.isEmpty ? null : selected,
             hint: Text(
               label,
@@ -153,6 +155,7 @@ class ProductDropdownField extends StatelessWidget {
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
                     isExpanded: true,
+                    menuMaxHeight: kDropdownMenuMaxHeight,
                     value: selected.isEmpty ? null : selected,
                     hint: Text(s.selectOption(label), style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey)),
                     items: options
@@ -274,6 +277,7 @@ class _ScanPowerCounter extends StatelessWidget {
   Widget build(BuildContext context) {
     return PopupMenuButton<int>(
       offset: const Offset(0, 48),
+      constraints: kPopupMenuConstraints,
       onSelected: onCountSelected,
       itemBuilder: (ctx) => List.generate(
         30,

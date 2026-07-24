@@ -6,6 +6,7 @@ import '../l10n/l10n_extension.dart';
 import '../../models/stock_verification_report.dart';
 import '../../services/consolidated_report_export_service.dart';
 import '../../viewmodels/stock_verification_view_model.dart';
+import '../utils/app_dropdown.dart';
 import 'widgets/consolidated_report_tree.dart';
 
 class StockVerificationReportScreen extends StatefulWidget {
@@ -200,19 +201,23 @@ class _StockVerificationReportScreenState extends State<StockVerificationReportS
   }
 
   Widget _buildBatchList(StockVerificationViewModel vm) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: SizedBox(
-        width: 620,
-        child: Column(
-          children: [
-            const BatchHeaderRow(),
-            Expanded(
-              child: _buildBatchBody(vm),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth < 620 ? 620.0 : constraints.maxWidth;
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: width,
+            height: constraints.maxHeight,
+            child: Column(
+              children: [
+                const BatchHeaderRow(),
+                Expanded(child: _buildBatchBody(vm)),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -234,11 +239,20 @@ class _StockVerificationReportScreenState extends State<StockVerificationReportS
             final session = sessions[index];
             return BatchSessionRow(
               session: session,
-              onTap: () => Navigator.pushNamed(
-                context,
-                '/report_batch_details',
-                arguments: {'scanBatchId': session.scanBatchId},
-              ),
+              onTap: () {
+                final id = session.scanBatchId.trim();
+                if (id.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(context.sRead.noSessionsFound)),
+                  );
+                  return;
+                }
+                Navigator.pushNamed(
+                  context,
+                  '/report_batch_details',
+                  arguments: {'scanBatchId': id},
+                );
+              },
             );
           },
         );
@@ -472,6 +486,7 @@ class _BatchFilterDialogState extends State<_BatchFilterDialog> {
             const SizedBox(height: 6),
             DropdownButtonFormField<int?>(
               value: _branchId,
+              menuMaxHeight: kDropdownMenuMaxHeight,
               decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
               items: [
                 DropdownMenuItem<int?>(value: null, child: Text(s.allBranches)),

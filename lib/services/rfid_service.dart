@@ -2,13 +2,14 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'db_service.dart';
+import 'pref_service.dart';
 
 class RfidService {
   static final RfidService _instance = RfidService._internal();
   factory RfidService() => _instance;
 
   RfidService._internal() {
-    _initChannels();
+    _readyFuture = _initChannels();
   }
 
   static const _methodChannel = MethodChannel('com.loyalstring.rfid/uhf');
@@ -16,6 +17,9 @@ class RfidService {
 
   bool _isSupported = false;
   bool get isSupported => _isSupported;
+
+  late final Future<void> _readyFuture;
+  Future<void> get ready => _readyFuture;
 
   bool _isScanning = false;
   bool get isScanning => _isScanning;
@@ -47,26 +51,46 @@ class RfidService {
   final _triggerController = StreamController<void>.broadcast();
   Stream<void> get triggerStream => _triggerController.stream;
 
+  final _barcodeController = StreamController<String>.broadcast();
+  Stream<String> get barcodeStream => _barcodeController.stream;
+
+  final _barcodeTriggerController = StreamController<void>.broadcast();
+  Stream<void> get barcodeTriggerStream => _barcodeTriggerController.stream;
+
   StreamSubscription? _eventSubscription;
   Timer? _simulationTimer;
   List<String> _simulatedTagsPool = [];
   int _simulationIndex = 0;
 
-  void _initChannels() async {
-    try {
-      _isSupported = await _methodChannel.invokeMethod<bool>('isSupported') ?? false;
-      if (_isSupported) {
-        await _methodChannel.invokeMethod('initReader');
+  Future<void> _initChannels() async {
+    // Startup must NOT call initReader — Chainway UART init can block 1–2+ minutes.
+    // Only probe support; hardware init happens lazily on first scan.
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        _isSupported = await _methodChannel
+            .invokeMethod<bool>('isSupported')
+            .timeout(const Duration(milliseconds: 800), onTimeout: () => false) ??
+            false;
+        if (_isSupported) break;
+      } catch (e) {
+        debugPrint('RFID channel not ready (attempt ${attempt + 1}): $e');
+        _isSupported = false;
       }
-    } catch (e) {
-      debugPrint('RFID Hardware check failed, using simulator fallback: $e');
-      _isSupported = false;
+      await Future<void>.delayed(Duration(milliseconds: 100 * (attempt + 1)));
+    }
+    if (!_isSupported) {
+      debugPrint('RFID Hardware check failed, using simulator fallback');
     }
 
     _eventSubscription = _eventChannel.receiveBroadcastStream().listen(
       (event) {
         if (event == 'TRIGGER_CLICK') {
           _triggerController.add(null);
+        } else if (event == 'BARCODE_TRIGGER') {
+          _barcodeTriggerController.add(null);
+        } else if (event is String && event.startsWith('BARCODE:')) {
+          final code = event.substring(8).trim();
+          if (code.isNotEmpty) _barcodeController.add(code);
         } else if (event == 'TRAY_CONNECTED') {
           _trayConnected = true;
         } else if (event == 'TRAY_DISCONNECTED') {
@@ -91,6 +115,45 @@ class RfidService {
         debugPrint('RFID Event Stream Error: $err');
       },
     );
+  }
+
+  Future<bool> ensureReady() async {
+    await _readyFuture;
+    return _isSupported;
+  }
+
+  /// Open Chainway barcode decoder (idempotent).
+  Future<bool> openBarcode() async {
+    await ensureReady();
+    if (!_isSupported) return false;
+    try {
+      return await _methodChannel.invokeMethod<bool>('openBarcode') ?? false;
+    } catch (e) {
+      debugPrint('openBarcode error: $e');
+      return false;
+    }
+  }
+
+  /// Start hardware barcode scan (same as Sparkle BulkViewModel.startBarcodeScanning).
+  Future<bool> startBarcodeScan() async {
+    await ensureReady();
+    if (!_isSupported) return false;
+    try {
+      await openBarcode();
+      return await _methodChannel.invokeMethod<bool>('startBarcodeScan') ?? false;
+    } catch (e) {
+      debugPrint('startBarcodeScan error: $e');
+      return false;
+    }
+  }
+
+  Future<void> stopBarcodeScan() async {
+    if (!_isSupported) return;
+    try {
+      await _methodChannel.invokeMethod('stopBarcodeScan');
+    } catch (e) {
+      debugPrint('stopBarcodeScan error: $e');
+    }
   }
 
   void _emitParsedTag(String event) {
@@ -124,8 +187,10 @@ class RfidService {
     required String address,
   }) async {
     _trayModeEnabled = enabled;
+    await ensureReady();
     if (!_isSupported || !enabled || address.isEmpty) return;
     await applyTrayMode(enabled: true, address: address);
+    await waitForBleConnection(isR6: false, timeout: const Duration(seconds: 12));
   }
 
   Future<void> restoreR6ModeFromPrefs({
@@ -133,14 +198,17 @@ class RfidService {
     required String address,
   }) async {
     _r6ModeEnabled = enabled;
+    await ensureReady();
     if (!_isSupported || !enabled || address.isEmpty) return;
     await applyR6Mode(enabled: true, address: address);
+    await waitForBleConnection(isR6: true, timeout: const Duration(seconds: 12));
   }
 
   Future<bool> applyTrayMode({
     required bool enabled,
     String address = '',
   }) async {
+    await ensureReady();
     _trayModeEnabled = enabled;
     if (enabled) {
       _r6ModeEnabled = false;
@@ -165,6 +233,7 @@ class RfidService {
     required bool enabled,
     String address = '',
   }) async {
+    await ensureReady();
     _r6ModeEnabled = enabled;
     if (enabled) {
       _trayModeEnabled = false;
@@ -183,6 +252,27 @@ class RfidService {
       _r6Connected = false;
       return false;
     }
+  }
+
+  /// Poll native connection after setTrayMode / setR6Mode (BLE connect is async).
+  Future<bool> waitForBleConnection({
+    required bool isR6,
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      final status = isR6 ? await getR6Status() : await getTrayStatus();
+      if (status['connected'] == true) {
+        return true;
+      }
+      // Stay patient while GATT handshake is in flight (avoids cancelOpen loops).
+      await Future<void>.delayed(
+        status['connecting'] == true
+            ? const Duration(milliseconds: 600)
+            : const Duration(milliseconds: 400),
+      );
+    }
+    return false;
   }
 
   Future<Map<String, dynamic>> getTrayStatus() async {
@@ -205,7 +295,12 @@ class RfidService {
 
   Future<Map<String, dynamic>> getR6Status() async {
     if (!_isSupported) {
-      return {'enabled': _r6ModeEnabled, 'connected': false, 'address': ''};
+      return {
+        'enabled': _r6ModeEnabled,
+        'connected': false,
+        'address': '',
+        'connecting': false,
+      };
     }
     try {
       final status = await _methodChannel.invokeMethod<Map<dynamic, dynamic>>('getR6Status');
@@ -214,14 +309,21 @@ class RfidService {
         'enabled': status?['enabled'] == true,
         'connected': status?['connected'] == true,
         'address': status?['address']?.toString() ?? '',
+        'connecting': status?['connecting'] == true,
       };
     } catch (e) {
       debugPrint('Error reading R6 status: $e');
-      return {'enabled': _r6ModeEnabled, 'connected': _r6Connected, 'address': ''};
+      return {
+        'enabled': _r6ModeEnabled,
+        'connected': _r6Connected,
+        'address': '',
+        'connecting': false,
+      };
     }
   }
 
   Future<List<Map<String, String>>> listBondedBluetoothDevices() async {
+    await ensureReady();
     if (!_isSupported) return const [];
     try {
       final list = await _methodChannel.invokeMethod<List<dynamic>>('listBondedBluetoothDevices');
@@ -252,6 +354,52 @@ class RfidService {
     return true;
   }
 
+  /// Ensures Chainway R6 BLE is connected using saved prefs address.
+  /// Does not affect tray / UART gun paths.
+  Future<bool> _ensureR6ReadyForScan() async {
+    final prefs = await PrefService.init();
+    final prefsR6 = prefs.isR6ModeEnabled();
+    if (!prefsR6 && !_r6ModeEnabled) {
+      return true; // R6 not in use
+    }
+
+    _r6ModeEnabled = true;
+    _trayModeEnabled = false;
+
+    var status = await getR6Status();
+    if (status['connected'] == true) {
+      _r6Connected = true;
+      return true;
+    }
+
+    var address = status['address']?.toString().trim() ?? '';
+    if (address.isEmpty) {
+      address = prefs.getR6DeviceAddress().trim();
+    }
+    if (address.isEmpty) {
+      debugPrint('R6 mode on but no device address saved');
+      return false;
+    }
+
+    // Kick native connect once if idle. Native startScanning does the real
+    // connectAndWait (with pre-scan retry) — keep this wait short.
+    final alreadyEnabled = status['enabled'] == true;
+    final connecting = status['connecting'] == true;
+    if (!alreadyEnabled || (!connecting && status['connected'] != true)) {
+      if (!connecting) {
+        await applyR6Mode(enabled: true, address: address);
+      }
+    }
+
+    final ok = await waitForBleConnection(isR6: true, timeout: const Duration(seconds: 8));
+    _r6Connected = ok;
+    if (!ok) {
+      debugPrint('R6 BLE not ready yet for $address — native will connectAndWait');
+    }
+    // Return true so inventory still reaches native R6 connectAndWait path.
+    return true;
+  }
+
   Future<bool> startScanning({
     int power = 5,
     List<String> simulatedScopeTags = const [],
@@ -261,24 +409,36 @@ class RfidService {
       await stopScanning();
     }
     _power = power;
+    await ensureReady();
 
     if (_isSupported) {
       try {
-        // BLE tray/R6 require an active Bluetooth connection before scan.
+        // BLE tray require an active Bluetooth connection before scan.
         if (_trayModeEnabled) {
-          final status = await getTrayStatus();
+          var status = await getTrayStatus();
+          if (status['connected'] != true) {
+            final address = status['address']?.toString() ?? '';
+            if (address.isNotEmpty) {
+              await applyTrayMode(enabled: true, address: address);
+              await waitForBleConnection(isR6: false, timeout: const Duration(seconds: 8));
+              status = await getTrayStatus();
+            }
+          }
           if (status['connected'] != true) {
             debugPrint('Tray mode on but tray not connected — cannot start scan');
             return false;
           }
         }
-        if (_r6ModeEnabled) {
-          final status = await getR6Status();
-          if (status['connected'] != true) {
-            debugPrint('R6 mode on but R6 not connected — cannot start scan');
-            return false;
+
+        // R6 sled: prefer connected, but always hand off to native startScanning
+        // which performs connectAndWait / initialize (Dart wait alone is not enough).
+        if (_r6ModeEnabled || (await PrefService.init()).isR6ModeEnabled()) {
+          final r6Ok = await _ensureR6ReadyForScan();
+          if (!r6Ok) {
+            debugPrint('R6 not connected yet — native startScanning will retry BLE connect');
           }
         }
+
         // Inventory screen prepares scope before calling; other screens need
         // a standard product-scan session (Order / Challan / Quotation / Search).
         if (!inventory) {
@@ -294,6 +454,9 @@ class RfidService {
             false;
         if (started) {
           _isScanning = true;
+          if (_r6ModeEnabled) {
+            _r6Connected = true;
+          }
         }
         return started;
       } catch (e) {
@@ -387,6 +550,10 @@ class RfidService {
   Future<bool> prepareForScan() async {
     if (_isSupported) {
       try {
+        // Lazy UART init only when user actually scans (never on app open).
+        await _methodChannel
+            .invokeMethod('initReader')
+            .timeout(const Duration(seconds: 20), onTimeout: () => false);
         return await _methodChannel.invokeMethod<bool>('prepareForScan') ?? false;
       } catch (e) {
         debugPrint('Error prepareForScan: $e');
@@ -447,12 +614,7 @@ class RfidService {
   }
 
   Future<void> preWarmReader() async {
-    if (!_isSupported) return;
-    try {
-      await _methodChannel.invokeMethod('initReader');
-    } catch (e) {
-      debugPrint('Error pre-warming reader: $e');
-    }
+    // No-op on startup path. UART init is deferred to first scan (prepareForScan).
   }
 
   Future<bool> clearSearchTags() async {

@@ -2,10 +2,32 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "RFID Flutter (C71 arm64)",
+      "name": "RFID Flutter Debug (hot reload)",
       "request": "launch",
       "type": "dart",
       "program": "lib/main.dart",
+      "toolArgs": [
+        "--target-platform",
+        "android-arm64"
+      ]
+    },
+    {
+      "name": "RFID Flutter Profile (fast, near-release)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "flutterMode": "profile",
+      "toolArgs": [
+        "--target-platform",
+        "android-arm64"
+      ]
+    },
+    {
+      "name": "RFID Flutter Release (fastest open)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "flutterMode": "release",
       "toolArgs": [
         "--target-platform",
         "android-arm64"

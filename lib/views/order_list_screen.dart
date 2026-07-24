@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
 import '../viewmodels/order_view_model.dart';
+import 'widgets/list_action_icon.dart';
 import 'widgets/order_pdf.dart';
 import 'widgets/spreadsheet_list_view.dart';
 
@@ -20,8 +21,11 @@ class _OrderListScreenState extends State<OrderListScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<OrderViewModel>().fetchOrdersHistory();
+    Future.microtask(() async {
+      if (!mounted) return;
+      final vm = context.read<OrderViewModel>();
+      // Skip long pending sync on open — cloud button / background worker handle that.
+      await vm.fetchOrdersHistory(syncPendingFirst: false);
     });
   }
 
@@ -33,7 +37,10 @@ class _OrderListScreenState extends State<OrderListScreen> {
 
   void _editOrder(Map<String, dynamic> order) {
     context.read<OrderViewModel>().setOrderForEditing(order);
-    Navigator.pushNamed(context, '/order');
+    Navigator.pushNamed(context, '/order').then((_) {
+      if (!mounted) return;
+      context.read<OrderViewModel>().fetchOrdersHistory();
+    });
   }
 
   void _confirmDelete(Map<String, dynamic> order) {
@@ -84,17 +91,84 @@ class _OrderListScreenState extends State<OrderListScreen> {
   }
 
   Future<void> _syncOrders() async {
-    final s = context.s;
+    // Use sRead (listen: false) — context.s watches LocaleService and crashes in onPressed.
+    final s = context.sRead;
     final vm = context.read<OrderViewModel>();
+    if (vm.isSyncing) return;
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(s.syncOrdersNow),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+
     final before = vm.pendingSyncCount;
     final count = await vm.syncPendingOrdersNow();
     if (!mounted) return;
-    if (count > 0) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s.dataSyncSuccessfully)));
-    } else if (before > 0) {
-      final err = vm.errorMessage ?? 'Sync failed — check internet and try again';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${s.error}: $err')));
+
+    final remaining = vm.pendingSyncCount;
+    final err = vm.errorMessage;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+    if (count > 0 && remaining == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(s.dataSyncSuccessfully)),
+      );
+      return;
     }
+
+    if (count == 0 && before == 0 && remaining == 0 && (err == null || err.isEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nothing to sync')),
+      );
+      return;
+    }
+
+    // Always show the real server/local error in a dialog (snackbars truncate).
+    final message = (err != null && err.isNotEmpty)
+        ? err
+        : (remaining > 0
+            ? 'Synced $count; $remaining still pending'
+            : 'Sync failed — check internet / customer');
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          count > 0 ? 'Partial sync' : s.error,
+          style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+        ),
+        content: SingleChildScrollView(
+          child: SelectableText(
+            message,
+            style: GoogleFonts.poppins(fontSize: 13),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final deleted = await vm.clearFailedPendingCreates();
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Cleared $deleted stuck pending order(s). Create the order again, then sync.',
+                  ),
+                ),
+              );
+            },
+            child: Text('Clear stuck', style: GoogleFonts.poppins(color: Colors.red)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('OK', style: GoogleFonts.poppins()),
+          ),
+        ],
+      ),
+    );
   }
 
   String _formatDate(dynamic raw) {
@@ -150,6 +224,7 @@ class _OrderListScreenState extends State<OrderListScreen> {
     final ordersHistory = context.select<OrderViewModel, List<dynamic>>((vm) => vm.ordersHistory);
     final isOfflineMode = context.select<OrderViewModel, bool>((vm) => vm.isOfflineMode);
     final pendingSyncCount = context.select<OrderViewModel, int>((vm) => vm.pendingSyncCount);
+    final isSyncing = context.select<OrderViewModel, bool>((vm) => vm.isSyncing);
     final query = _searchController.text.trim().toLowerCase();
 
     final filtered = ordersHistory.where((o) {
@@ -176,20 +251,34 @@ class _OrderListScreenState extends State<OrderListScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          if (pendingSyncCount > 0)
-            IconButton(
-              tooltip: s.syncOrdersNow,
-              icon: Badge(
-                label: Text('$pendingSyncCount', style: const TextStyle(fontSize: 10)),
-                child: const Icon(Icons.cloud_upload, color: Colors.white),
-              ),
-              onPressed: _syncOrders,
-            ),
+          // Always show sync — previously hidden when pendingSyncCount == 0,
+          // so taps appeared to do nothing when the badge was missing.
+          IconButton(
+            tooltip: s.syncOrdersNow,
+            onPressed: isSyncing ? null : _syncOrders,
+            icon: isSyncing
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: Colors.white,
+                    ),
+                  )
+                : Badge(
+                    isLabelVisible: pendingSyncCount > 0,
+                    label: Text('$pendingSyncCount', style: const TextStyle(fontSize: 10)),
+                    child: const Icon(Icons.cloud_upload, color: Colors.white),
+                  ),
+          ),
           IconButton(
             icon: const Icon(Icons.add, color: Colors.white),
             onPressed: () {
               context.read<OrderViewModel>().clearEditMode();
-              Navigator.pushNamed(context, '/order');
+              Navigator.pushNamed(context, '/order').then((_) {
+                if (!mounted) return;
+                context.read<OrderViewModel>().fetchOrdersHistory();
+              });
             },
           ),
         ],
@@ -248,11 +337,19 @@ class _OrderListScreenState extends State<OrderListScreen> {
             ),
           ),
           Expanded(
-            child: isHistoryLoading
-                ? const Center(child: CircularProgressIndicator(color: Color(0xFF5231A7)))
-                : filtered.isEmpty
-                    ? _buildEmptyState()
-                    : _buildSpreadsheetView(filtered, context.read<OrderViewModel>()),
+            child: Column(
+              children: [
+                if (isHistoryLoading && filtered.isNotEmpty)
+                  const LinearProgressIndicator(minHeight: 2, color: Color(0xFF5231A7)),
+                Expanded(
+                  child: isHistoryLoading && filtered.isEmpty
+                      ? const Center(child: CircularProgressIndicator(color: Color(0xFF5231A7)))
+                      : filtered.isEmpty
+                          ? _buildEmptyState()
+                          : _buildSpreadsheetView(filtered, context.read<OrderViewModel>()),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -288,7 +385,14 @@ class _OrderListScreenState extends State<OrderListScreen> {
           valueBuilder: (i) {
             final order = list[i] as Map<String, dynamic>;
             final no = _resolveOrderNo(order);
-            final pending = list[i]['IsPendingSync'] == true;
+            final pending = order['IsPendingSync'] == true ||
+                order['IsPendingSync']?.toString().toLowerCase() == 'true' ||
+                (order['LocalOrderId']?.toString().isNotEmpty == true &&
+                    (order['CustomOrderId'] == null ||
+                        order['CustomOrderId'] == 0 ||
+                        order['CustomOrderId']?.toString() == '0')) ||
+                (order['OrderNo']?.toString().startsWith('LOCAL-') == true) ||
+                (order['OrderStatus']?.toString().toUpperCase().contains('PENDING') == true);
             return pending && no != '-' ? '$no *' : no;
           },
         ),
@@ -354,34 +458,21 @@ class _OrderListScreenState extends State<OrderListScreen> {
         return Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            _actionIcon(Icons.edit, Colors.blue, () => _editOrder(order)),
-            const SizedBox(width: 6),
-            _actionIcon(Icons.print, Colors.red, () async {
-              await printCustomOrderPdf(
-                context: context,
-                orderRes: order,
-                baseUrl: vm.baseUrl,
-              );
-            }),
-            const SizedBox(width: 6),
-            _actionIcon(Icons.delete, Colors.redAccent, () => _confirmDelete(order)),
+            listActionIcon(icon: Icons.edit, onTap: () => _editOrder(order)),
+            listActionIcon(
+              icon: Icons.print,
+              onTap: () async {
+                await printCustomOrderPdf(
+                  context: context,
+                  orderRes: order,
+                  baseUrl: vm.baseUrl,
+                );
+              },
+            ),
+            listActionIcon(icon: Icons.delete, onTap: () => _confirmDelete(order)),
           ],
         );
       },
-    );
-  }
-
-  Widget _actionIcon(IconData icon, Color color, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icon, size: 14, color: color),
-      ),
     );
   }
 }

@@ -410,21 +410,29 @@ class BatchSessionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 3),
-        color: const Color(0xFFF5F5F5),
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Row(
-          children: [
-            Expanded(flex: 14, child: _cell(session.branchName ?? '_')),
-            Expanded(flex: 14, child: _cell(formatReportDateTime(session.startedOn))),
-            Expanded(flex: 14, child: _cell(formatReportDateTime(session.endedOn))),
-            Expanded(flex: 10, child: _cell('${session.totalQty}')),
-            Expanded(flex: 10, child: _cell('${session.matchQty}')),
-            Expanded(flex: 12, child: _cell('${session.unmatchQty}')),
-          ],
+    return Material(
+      color: const Color(0xFFF5F5F5),
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 3),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(
+            children: [
+              Expanded(flex: 14, child: _cell(session.branchName ?? '_')),
+              Expanded(flex: 14, child: _cell(formatReportDateTime(session.startedOn))),
+              Expanded(flex: 14, child: _cell(formatReportDateTime(session.endedOn))),
+              Expanded(flex: 10, child: _cell('${session.totalQty}')),
+              Expanded(
+                flex: 10,
+                child: _qtyBadge('${session.matchQty}', const Color(0xFFC8E6C9), const Color(0xFF2E7D32)),
+              ),
+              Expanded(
+                flex: 12,
+                child: _qtyBadge('${session.unmatchQty}', const Color(0xFFFFCDD2), const Color(0xFFC62828)),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -437,6 +445,22 @@ class BatchSessionRow extends StatelessWidget {
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
       );
+
+  Widget _qtyBadge(String value, Color bg, Color fg) {
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          value,
+          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: fg),
+        ),
+      ),
+    );
+  }
 
   String formatReportDateTime(String dateTime) {
     try {

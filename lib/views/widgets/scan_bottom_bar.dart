@@ -22,37 +22,41 @@ Widget _buildBarButton({
   final iconColor = Colors.grey[700]!;
   final bool showStop = isGscan && isScanning && !isScreen;
 
-  return TextButton(
-    onPressed: onTap,
-    style: TextButton.styleFrom(
-      padding: EdgeInsets.zero,
-      minimumSize: const Size(60, 60),
-    ),
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        if (showStop)
-          Icon(Icons.close, color: iconColor, size: 24)
-        else if (isGscan)
-          SvgPicture.string(
-            _gscanSvgStr,
-            width: 24,
-            height: 24,
-            colorFilter: ColorFilter.mode(iconColor, BlendMode.srcIn),
-          )
-        else
-          Icon(icon, color: iconColor, size: 24),
-        const SizedBox(height: 2),
-        Text(
-          showStop ? stopLabel : label,
-          style: GoogleFonts.poppins(
-            color: iconColor,
-            fontSize: 11,
-            fontWeight: FontWeight.w500,
-          ),
+  return Material(
+    color: Colors.transparent,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: SizedBox(
+        width: 64,
+        height: 60,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (showStop)
+              Icon(Icons.close, color: iconColor, size: 24)
+            else if (isGscan)
+              SvgPicture.string(
+                _gscanSvgStr,
+                width: 24,
+                height: 24,
+                colorFilter: ColorFilter.mode(iconColor, BlendMode.srcIn),
+              )
+            else
+              Icon(icon, color: iconColor, size: 24),
+            const SizedBox(height: 2),
+            Text(
+              showStop ? stopLabel : label,
+              style: GoogleFonts.poppins(
+                color: iconColor,
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     ),
   );
 }

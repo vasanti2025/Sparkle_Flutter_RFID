@@ -23,18 +23,29 @@ class LocationItem {
     this.statusType,
   });
 
+  static bool? _parseStatusType(dynamic value) {
+    if (value == null) return null;
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    final s = value.toString().trim().toLowerCase();
+    if (s == 'true' || s == '1') return true;
+    if (s == 'false' || s == '0') return false;
+    return null;
+  }
+
   factory LocationItem.fromJson(Map<String, dynamic> json) {
+    num? asNum(dynamic v) => v is num ? v : num.tryParse(v?.toString() ?? '');
     return LocationItem(
-      id: (json['Id'] as num?)?.toInt() ?? 0,
-      clientCode: json['ClientCode']?.toString(),
-      userId: (json['UserId'] as num?)?.toInt(),
-      branchId: (json['BranchId'] as num?)?.toInt(),
-      latitude: json['Latitude']?.toString() ?? '0',
-      longitude: json['Longitude']?.toString() ?? '0',
-      address: json['Address']?.toString(),
-      createdOn: json['CreatedOn']?.toString(),
-      lastUpdated: json['LastUpdated']?.toString(),
-      statusType: json['StatusType'] as bool?,
+      id: asNum(json['Id'] ?? json['id'])?.toInt() ?? 0,
+      clientCode: (json['ClientCode'] ?? json['clientCode'])?.toString(),
+      userId: asNum(json['UserId'] ?? json['userId'])?.toInt(),
+      branchId: asNum(json['BranchId'] ?? json['branchId'])?.toInt(),
+      latitude: (json['Latitude'] ?? json['latitude'])?.toString() ?? '0',
+      longitude: (json['Longitude'] ?? json['longitude'])?.toString() ?? '0',
+      address: (json['Address'] ?? json['address'])?.toString(),
+      createdOn: (json['CreatedOn'] ?? json['createdOn'])?.toString(),
+      lastUpdated: (json['LastUpdated'] ?? json['lastUpdated'])?.toString(),
+      statusType: _parseStatusType(json['StatusType'] ?? json['statusType']),
     );
   }
 

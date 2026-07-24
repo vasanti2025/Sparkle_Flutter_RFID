@@ -1,10 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import '../models/customer.dart';
+import '../models/employee.dart';
 import '../models/order_item.dart';
 import '../models/bulk_item.dart';
 import '../services/api_service.dart';
 import '../services/db_service.dart';
+import '../services/list_json_cache.dart';
 import '../services/pref_service.dart';
 
 /// ViewModel for the Quotation create/edit screen and quotation list.
@@ -45,6 +47,7 @@ class QuotationViewModel extends ChangeNotifier {
 
   bool _isLoading = false;
   bool get isLoading => _isLoading;
+  DateTime? _lastMasterLoadAt;
 
   String? _errorMessage;
   String? get errorMessage => _errorMessage;
@@ -53,7 +56,14 @@ class QuotationViewModel extends ChangeNotifier {
   int get lastQuotationNo => _lastQuotationNo;
 
   // ---- Master data ---------------------------------------------------------
-  Future<void> loadMasterData() async {
+  Future<void> loadMasterData({bool force = false}) async {
+    if (!force &&
+        _customers.isNotEmpty &&
+        _lastMasterLoadAt != null &&
+        DateTime.now().difference(_lastMasterLoadAt!) < const Duration(minutes: 5)) {
+      return;
+    }
+
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
@@ -70,6 +80,7 @@ class QuotationViewModel extends ChangeNotifier {
         final raw = lastNoRes['LastQuotationNo'];
         _lastQuotationNo = raw is int ? raw : int.tryParse(raw?.toString() ?? '') ?? 0;
       }
+      _lastMasterLoadAt = DateTime.now();
     } catch (e) {
       _errorMessage = e.toString();
     } finally {
@@ -449,7 +460,10 @@ class QuotationViewModel extends ChangeNotifier {
 
       _isLoading = false;
       notifyListeners();
-      return response;
+      if (response is Map<String, dynamic>) {
+        return {...payload, ...response};
+      }
+      return payload;
     } catch (e) {
       _isLoading = false;
       _errorMessage = e.toString();
@@ -471,19 +485,56 @@ class QuotationViewModel extends ChangeNotifier {
   int _editingQuotationId = 0;
   String _editingQuotationNo = '';
 
-  Future<void> fetchQuotationsHistory() async {
-    _isHistoryLoading = true;
+  Future<void> fetchQuotationsHistory({int? branchId}) async {
+    final employee = _prefService.getEmployee();
+    final clientCode = employee?.clientCode ?? '';
+    final resolvedBranchId = _resolveBranchId(branchId, employee);
+    final cacheKey = 'quotation_${clientCode}_$resolvedBranchId';
+
+    // Instant: memory / disk cache first (Sparkle hasCached pattern).
+    if (_quotationsHistory.isEmpty) {
+      final mem = ListJsonCache.instance.readMemory(cacheKey);
+      if (mem != null && mem.isNotEmpty) {
+        _quotationsHistory = List<dynamic>.from(mem);
+        notifyListeners();
+      } else {
+        final cached = await ListJsonCache.instance.load(cacheKey);
+        if (cached.isNotEmpty) {
+          _quotationsHistory = cached;
+          notifyListeners();
+        }
+      }
+    }
+
+    final hasCached = _quotationsHistory.isNotEmpty;
+    if (!hasCached) {
+      _isHistoryLoading = true;
+      notifyListeners();
+    }
     _errorMessage = null;
-    notifyListeners();
+
     try {
-      final clientCode = _prefService.getEmployee()?.clientCode ?? '';
-      _quotationsHistory = await _apiService.getAllQuotations(clientCode);
+      final raw = await _apiService.getAllQuotations(clientCode, resolvedBranchId);
+      _quotationsHistory = raw;
+      await ListJsonCache.instance.save(cacheKey, raw);
     } catch (e) {
-      _errorMessage = e.toString();
+      if (!hasCached) {
+        _errorMessage = e.toString();
+      }
     } finally {
       _isHistoryLoading = false;
       notifyListeners();
     }
+  }
+
+  /// Same as Sparkle QuotationViewModel.resolveBranchId:
+  /// use provided BranchId if > 0, else login pref branch, else employee defaultBranchId.
+  int _resolveBranchId(int? branchId, Employee? employee) {
+    if (branchId != null && branchId > 0) return branchId;
+    final prefBranch = _prefService.getBranchId();
+    if (prefBranch > 0) return prefBranch;
+    final defaultId = employee?.defaultBranchId ?? 0;
+    return defaultId > 0 ? defaultId : 0;
   }
 
   void setQuotationForEditing(Map<String, dynamic> quotation) {

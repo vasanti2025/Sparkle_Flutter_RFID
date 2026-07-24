@@ -950,23 +950,24 @@ class DbService {
     final db = await database;
     String where = "TRIM(itemCode) != ''";
     final args = <Object?>[];
+    final value = fromValue.trim();
 
     switch (fromType) {
       case 'counter':
-        where += ' AND LOWER(counterName) = LOWER(?)';
-        args.add(fromValue);
+        where += ' AND LOWER(TRIM(counterName)) = LOWER(?)';
+        args.add(value);
         break;
       case 'branch':
-        where += ' AND LOWER(branchName) = LOWER(?)';
-        args.add(fromValue);
+        where += ' AND LOWER(TRIM(branchName)) = LOWER(?)';
+        args.add(value);
         break;
       case 'box':
-        where += ' AND LOWER(boxName) = LOWER(?)';
-        args.add(fromValue);
+        where += ' AND LOWER(TRIM(boxName)) = LOWER(?)';
+        args.add(value);
         break;
       case 'packet':
-        where += ' AND LOWER(packetName) = LOWER(?)';
-        args.add(fromValue);
+        where += ' AND LOWER(TRIM(packetName)) = LOWER(?)';
+        args.add(value);
         break;
       case 'display':
         where += ' AND (counterId = 0 OR TRIM(counterName) = \'\')';
@@ -1218,10 +1219,30 @@ class DbService {
 
   Future<List<Map<String, dynamic>>> getPendingOrders(String clientCode) async {
     final db = await database;
+    // Prefer exact client match; if empty (legacy rows), also load blank client_code.
+    var rows = await db.query(
+      'pending_orders',
+      where: "sync_status = 'pending' AND (client_code = ? OR client_code = '' OR client_code IS NULL)",
+      whereArgs: [clientCode],
+      orderBy: 'created_at ASC',
+    );
+    // Legacy / wrong client_code: still surface pending so sync + * work.
+    if (rows.isEmpty) {
+      rows = await db.query(
+        'pending_orders',
+        where: "sync_status = 'pending'",
+        orderBy: 'created_at ASC',
+      );
+    }
+    return rows;
+  }
+
+  /// All pending orders for any client (used when remapping / diagnostics).
+  Future<List<Map<String, dynamic>>> getAllPendingOrders() async {
+    final db = await database;
     return db.query(
       'pending_orders',
-      where: "client_code = ? AND sync_status = 'pending'",
-      whereArgs: [clientCode],
+      where: "sync_status = 'pending'",
       orderBy: 'created_at ASC',
     );
   }
@@ -1229,7 +1250,8 @@ class DbService {
   Future<int> countPendingOrders(String clientCode) async {
     final db = await database;
     final r = await db.rawQuery(
-      "SELECT COUNT(*) as c FROM pending_orders WHERE client_code = ? AND sync_status = 'pending'",
+      "SELECT COUNT(*) as c FROM pending_orders WHERE sync_status = 'pending' "
+      "AND (client_code = ? OR client_code = '' OR client_code IS NULL)",
       [clientCode],
     );
     return (r.first['c'] as int?) ?? 0;
@@ -1258,9 +1280,22 @@ class DbService {
     final db = await database;
     return db.rawUpdate(
       "UPDATE pending_orders SET sync_status = 'pending', last_error = NULL "
-      "WHERE client_code = ? AND sync_status = 'synced' AND operation != 'delete' "
+      "WHERE client_code = ? AND sync_status = 'synced' AND operation = 'update' "
       "AND (custom_order_id IS NULL OR custom_order_id <= 0)",
       [clientCode],
+    );
+  }
+
+  /// Remove create rows marked synced without a server id (already uploaded; re-upload
+  /// would duplicate OrderNo on the server).
+  Future<int> purgeUnconfirmedSyncedCreates(String clientCode) async {
+    final db = await database;
+    return db.delete(
+      'pending_orders',
+      where: "client_code = ? AND sync_status = 'synced' AND "
+          "(operation = 'create' OR operation IS NULL OR operation = '') AND "
+          "(custom_order_id IS NULL OR custom_order_id <= 0)",
+      whereArgs: [clientCode],
     );
   }
 
@@ -1357,10 +1392,27 @@ class DbService {
 
   Future<List<Map<String, dynamic>>> getPendingCustomers(String clientCode) async {
     final db = await database;
-    return db.query(
+    var rows = await db.query(
       'pending_customers',
       where: "client_code = ? AND sync_status = 'pending'",
       whereArgs: [clientCode],
+      orderBy: 'created_at ASC',
+    );
+    if (rows.isEmpty) {
+      rows = await db.query(
+        'pending_customers',
+        where: "sync_status = 'pending'",
+        orderBy: 'created_at ASC',
+      );
+    }
+    return rows;
+  }
+
+  Future<List<Map<String, dynamic>>> getAllPendingCustomers() async {
+    final db = await database;
+    return db.query(
+      'pending_customers',
+      where: "sync_status = 'pending'",
       orderBy: 'created_at ASC',
     );
   }
@@ -1399,11 +1451,17 @@ class DbService {
     );
   }
 
-  Future<void> updatePendingOrderPayload(String localId, String payloadJson) async {
+  Future<void> updatePendingOrderPayload(String localId, String payloadJson, {String? orderNo}) async {
     final db = await database;
+    final data = <String, Object?>{
+      'payload_json': payloadJson,
+      'sync_status': 'pending',
+      'last_error': null,
+    };
+    if (orderNo != null) data['order_no'] = orderNo;
     await db.update(
       'pending_orders',
-      {'payload_json': payloadJson},
+      data,
       where: 'local_id = ?',
       whereArgs: [localId],
     );

@@ -7,6 +7,7 @@ import '../models/sample_in.dart';
 import '../models/sample_out.dart';
 import '../services/api_service.dart';
 import '../services/db_service.dart';
+import '../services/list_json_cache.dart';
 import '../services/pref_service.dart';
 import '../views/widgets/sample_print_pdf.dart';
 
@@ -109,23 +110,57 @@ class SampleInViewModel extends ChangeNotifier {
   }
 
   Future<void> loadSampleInList() async {
-    _isListLoading = true;
-    notifyListeners();
+    final code = _prefService.getEmployee()?.clientCode ?? '';
+    final cacheKey = 'sample_in_$code';
+
+    if (_sampleInList.isEmpty) {
+      final mem = ListJsonCache.instance.readMemory(cacheKey);
+      if (mem != null && mem.isNotEmpty) {
+        _sampleInList = mem
+            .whereType<Map>()
+            .map((c) => SampleInModel.fromJson(Map<String, dynamic>.from(c)))
+            .toList();
+        notifyListeners();
+      } else {
+        final cached = await ListJsonCache.instance.load(cacheKey);
+        if (cached.isNotEmpty) {
+          _sampleInList = cached
+              .whereType<Map>()
+              .map((c) => SampleInModel.fromJson(Map<String, dynamic>.from(c)))
+              .toList();
+          notifyListeners();
+        }
+      }
+    }
+
+    final hasCached = _sampleInList.isNotEmpty;
+    if (!hasCached) {
+      _isListLoading = true;
+      notifyListeners();
+    }
+
     try {
-      await fetchAllSampleIn();
+      await fetchAllSampleIn(cacheKey: cacheKey);
     } finally {
       _isListLoading = false;
       notifyListeners();
     }
   }
 
-  Future<void> fetchAllSampleIn() async {
+  Future<void> fetchAllSampleIn({String? cacheKey}) async {
     try {
       final code = _prefService.getEmployee()?.clientCode ?? '';
+      final key = cacheKey ?? 'sample_in_$code';
       final raw = await _apiService.getAllSampleIn(code);
-      _sampleInList = raw.map((c) => SampleInModel.fromJson(c as Map<String, dynamic>)).toList();
+      _sampleInList = raw
+          .whereType<Map>()
+          .map((c) => SampleInModel.fromJson(Map<String, dynamic>.from(c)))
+          .toList();
+      await ListJsonCache.instance.save(key, raw);
     } catch (e) {
-      _errorMessage = e.toString();
+      if (_sampleInList.isEmpty) {
+        _errorMessage = e.toString();
+      }
     }
     notifyListeners();
   }

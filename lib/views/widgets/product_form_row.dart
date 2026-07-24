@@ -1,8 +1,13 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../utils/app_dropdown.dart';
+
 /// Label-left / value-right row matching Kotlin [FormRow] in AddProductScreen.
+/// Dropdowns use a scrollable popup menu (not a bottom sheet), same as Sparkle.
 class ProductFormRow extends StatefulWidget {
   final String label;
   final String value;
@@ -15,6 +20,8 @@ class ProductFormRow extends StatefulWidget {
   final ValueChanged<String> onChanged;
   final String? hintText;
   final VoidCallback? onTapWhenEmpty;
+  /// When set, shows clear (if value) or QR scan icon (if empty) on text fields.
+  final VoidCallback? onScanTap;
 
   const ProductFormRow({
     super.key,
@@ -29,6 +36,7 @@ class ProductFormRow extends StatefulWidget {
     this.numericInput = false,
     this.hintText,
     this.onTapWhenEmpty,
+    this.onScanTap,
   });
 
   @override
@@ -38,6 +46,7 @@ class ProductFormRow extends StatefulWidget {
 class _ProductFormRowState extends State<ProductFormRow> {
   late TextEditingController _ctrl;
   final FocusNode _focusNode = FocusNode();
+  final GlobalKey _dropdownKey = GlobalKey();
 
   @override
   void initState() {
@@ -80,54 +89,42 @@ class _ProductFormRowState extends State<ProductFormRow> {
       return;
     }
 
-    final picked = await showModalBottomSheet<String>(
+    final box = _dropdownKey.currentContext?.findRenderObject() as RenderBox?;
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
+    if (box == null || overlay == null) return;
+
+    final topLeft = box.localToGlobal(Offset.zero, ancestor: overlay);
+    final bottomRight = box.localToGlobal(box.size.bottomRight(Offset.zero), ancestor: overlay);
+    final position = RelativeRect.fromRect(
+      Rect.fromPoints(topLeft, bottomRight),
+      Offset.zero & overlay.size,
+    );
+
+    final picked = await showMenu<String>(
       context: context,
-      isScrollControlled: true,
-      builder: (ctx) {
-        return SafeArea(
-          child: DraggableScrollableSheet(
-            expand: false,
-            initialChildSize: 0.5,
-            minChildSize: 0.25,
-            maxChildSize: 0.85,
-            builder: (context, scrollController) {
-              return Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Text(
-                      widget.label,
-                      style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: ListView.builder(
-                      controller: scrollController,
-                      itemCount: widget.options.length,
-                      itemBuilder: (context, index) {
-                        final option = widget.options[index];
-                        final selected = option == widget.value;
-                        return ListTile(
-                          title: Text(
-                            option,
-                            style: GoogleFonts.poppins(
-                              fontSize: 14,
-                              fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-                            ),
-                          ),
-                          trailing: selected ? const Icon(Icons.check, color: Color(0xFF5231A7)) : null,
-                          onTap: () => Navigator.pop(ctx, option),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              );
-            },
+      position: position,
+      constraints: BoxConstraints(
+        maxHeight: kDropdownMenuMaxHeight,
+        minWidth: box.size.width,
+        maxWidth: math.max(box.size.width, 220),
+      ),
+      items: [
+        for (final option in widget.options)
+          PopupMenuItem<String>(
+            value: option,
+            height: 40,
+            child: Text(
+              option,
+              style: GoogleFonts.poppins(
+                fontSize: 13,
+                fontWeight: option == widget.value ? FontWeight.w600 : FontWeight.normal,
+                color: const Color(0xFF222222),
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
-        );
-      },
+      ],
     );
 
     if (picked != null && picked != widget.value) {
@@ -156,6 +153,7 @@ class _ProductFormRowState extends State<ProductFormRow> {
           Expanded(
             flex: 12,
             child: Container(
+              key: _dropdownKey,
               decoration: BoxDecoration(
                 color: widget.disabled ? const Color(0xFFF5F5F5) : Colors.white,
                 borderRadius: BorderRadius.circular(6),
@@ -208,23 +206,51 @@ class _ProductFormRowState extends State<ProductFormRow> {
   }
 
   Widget _buildTextField() {
-    return TextField(
-      controller: _ctrl,
-      focusNode: _focusNode,
-      readOnly: widget.readOnly || widget.disabled,
-      keyboardType: widget.keyboardType ?? (_isNumericField ? const TextInputType.numberWithOptions(decimal: true) : TextInputType.text),
-      inputFormatters: _isNumericField
-          ? [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))]
-          : null,
-      style: GoogleFonts.poppins(fontSize: 14, color: Colors.black87),
-      decoration: InputDecoration(
-        isDense: true,
-        border: InputBorder.none,
-        hintText: _placeholder,
-        hintStyle: GoogleFonts.poppins(fontSize: 14, color: Colors.grey),
-        contentPadding: EdgeInsets.zero,
-      ),
-      onChanged: widget.onChanged,
+    final showScan = widget.onScanTap != null && !widget.disabled && !widget.readOnly;
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: _ctrl,
+            focusNode: _focusNode,
+            readOnly: widget.readOnly || widget.disabled,
+            keyboardType: widget.keyboardType ??
+                (_isNumericField
+                    ? const TextInputType.numberWithOptions(decimal: true)
+                    : TextInputType.text),
+            inputFormatters: _isNumericField
+                ? [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))]
+                : null,
+            style: GoogleFonts.poppins(fontSize: 14, color: Colors.black87),
+            decoration: InputDecoration(
+              isDense: true,
+              border: InputBorder.none,
+              hintText: _placeholder,
+              hintStyle: GoogleFonts.poppins(fontSize: 14, color: Colors.grey),
+              contentPadding: EdgeInsets.zero,
+            ),
+            onChanged: widget.onChanged,
+          ),
+        ),
+        if (showScan)
+          GestureDetector(
+            onTap: () {
+              if (widget.value.isNotEmpty) {
+                widget.onChanged('');
+              } else {
+                widget.onScanTap!();
+              }
+            },
+            child: Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: Icon(
+                widget.value.isNotEmpty ? Icons.clear : Icons.qr_code_scanner,
+                size: 18,
+                color: Colors.grey,
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/employee.dart';
@@ -46,10 +47,18 @@ class PrefService {
 
   PrefService(this._prefs);
 
-  static Future<PrefService> init() async {
+  static Future<PrefService>? _initFuture;
+
+  /// Cached — cold start and later callers share one load.
+  static Future<PrefService> init() {
+    return _initFuture ??= _initOnce();
+  }
+
+  static Future<PrefService> _initOnce() async {
     final prefs = await SharedPreferences.getInstance();
     final service = PrefService(prefs);
-    await service.ensureDefaultCounters();
+    // Defaults are optional; do not block first paint.
+    unawaited(service.ensureDefaultCounters());
     return service;
   }
 
@@ -142,11 +151,52 @@ class PrefService {
   Future<void> setLoggedIn(bool loggedIn) async => _prefs.setBool(_keyLoggedIn, loggedIn);
   bool isLoggedIn() => _prefs.getBool(_keyLoggedIn) ?? false;
 
-  Future<void> saveCustomApi(String url) async => _prefs.setString(_keyCustomApiUrl, url);
-  String? getCustomApi() => _prefs.getString(_keyCustomApiUrl);
+  Future<void> saveCustomApi(String url) async {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) {
+      // No custom URL → use default rrgold server (same as Sparkle)
+      await _prefs.remove(_keyCustomApiUrl);
+      return;
+    }
+    var finalUrl = trimmed;
+    if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
+      finalUrl = 'http://$finalUrl';
+    }
+    if (!finalUrl.endsWith('/')) {
+      finalUrl = '$finalUrl/';
+    }
+    await _prefs.setString(_keyCustomApiUrl, finalUrl);
+  }
+
+  /// Raw saved custom API (null/empty means use default rrgold).
+  String? getCustomApi() {
+    final v = _prefs.getString(_keyCustomApiUrl)?.trim();
+    if (v == null || v.isEmpty) return null;
+    return v;
+  }
+
+  static const String defaultApiBaseUrl = 'https://rrgold.loyalstring.co.in/';
+
+  /// Effective API base URL — custom if set, otherwise rrgold default.
+  String getEffectiveApiBaseUrl() {
+    var url = getCustomApi() ?? '';
+    if (url.isEmpty) {
+      url = defaultApiBaseUrl;
+    }
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = 'http://$url';
+    }
+    if (!url.endsWith('/')) {
+      url = '$url/';
+    }
+    return url;
+  }
 
   Future<void> setUserId(int userId) async => _prefs.setInt(_keyUserId, userId);
   Future<void> saveBranchId(int branchId) async => _prefs.setInt(_keyBranchId, branchId);
+
+  /// Login-time / selected branch (same as Sparkle `getBranchID()`).
+  int getBranchId() => _prefs.getInt(_keyBranchId) ?? 0;
 
   Future<void> saveClient(Clients client) async {
     await _prefs.setString('client', jsonEncode(client.toJson()));
@@ -160,6 +210,15 @@ class PrefService {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Organisation / company name for PDFs and Bluetooth print headers.
+  String? getOrganisationName() {
+    final saved = _prefs.getString(_keyOrg);
+    if (saved != null && saved.trim().isNotEmpty) return saved.trim();
+    final fromClient = getClient()?.organisationName?.trim();
+    if (fromClient != null && fromClient.isNotEmpty) return fromClient;
+    return null;
   }
 
   String getRfidType() {
@@ -270,6 +329,9 @@ class PrefService {
     await _prefs.remove(_keyLoggedIn);
     await _prefs.remove(_keyToken);
     await _prefs.remove(_keyEmployee);
+    await _prefs.remove('client');
+    await _prefs.remove(_keyBranchId);
+    await _prefs.remove(keyBranchIds);
   }
 
   Future<void> clearAll() async {

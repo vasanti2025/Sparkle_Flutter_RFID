@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 import 'package:http/http.dart' as http;
+import '../../utils/pdf_open_util.dart';
 
 Future<void> printCustomOrderPdf({
   required BuildContext context,
@@ -110,6 +110,8 @@ Remark   : ${item['Remark'] ?? '-'}
     );
   }
 
-  // Display printer / preview dialog
-  await Printing.layoutPdf(onLayout: (PdfPageFormat format) async => pdf.save());
+  await PdfOpenUtil.openPdfBytes(
+    bytes: await pdf.save(),
+    fileName: 'Order_${custName.isNotEmpty ? custName : 'Customer'}.pdf',
+  );
 }

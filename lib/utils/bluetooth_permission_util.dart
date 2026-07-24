@@ -9,9 +9,15 @@ Future<bool> requestBluetoothPermissions() async {
   }
   if (!Platform.isAndroid) return true;
 
-  final modern = await [Permission.bluetoothConnect, Permission.bluetoothScan].request();
-  final connectGranted = modern[Permission.bluetoothConnect]?.isGranted ?? false;
-  final scanGranted = modern[Permission.bluetoothScan]?.isGranted ?? false;
+  // Chainway BLE discovery needs BT scan/connect; older APIs also need location.
+  final statuses = await [
+    Permission.bluetoothConnect,
+    Permission.bluetoothScan,
+    Permission.locationWhenInUse,
+  ].request();
+
+  final connectGranted = statuses[Permission.bluetoothConnect]?.isGranted ?? false;
+  final scanGranted = statuses[Permission.bluetoothScan]?.isGranted ?? false;
   if (connectGranted && scanGranted) return true;
 
   final legacy = await [Permission.bluetooth, Permission.locationWhenInUse].request();

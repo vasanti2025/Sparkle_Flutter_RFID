@@ -107,7 +107,7 @@ class Employee {
 
   factory Employee.fromJson(Map<String, dynamic> json) {
     return Employee(
-      id: json['Id'] as int? ?? 0,
+      id: (json['Id'] as num?)?.toInt() ?? int.tryParse('${json['Id']}') ?? 0,
       deviceId: json['DeviceId'] as String?,
       employeeId: json['EmployeeId'] as int?,
       clientCode: json['ClientCode'] as String?,
@@ -153,7 +153,9 @@ class Employee {
       defaultCompany: json['DefaultCompany'] as String?,
       defaultCompanyId: json['DefaultCompanyId'] as int?,
       defaultBranch: json['DefaultBranch'] as String?,
-      defaultBranchId: json['DefaultBranchId'] as int? ?? 1,
+      defaultBranchId: (json['DefaultBranchId'] as num?)?.toInt() ??
+          int.tryParse('${json['DefaultBranchId']}') ??
+          1,
       defaultCounter: json['DefaultCounter'] as String?,
       defaultCounterId: json['DefaultCounterId'] as int?,
       username: json['Username'] as String?,

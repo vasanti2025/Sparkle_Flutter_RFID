@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../services/excel_product_service.dart';
 import '../../l10n/l10n_extension.dart';
+import '../../utils/app_dropdown.dart';
 
 /// Matches Kotlin [TableMappingScreen] / [MappingDialogWrapper].
 class ExcelFieldMappingDialog extends StatefulWidget {
@@ -206,6 +207,7 @@ class _MappingFieldRow extends StatelessWidget {
               child: DropdownButton<String>(
                 isExpanded: true,
                 isDense: true,
+                menuMaxHeight: kDropdownMenuMaxHeight,
                 value: selected.isNotEmpty ? selected : null,
                 hint: Text(s.mapColumn, style: _ExcelFieldMappingDialogState._hintStyle, overflow: TextOverflow.ellipsis),
                 icon: const Icon(Icons.arrow_drop_down, size: 18),

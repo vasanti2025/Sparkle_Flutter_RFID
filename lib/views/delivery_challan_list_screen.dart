@@ -5,7 +5,8 @@ import 'package:intl/intl.dart';
 import '../l10n/l10n_extension.dart';
 import '../viewmodels/delivery_challan_view_model.dart';
 import '../models/delivery_challan.dart';
-import 'widgets/delivery_challan_pdf.dart';
+import 'widgets/delivery_challan_print_dialog.dart';
+import 'widgets/list_action_icon.dart';
 import 'widgets/spreadsheet_list_view.dart';
 
 class DeliveryChallanListScreen extends StatefulWidget {
@@ -21,7 +22,9 @@ class _DeliveryChallanListScreenState extends State<DeliveryChallanListScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    // Start immediately — don't wait for first frame.
+    Future.microtask(() {
+      if (!mounted) return;
       context.read<DeliveryChallanViewModel>().loadChallanList();
     });
   }
@@ -140,8 +143,10 @@ class _DeliveryChallanListScreenState extends State<DeliveryChallanListScreen> {
               ),
             ),
             const Divider(height: 1),
+            if (isLoading && challans.isNotEmpty)
+              const LinearProgressIndicator(minHeight: 2, color: Color(0xFF5231A7)),
             Expanded(
-              child: isLoading
+              child: isLoading && filteredChallans.isEmpty
                   ? const Center(child: CircularProgressIndicator())
                   : filteredChallans.isEmpty
                       ? _buildEmptyState()
@@ -248,32 +253,19 @@ class _DeliveryChallanListScreenState extends State<DeliveryChallanListScreen> {
         return Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            _actionIcon(Icons.edit, Colors.blue, () => _editChallan(challan)),
-            const SizedBox(width: 8),
-            _actionIcon(Icons.print, Colors.red, () async {
-              await printDeliveryChallanPdf(
-                context: context,
-                challan: challan,
-                orgName: '',
-              );
-            }),
+            listActionIcon(icon: Icons.edit, onTap: () => _editChallan(challan)),
+            listActionIcon(
+              icon: Icons.print,
+              onTap: () async {
+                await showDeliveryChallanPrintOptions(
+                  context: context,
+                  challan: challan,
+                );
+              },
+            ),
           ],
         );
       },
-    );
-  }
-
-  Widget _actionIcon(IconData icon, Color color, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icon, size: 14, color: color),
-      ),
     );
   }
 }

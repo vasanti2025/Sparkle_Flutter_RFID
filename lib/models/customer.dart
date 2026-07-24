@@ -86,48 +86,64 @@ class CustomerModel {
   });
 
   factory CustomerModel.fromJson(Map<String, dynamic> json) {
+    int? asInt(dynamic v) {
+      if (v == null) return null;
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      return int.tryParse(v.toString());
+    }
+
+    bool? asBool(dynamic v) {
+      if (v == null) return null;
+      if (v is bool) return v;
+      final s = v.toString().toLowerCase();
+      if (s == 'true' || s == '1') return true;
+      if (s == 'false' || s == '0') return false;
+      return null;
+    }
+
     return CustomerModel(
-      id: json['Id'] as int?,
-      firstName: json['FirstName'] as String?,
-      lastName: json['LastName'] as String?,
-      perAddStreet: json['PerAddStreet'] as String?,
-      currAddStreet: json['CurrAddStreet'] as String?,
-      mobile: json['Mobile'] as String?,
-      email: json['Email'] as String?,
-      password: json['Password'] as String?,
-      customerLoginId: json['CustomerLoginId'] as String?,
-      dateOfBirth: json['DateOfBirth'] as String?,
-      middleName: json['MiddleName'] as String?,
-      perAddPincode: json['PerAddPincode'] as String?,
-      gender: json['Gender'] as String?,
-      onlineStatus: json['OnlineStatus'] as String?,
-      currAddTown: json['CurrAddTown'] as String?,
-      currAddPincode: json['CurrAddPincode'] as String?,
-      currAddState: json['CurrAddState'] as String?,
-      perAddTown: json['PerAddTown'] as String?,
-      perAddState: json['PerAddState'] as String?,
-      gstNo: json['GstNo'] as String?,
-      panNo: json['PanNo'] as String?,
-      aadharNo: json['AadharNo'] as String?,
+      id: asInt(json['Id']),
+      firstName: json['FirstName']?.toString(),
+      lastName: json['LastName']?.toString(),
+      perAddStreet: json['PerAddStreet']?.toString(),
+      currAddStreet: json['CurrAddStreet']?.toString(),
+      mobile: json['Mobile']?.toString(),
+      email: json['Email']?.toString(),
+      password: json['Password']?.toString(),
+      customerLoginId: json['CustomerLoginId']?.toString(),
+      dateOfBirth: json['DateOfBirth']?.toString(),
+      middleName: json['MiddleName']?.toString(),
+      perAddPincode: json['PerAddPincode']?.toString(),
+      gender: json['Gender']?.toString(),
+      onlineStatus: json['OnlineStatus']?.toString(),
+      currAddTown: json['CurrAddTown']?.toString(),
+      currAddPincode: json['CurrAddPincode']?.toString(),
+      currAddState: json['CurrAddState']?.toString(),
+      perAddTown: json['PerAddTown']?.toString(),
+      perAddState: json['PerAddState']?.toString(),
+      gstNo: json['GstNo']?.toString(),
+      panNo: json['PanNo']?.toString(),
+      aadharNo: json['AadharNo']?.toString(),
       balanceAmount: json['BalanceAmount']?.toString(),
       advanceAmount: json['AdvanceAmount']?.toString(),
       discount: json['Discount']?.toString(),
       creditPeriod: json['CreditPeriod']?.toString(),
       fineGold: json['FineGold']?.toString(),
       fineSilver: json['FineSilver']?.toString(),
-      clientCode: json['ClientCode'] as String?,
-      vendorId: json['VendorId'] as int?,
-      addToVendor: json['AddToVendor'] as bool?,
-      customerSlabId: json['CustomerSlabId'] as int?,
-      creditPeriodId: json['CreditPeriodId'] as int?,
-      rateOfInterestId: json['RateOfInterestId'] as int?,
-      createdOn: json['CreatedOn'] as String?,
-      lastUpdated: json['LastUpdated'] as String?,
-      statusType: json['StatusType'] as bool?,
-      remark: json['Remark'] as String?,
-      area: json['Area'] as String?,
-      city: json['City'] as String?,
-      country: json['Country'] as String?,
+      clientCode: json['ClientCode']?.toString(),
+      vendorId: asInt(json['VendorId']),
+      addToVendor: asBool(json['AddToVendor']),
+      customerSlabId: asInt(json['CustomerSlabId']),
+      creditPeriodId: asInt(json['CreditPeriodId']),
+      rateOfInterestId: asInt(json['RateOfInterestId']),
+      createdOn: json['CreatedOn']?.toString(),
+      lastUpdated: json['LastUpdated']?.toString(),
+      statusType: asBool(json['StatusType']),
+      remark: json['Remark']?.toString(),
+      area: json['Area']?.toString(),
+      city: json['City']?.toString(),
+      country: json['Country']?.toString(),
     );
   }
 

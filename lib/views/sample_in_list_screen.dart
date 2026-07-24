@@ -4,7 +4,10 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
 import '../models/sample_in.dart';
+import '../services/pref_service.dart';
 import '../viewmodels/sample_in_view_model.dart';
+import 'widgets/list_action_icon.dart';
+import 'widgets/sample_print_pdf.dart';
 import 'widgets/spreadsheet_list_view.dart';
 
 class SampleInListScreen extends StatefulWidget {
@@ -20,7 +23,8 @@ class _SampleInListScreenState extends State<SampleInListScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    Future.microtask(() {
+      if (!mounted) return;
       context.read<SampleInViewModel>().loadSampleInList();
     });
   }
@@ -108,6 +112,8 @@ class _SampleInListScreenState extends State<SampleInListScreen> {
               ),
             ),
             const Divider(height: 1),
+            if (vm.isListLoading && filtered.isNotEmpty)
+              const LinearProgressIndicator(minHeight: 2, color: Color(0xFF5231A7)),
             Expanded(
               child: vm.isListLoading && filtered.isEmpty
                   ? const Center(child: CircularProgressIndicator())
@@ -148,7 +154,45 @@ class _SampleInListScreenState extends State<SampleInListScreen> {
         SpreadsheetColumnDef(header: s.headerDwt, width: 70, valueBuilder: (i) => list[i].diamondWeight),
         SpreadsheetColumnDef(header: s.headerQty, width: 50, valueBuilder: (i) => '${list[i].quantity}'),
       ],
-      actionBuilder: (context, index) => const Icon(Icons.print, size: 18, color: Color(0xFF37474F)),
+      actionBuilder: (context, index) {
+        final item = list[index];
+        return listActionIcon(
+          icon: Icons.print,
+          onTap: () async {
+            final prefs = await PrefService.init();
+            if (!context.mounted) return;
+            final dateFmt = DateFormat('dd/MM/yyyy');
+            String fmtDate(String raw) {
+              final p = DateTime.tryParse(raw);
+              return p == null ? raw : dateFmt.format(p);
+            }
+            await printSamplePrintPdf(
+              context: context,
+              data: SamplePrintData(
+                companyName: prefs.getOrganisationName() ?? '',
+                customerName: item.customerName,
+                addressCity: '',
+                contactNo: '',
+                sampleOutNo: item.sampleOutNo,
+                date: fmtDate(item.createdOn),
+                returnDate: fmtDate(item.sampleInDate),
+                isSampleIn: true,
+                items: [
+                  SamplePrintItem(
+                    itemDetails: item.productName.isNotEmpty ? item.productName : item.itemCode,
+                    grossWt: item.grossWt,
+                    stoneWt: item.stoneWeight,
+                    diamondWt: item.diamondWeight,
+                    netWt: item.totalWt,
+                    pieces: '${item.quantity}',
+                    status: item.sampleStatus,
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

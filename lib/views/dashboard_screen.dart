@@ -1,12 +1,28 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
+import '../services/pref_service.dart';
 import '../viewmodels/dashboard_view_model.dart';
+import '../viewmodels/delivery_challan_view_model.dart';
+import '../viewmodels/order_view_model.dart';
+import '../viewmodels/product_view_model.dart';
+import '../viewmodels/quotation_view_model.dart';
+import '../viewmodels/sample_in_view_model.dart';
+import '../viewmodels/sample_out_view_model.dart';
+import '../viewmodels/stock_transfer_view_model.dart';
 import 'widgets/gradient_icon.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  static bool _listsPrefetched = false;
 
   static const _menuDefs = [
     {'key': 'product', 'icon': Icons.shopping_bag, 'route': '/product_management'},
@@ -27,6 +43,39 @@ class DashboardScreen extends StatelessWidget {
     {'key': 'home', 'icon': Icons.home, 'isHome': true},
     {'key': 'logout', 'icon': Icons.exit_to_app, 'isLogout': true},
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Warm list caches in background so screens open with data already ready.
+    Future.microtask(_prefetchListCaches);
+  }
+
+  void _prefetchListCaches() {
+    if (!mounted || _listsPrefetched) return;
+    _listsPrefetched = true;
+    // Stagger background warmups so first dashboard frame stays smooth.
+    Future<void>(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      if (!mounted) return;
+      final employee = context.read<PrefService>().getEmployee();
+      unawaited(context.read<OrderViewModel>().fetchOrdersHistory(syncPendingFirst: false));
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      if (!mounted) return;
+      unawaited(context.read<DeliveryChallanViewModel>().loadChallanList());
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      if (!mounted) return;
+      unawaited(context.read<QuotationViewModel>().fetchQuotationsHistory(
+            branchId: employee?.defaultBranchId,
+          ));
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      if (!mounted) return;
+      unawaited(context.read<SampleOutViewModel>().loadSampleOutList());
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      if (!mounted) return;
+      unawaited(context.read<SampleInViewModel>().loadSampleInList());
+    });
+  }
 
   String _titleForKey(String key, dynamic s) {
     switch (key) {
@@ -134,7 +183,7 @@ class DashboardScreen extends StatelessWidget {
             elevation: 0,
             title: Text(
               s.home,
-              style: GoogleFonts.poppins(
+              style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w600,
               ),
@@ -170,7 +219,7 @@ class DashboardScreen extends StatelessWidget {
                     const SizedBox(width: 12),
                     Text(
                       employeeName ?? s.user,
-                      style: GoogleFonts.poppins(
+                      style: TextStyle(
                         color: Colors.white,
                         fontSize: 16,
                         fontWeight: FontWeight.w500,
@@ -195,23 +244,29 @@ class DashboardScreen extends StatelessWidget {
                     ),
                     title: Text(
                       item['title'] as String,
-                      style: GoogleFonts.poppins(
+                      style: TextStyle(
                         color: Colors.black87,
                         fontSize: 15,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
                     onTap: () async {
-                      Navigator.pop(context);
                       if (item['isLogout'] == true) {
-                        final viewModel = context.read<DashboardViewModel>();
-                        await viewModel.logout();
-                        if (context.mounted) {
-                          Navigator.pushReplacementNamed(context, '/login');
-                        }
+                        // Capture providers BEFORE closing drawer / navigating.
+                        final dashVm = context.read<DashboardViewModel>();
+                        final productVm = context.read<ProductViewModel>();
+                        final stockVm = context.read<StockTransferViewModel>();
+                        final nav = Navigator.of(context, rootNavigator: true);
+                        Navigator.pop(context); // close drawer
+                        await productVm.resetForLogout();
+                        stockVm.resetSession();
+                        await dashVm.logout();
+                        _listsPrefetched = false;
+                        nav.pushNamedAndRemoveUntil('/login', (_) => false);
                       } else if (item['isHome'] == true) {
-                        // Already on Home
+                        Navigator.pop(context);
                       } else {
+                        Navigator.pop(context);
                         _navigateByKey(context, item['key'] as String, s);
                       }
                     },
@@ -294,7 +349,7 @@ class DashboardScreen extends StatelessWidget {
                                   const SizedBox(height: 8),
                                   Text(
                                     item['title'] as String,
-                                    style: GoogleFonts.poppins(
+                                    style: TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w500,
                                       color: Colors.black87,
@@ -318,7 +373,7 @@ class DashboardScreen extends StatelessWidget {
               const SizedBox(height: 12),
               Text(
                 s.sparkleRfid,
-                style: GoogleFonts.poppins(
+                style: TextStyle(
                   color: Colors.grey[500],
                   fontSize: 14,
                   fontWeight: FontWeight.w600,

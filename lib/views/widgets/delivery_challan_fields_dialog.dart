@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../../models/customer.dart';
 import '../../l10n/l10n_extension.dart';
+import '../../utils/app_dropdown.dart';
 
 class DeliveryChallanFieldsDialog extends StatefulWidget {
   final List<dynamic> branches;
@@ -310,6 +311,7 @@ class _DeliveryChallanFieldsDialogState extends State<DeliveryChallanFieldsDialo
                       ? null
                       : cleanSelected,
                   isExpanded: true,
+                  menuMaxHeight: kDropdownMenuMaxHeight,
                   hint: Text(s.selectLabel(label), style: GoogleFonts.poppins(fontSize: 12)),
                   icon: const Icon(Icons.arrow_drop_down, size: 18),
                   style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),

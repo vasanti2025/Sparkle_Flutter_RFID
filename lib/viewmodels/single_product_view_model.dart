@@ -60,6 +60,7 @@ class SingleProductViewModel extends ChangeNotifier {
       _vendors = (results[0] as List).map((e) => VendorModel.fromJson(e as Map<String, dynamic>)).toList();
       _skus = (results[1] as List).map((e) => SkuModel.fromJson(e as Map<String, dynamic>)).toList();
       _categories = (results[2] as List).map((e) => CategoryModel.fromJson(e as Map<String, dynamic>)).toList();
+      _categories = _sortCategoriesGoldSilverDiamond(_categories);
       _products = (results[3] as List).map((e) => ProductMasterModel.fromJson(e as Map<String, dynamic>)).toList();
       _designs = (results[4] as List).map((e) => DesignModel.fromJson(e as Map<String, dynamic>)).toList();
       _purities = (results[5] as List).map((e) => PurityModel.fromJson(e as Map<String, dynamic>)).toList();
@@ -69,6 +70,25 @@ class SingleProductViewModel extends ChangeNotifier {
       _loading = false;
       notifyListeners();
     }
+  }
+
+  /// Gold-related first, then Silver, then Diamond, then remaining A–Z.
+  List<CategoryModel> _sortCategoriesGoldSilverDiamond(List<CategoryModel> list) {
+    int priority(String name) {
+      final n = name.toLowerCase();
+      if (n.contains('gold')) return 0;
+      if (n.contains('silver')) return 1;
+      if (n.contains('diamond')) return 2;
+      return 3;
+    }
+
+    final sorted = List<CategoryModel>.from(list);
+    sorted.sort((a, b) {
+      final cmp = priority(a.name).compareTo(priority(b.name));
+      if (cmp != 0) return cmp;
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+    return sorted;
   }
 
   List<SkuModel> skusForVendor(String vendorName) {

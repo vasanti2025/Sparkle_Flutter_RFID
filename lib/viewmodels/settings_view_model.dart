@@ -74,17 +74,21 @@ class SettingsViewModel extends ChangeNotifier {
   Future<bool> setLocationSyncEnabled(bool enabled) async {
     await _prefService.setLocationSyncEnabled(enabled);
     await LocationSyncService.applySettings(enabled);
-    if (enabled) {
+    notifyListeners();
+    if (!enabled) return true;
+
+    // Don't block Settings UI on GPS/network — sync in background.
+    Future<void>(() async {
       final reading = await LocationService.getCurrentLocation();
       if (reading == null) {
         await _prefService.setLocationSyncEnabled(false);
         await LocationSyncService.applySettings(false);
         notifyListeners();
-        return false;
+        return;
       }
       await LocationSyncService.syncNow();
-    }
-    notifyListeners();
+      await fetchLocationsFromDb();
+    });
     return true;
   }
 
@@ -96,16 +100,67 @@ class SettingsViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  int _resolveBranchId(int defaultBranchId) {
+    // Same as Sparkle location APIs: employee default branch first.
+    if (defaultBranchId > 0) return defaultBranchId;
+    final fromPref = _prefService.getBranchId();
+    return fromPref > 0 ? fromPref : 0;
+  }
+
+  /// Upload current location (if sync enabled), then load server list into UI.
+  Future<String?> syncAndRefreshLocations() async {
+    _loadingLocations = true;
+    notifyListeners();
+    String? error;
+    try {
+      if (_prefService.isLocationSyncEnabled()) {
+        final result = await LocationSyncService.syncNow();
+        error = result.error;
+      } else {
+        final employee = _prefService.getEmployee();
+        if (employee != null) {
+          final branchId = _resolveBranchId(employee.defaultBranchId);
+          final list = await _apiService.getClientLocations(
+            clientCode: employee.clientCode ?? '',
+            userId: employee.id > 0 ? employee.id : (employee.userId ?? 0),
+            branchId: branchId,
+          );
+          if (list.isNotEmpty) {
+            await _dbService.replaceAllLocations(list);
+          }
+        }
+      }
+      _locations = await _dbService.getAllLocations();
+    } finally {
+      _loadingLocations = false;
+      notifyListeners();
+    }
+    return error;
+  }
+
+  /// Loads location history from the server into local DB, then updates the list UI.
+  /// Does not clear local rows when the server returns an empty list.
   Future<void> refreshLocationsFromServer() async {
     final employee = _prefService.getEmployee();
     if (employee == null) return;
-    final list = await _apiService.getClientLocations(
-      clientCode: employee.clientCode ?? '',
-      userId: employee.id,
-      branchId: employee.defaultBranchId,
-    );
-    await _dbService.replaceAllLocations(list);
-    await fetchLocationsFromDb();
+    _loadingLocations = true;
+    notifyListeners();
+    try {
+      final branchId = _resolveBranchId(employee.defaultBranchId);
+      final userId = employee.id > 0 ? employee.id : (employee.userId ?? 0);
+      final list = await _apiService.getClientLocations(
+        clientCode: employee.clientCode ?? '',
+        userId: userId,
+        branchId: branchId,
+      );
+      if (list.isNotEmpty) {
+        await _dbService.replaceAllLocations(list);
+      }
+      _locations = await _dbService.getAllLocations();
+    } finally {
+      _loadingLocations = false;
+      notifyListeners();
+    }
   }
 
   Future<FileInfo> saveBackupToDevice() async {
@@ -169,6 +224,9 @@ class SettingsViewModel extends ChangeNotifier {
     }
     final address = value ? _prefService.getTrayDeviceAddress() : '';
     await RfidService().applyTrayMode(enabled: value, address: address);
+    if (value && address.isNotEmpty) {
+      await RfidService().waitForBleConnection(isR6: false);
+    }
     notifyListeners();
     return RfidService().trayConnected || !value || address.isEmpty;
   }
@@ -180,6 +238,7 @@ class SettingsViewModel extends ChangeNotifier {
     await _prefService.saveTrayDevice(name: name, address: address);
     if (_prefService.isTrayModeEnabled()) {
       await RfidService().applyTrayMode(enabled: true, address: address);
+      await RfidService().waitForBleConnection(isR6: false);
     }
     notifyListeners();
   }
@@ -196,6 +255,9 @@ class SettingsViewModel extends ChangeNotifier {
     }
     final address = value ? _prefService.getR6DeviceAddress() : '';
     await RfidService().applyR6Mode(enabled: value, address: address);
+    if (value && address.isNotEmpty) {
+      await RfidService().waitForBleConnection(isR6: true);
+    }
     notifyListeners();
     return RfidService().r6Connected || !value || address.isEmpty;
   }
@@ -207,6 +269,7 @@ class SettingsViewModel extends ChangeNotifier {
     await _prefService.saveR6Device(name: name, address: address);
     if (_prefService.isR6ModeEnabled()) {
       await RfidService().applyR6Mode(enabled: true, address: address);
+      await RfidService().waitForBleConnection(isR6: true);
     }
     notifyListeners();
   }

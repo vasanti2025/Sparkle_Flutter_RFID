@@ -12,6 +12,7 @@ import '../services/db_service.dart';
 import '../services/pref_service.dart';
 import '../services/rfid_service.dart';
 import '../viewmodels/dashboard_view_model.dart';
+import '../utils/app_dropdown.dart';
 import 'widgets/scan_bottom_bar.dart';
 
 class SearchItem {
@@ -132,7 +133,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Future<void> _loadPower() async {
     final power = context.read<PrefService>().searchPower;
-    if (mounted) setState(() => _selectedPower = power);
+    if (mounted) setState(() => _selectedPower = power.clamp(1, 30));
     _rfidService.setPower(power);
   }
 
@@ -513,27 +514,42 @@ class _SearchScreenState extends State<SearchScreen> {
               style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 18),
             ),
             actions: [
-              DropdownButton<int>(
-                value: _selectedPower,
-                dropdownColor: const Color(0xFF5231A7),
-                icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
-                underline: Container(),
-                style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
-                onChanged: (int? newValue) {
-                  if (newValue != null) {
-                    setState(() => _selectedPower = newValue);
-                    _rfidService.setPower(newValue);
-                    context.read<PrefService>().savePower(PrefService.keySearchCount, newValue);
-                  }
+              // White counter box showing selected power (1-30), same as Scan Display / Delivery Challan.
+              PopupMenuButton<int>(
+                tooltip: s.rfidPower,
+                color: Colors.white,
+                constraints: const BoxConstraints(maxHeight: 320, minWidth: 60),
+                onSelected: (val) {
+                  setState(() => _selectedPower = val);
+                  _rfidService.setPower(val);
+                  context.read<PrefService>().savePower(PrefService.keySearchCount, val);
                 },
-                items: [5, 10, 15, 20, 25, 30].map<DropdownMenuItem<int>>((int val) {
-                  return DropdownMenuItem<int>(
-                    value: val,
-                    child: Text(s.powerLabel(val), style: GoogleFonts.poppins(color: Colors.white)),
-                  );
-                }).toList(),
+                itemBuilder: (context) => List.generate(30, (i) => i + 1)
+                    .map((p) => PopupMenuItem<int>(
+                          value: p,
+                          height: 36,
+                          child: Text('$p', style: GoogleFonts.poppins(fontSize: 14)),
+                        ))
+                    .toList(),
+                child: Container(
+                  width: 32,
+                  height: 32,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '$_selectedPower',
+                    style: GoogleFonts.poppins(
+                      color: Colors.red,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 12),
             ],
           ),
         ),
@@ -546,6 +562,7 @@ class _SearchScreenState extends State<SearchScreen> {
               padding: const EdgeInsets.only(left: 12.0, right: 12.0, top: 12.0, bottom: 4.0),
               child: DropdownButtonFormField<String>(
                 initialValue: _selectedSearchType,
+                menuMaxHeight: kDropdownMenuMaxHeight,
                 decoration: InputDecoration(
                   labelText: s.searchType,
                   labelStyle: GoogleFonts.poppins(fontSize: 13),

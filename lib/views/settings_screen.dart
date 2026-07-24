@@ -8,6 +8,7 @@ import '../l10n/l10n_extension.dart';
 import '../services/locale_service.dart';
 import '../services/pref_service.dart';
 import '../utils/bluetooth_permission_util.dart';
+import '../utils/app_dropdown.dart';
 import '../viewmodels/settings_view_model.dart';
 import 'widgets/product_form_widgets.dart';
 
@@ -298,6 +299,7 @@ class SettingsScreen extends StatelessWidget {
                     Expanded(child: Text(s.syncInterval, style: GoogleFonts.poppins())),
                     DropdownButton<int>(
                       value: interval,
+                      menuMaxHeight: kDropdownMenuMaxHeight,
                       items: [
                         DropdownMenuItem(value: 15, child: Text(s.min15)),
                         DropdownMenuItem(value: 30, child: Text(s.min30)),
@@ -369,23 +371,145 @@ class SettingsScreen extends StatelessWidget {
     final ctrl = TextEditingController(text: pref.getCustomApi() ?? '');
     showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(s.customApi, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: TextField(
-          controller: ctrl,
-          decoration: InputDecoration(hintText: s.customApiUrlHint, border: const OutlineInputBorder()),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s.cancel)),
-          TextButton(
-            onPressed: () async {
-              await vm.saveCustomApi(ctrl.text.trim());
-              if (context.mounted) Navigator.pop(ctx);
-            },
-            child: Text(s.save),
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          s.configureCustomApi,
+                          style: GoogleFonts.poppins(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white),
+                        onPressed: () => Navigator.pop(dialogContext),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        s.apiUrlAuthorizedMessage,
+                        style: GoogleFonts.poppins(
+                          color: const Color(0xFF666666),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        s.enterApiUrl,
+                        style: GoogleFonts.poppins(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF222222),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: ctrl,
+                        keyboardType: TextInputType.url,
+                        style: GoogleFonts.poppins(fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText: s.customApiUrlHint,
+                          hintStyle: GoogleFonts.poppins(fontSize: 13, color: Colors.grey),
+                          isDense: true,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(color: Color(0xFF5231A7), width: 1.5),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(dialogContext),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            side: const BorderSide(color: Color(0xFFD0D0D0)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          child: Text(
+                            s.cancel,
+                            style: GoogleFonts.poppins(
+                              color: const Color(0xFF666666),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                            ),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              await vm.saveCustomApi(ctrl.text.trim());
+                              if (context.mounted) Navigator.pop(dialogContext);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shadowColor: Colors.transparent,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            child: Text(
+                              s.save,
+                              style: GoogleFonts.poppins(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -503,16 +627,16 @@ class _LocationRow extends StatelessWidget {
       trailing: Switch(
         value: vm.locationSyncEnabled,
         onChanged: (value) async {
-          final ok = await vm.setLocationSyncEnabled(value);
-          if (!ok && context.mounted) {
+          await vm.setLocationSyncEnabled(value);
+          if (!context.mounted) return;
+          if (value) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(strings.failedToGetLocation)),
+              const SnackBar(content: Text('Location sync enabled — saving every 15 minutes')),
             );
           }
         },
       ),
       onTap: () async {
-        await vm.refreshLocationsFromServer();
         if (context.mounted) {
           Navigator.pushNamed(context, '/location_list');
         }
@@ -553,7 +677,7 @@ class _PowerCounter extends StatelessWidget {
       tooltip: context.s.rfidPower,
       offset: const Offset(0, 36),
       padding: EdgeInsets.zero,
-      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+      constraints: const BoxConstraints(minWidth: 36, minHeight: 36, maxHeight: kDropdownMenuMaxHeight),
       itemBuilder: (_) => List.generate(
         30,
         (i) => PopupMenuItem(value: i + 1, height: 32, child: Text('${i + 1}', style: _SettingsStyles.menuItem)),
@@ -1050,16 +1174,19 @@ class _R6ModeRowState extends State<_R6ModeRow> {
     }
 
     setState(() => _busy = true);
-    await widget.vm.setR6ModeEnabled(enabled);
+    final connected = await widget.vm.setR6ModeEnabled(enabled);
     await widget.vm.refreshR6Status();
     if (mounted) {
       setState(() => _busy = false);
+      final msg = !enabled
+          ? widget.s.r6ModeDisabledMsg
+          : connected
+              ? '${widget.s.r6ModeEnabledMsg} (${widget.s.trayConnected})'
+              : '${widget.s.r6ModeEnabledMsg} (${widget.s.trayNotConnected})';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            enabled ? widget.s.r6ModeEnabledMsg : widget.s.r6ModeDisabledMsg,
-          ),
-          backgroundColor: Colors.green,
+          content: Text(msg),
+          backgroundColor: !enabled || connected ? Colors.green : Colors.orange,
         ),
       );
     }

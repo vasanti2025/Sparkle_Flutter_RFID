@@ -8,8 +8,10 @@ import '../models/bulk_item.dart';
 import '../services/pref_service.dart';
 import '../services/rfid_service.dart';
 import '../viewmodels/stock_transfer_view_model.dart';
+import '../utils/app_dropdown.dart';
 import 'widgets/product_form_widgets.dart';
 import 'widgets/scan_bottom_bar.dart';
+import 'widgets/stock_transfer_dialogs.dart';
 
 class StockTransferScreen extends StatefulWidget {
   const StockTransferScreen({super.key});
@@ -39,8 +41,10 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
     _power = context.read<PrefService>().stockTransferPower;
     _vm = context.read<StockTransferViewModel>();
     _vm!.addListener(_onVmChanged);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_vm!.initialize());
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Reuse in-memory list when possible — avoid full DB reload every open.
+      await _vm!.initialize(forceReload: false);
+      if (!mounted) return;
       _syncRfidIndex(_vm!);
       _tagSub = _rfid.tagsStream.listen(_onTag);
       _triggerSub = _rfid.triggerStream.listen((_) {
@@ -142,35 +146,6 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
     return vm.displayItems.where((i) => _checkedKeys.contains(vm.itemKey(i))).toList();
   }
 
-  void _showListPopup() {
-    final s = context.s;
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(s.tr('stockRequests'), style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: Text(s.tr('inRequest'), style: GoogleFonts.poppins()),
-              onTap: () {
-                Navigator.pop(ctx);
-                Navigator.pushNamed(context, '/stock_transfer_in_out', arguments: {'requestType': 'In Request'});
-              },
-            ),
-            ListTile(
-              title: Text(s.tr('outRequest'), style: GoogleFonts.poppins()),
-              onTap: () {
-                Navigator.pop(ctx);
-                Navigator.pushNamed(context, '/stock_transfer_in_out', arguments: {'requestType': 'Out Request'});
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   void _showFilterDialog(StockTransferViewModel vm) {
     final s = context.s;
     String draftCat = vm.appliedCategory ?? StockTransferViewModel.categoryPlaceholder;
@@ -263,15 +238,15 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
       onTap: () async {
         if (options.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(context.s.tr('noItemsInCurrentScope'))),
+            SnackBar(content: Text(context.sRead.tr('noItemsInCurrentScope'))),
           );
           return;
         }
-        final picked = await showModalBottomSheet<String>(
+        final picked = await showScrollableOptionSheet<String>(
           context: context,
-          builder: (c) => ListView(
-            children: options.map((o) => ListTile(title: Text(o, style: GoogleFonts.poppins()), onTap: () => Navigator.pop(c, o))).toList(),
-          ),
+          options: options,
+          labelOf: (o) => o,
+          title: label,
         );
         if (picked != null) onPick(picked);
       },
@@ -284,11 +259,11 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
 
   Future<void> _pickOption(String title, List<String> options, ValueChanged<String> onSelect) async {
     if (options.isEmpty) return;
-    final picked = await showModalBottomSheet<String>(
+    final picked = await showScrollableOptionSheet<String>(
       context: context,
-      builder: (c) => ListView(
-        children: options.map((o) => ListTile(title: Text(o, style: GoogleFonts.poppins()), onTap: () => Navigator.pop(c, o))).toList(),
-      ),
+      options: options,
+      labelOf: (o) => o,
+      title: title,
     );
     if (picked != null) onSelect(picked);
   }
@@ -301,13 +276,10 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
     final totalGross = selected.fold(0.0, (sum, i) => sum + (double.tryParse(i.grossWeight) ?? 0));
     final totalNet = selected.fold(0.0, (sum, i) => sum + (double.tryParse(i.netWeight) ?? 0));
 
-    final searchQuery = _searchCtrl.text.trim().toLowerCase();
+    final searchQuery = _searchCtrl.text.trim();
     final rows = searchQuery.isEmpty
         ? vm.displayItems
-        : vm.displayItems.where((i) {
-            return i.itemCode.toLowerCase().contains(searchQuery) ||
-                i.rfid.toLowerCase().contains(searchQuery);
-          }).toList();
+        : vm.searchItemCodeSuggestions(searchQuery);
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -358,16 +330,86 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                   child: Row(
                     children: [
                       Expanded(
-                        child: TextField(
-                          controller: _searchCtrl,
-                          onChanged: (_) => setState(() {}),
-                          decoration: InputDecoration(
-                            hintText: s.tr('itemCodeOrRfid'),
-                            border: const OutlineInputBorder(),
-                            isDense: true,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                          ),
-                          style: GoogleFonts.poppins(fontSize: 13),
+                        child: Autocomplete<BulkItem>(
+                          displayStringForOption: (item) =>
+                              item.itemCode.trim().isNotEmpty ? item.itemCode : item.rfid,
+                          optionsBuilder: (textEditingValue) {
+                            return vm.searchItemCodeSuggestions(textEditingValue.text);
+                          },
+                          onSelected: (item) {
+                            final key = vm.itemKey(item);
+                            _searchCtrl.text =
+                                item.itemCode.trim().isNotEmpty ? item.itemCode : item.rfid;
+                            setState(() => _checkedKeys.add(key));
+                          },
+                          fieldViewBuilder: (context, textController, focusNode, onFieldSubmitted) {
+                            return TextField(
+                              controller: textController,
+                              focusNode: focusNode,
+                              onChanged: (value) {
+                                _searchCtrl.text = value;
+                                final exact = vm.findExactItemCode(value);
+                                if (exact != null) {
+                                  _checkedKeys.add(vm.itemKey(exact));
+                                }
+                                setState(() {});
+                              },
+                              decoration: InputDecoration(
+                                hintText: s.tr('itemCodeLabel'),
+                                border: const OutlineInputBorder(),
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                                suffixIcon: textController.text.isEmpty
+                                    ? null
+                                    : IconButton(
+                                        icon: const Icon(Icons.clear, size: 18),
+                                        onPressed: () {
+                                          textController.clear();
+                                          _searchCtrl.clear();
+                                          setState(() {});
+                                        },
+                                      ),
+                              ),
+                              style: GoogleFonts.poppins(fontSize: 13),
+                              onSubmitted: (_) => onFieldSubmitted(),
+                            );
+                          },
+                          optionsViewBuilder: (context, onSelected, options) {
+                            return Align(
+                              alignment: Alignment.topLeft,
+                              child: Material(
+                                elevation: 4,
+                                child: ConstrainedBox(
+                                  constraints: const BoxConstraints(maxHeight: 220, maxWidth: 360),
+                                  child: ListView.builder(
+                                    padding: EdgeInsets.zero,
+                                    shrinkWrap: true,
+                                    itemCount: options.length,
+                                    itemBuilder: (context, index) {
+                                      final option = options.elementAt(index);
+                                      return ListTile(
+                                        dense: true,
+                                        title: Text(
+                                          option.itemCode,
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        subtitle: Text(
+                                          option.productName,
+                                          style: GoogleFonts.poppins(fontSize: 11),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        onTap: () => onSelected(option),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
                         ),
                       ),
                       IconButton(icon: const Icon(Icons.tune, color: Color(0xFF5231A7)), onPressed: () => _showFilterDialog(vm)),
@@ -384,10 +426,10 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                       final item = rows[index];
                       final key = vm.itemKey(item);
                       final checked = _checkedKeys.contains(key);
+                      final code = item.itemCode.trim().isNotEmpty ? item.itemCode : item.rfid;
                       return RepaintBoundary(
                         child: InkWell(
                         onTap: () {
-                          _searchCtrl.text = item.itemCode.isNotEmpty ? item.itemCode : item.rfid;
                           _toggleCheck(key);
                           setState(() {});
                         },
@@ -397,7 +439,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                             children: [
                               SizedBox(width: 28, child: Text('${index + 1}', style: _cell())),
                               Expanded(flex: 3, child: Text(item.productName, style: _cell(), maxLines: 2, overflow: TextOverflow.ellipsis)),
-                              Expanded(flex: 2, child: Text(item.rfid.isNotEmpty ? item.rfid : item.itemCode, style: _cell(), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                              Expanded(flex: 2, child: Text(code, style: _cell(), maxLines: 1, overflow: TextOverflow.ellipsis)),
                               Expanded(child: Text(item.grossWeight, style: _cell(), textAlign: TextAlign.center)),
                               Expanded(child: Text(item.netWeight, style: _cell(), textAlign: TextAlign.center)),
                               Checkbox(value: checked, onChanged: (_) => _toggleCheck(key)),
@@ -434,7 +476,15 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                     vm.setPreviewItems(selected);
                     Navigator.pushNamed(context, '/stock_transfer_preview');
                   },
-                  onList: _showListPopup,
+                  onList: () async {
+                    final nav = Navigator.of(context);
+                    final requestType = await showStockRequestPopup(context);
+                    if (!mounted || requestType == null) return;
+                    await nav.pushNamed(
+                      '/stock_transfer_in_out',
+                      arguments: {'requestType': requestType},
+                    );
+                  },
                   onScan: _startSingleScan,
                   onGscan: _startGscan,
                   onReset: _resetScan,

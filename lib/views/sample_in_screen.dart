@@ -14,6 +14,8 @@ import 'widgets/sample_in_table.dart';
 import 'widgets/sample_out_fields_dialog.dart';
 import 'widgets/sample_print_pdf.dart';
 import '../utils/tag_scan_batcher.dart';
+import '../utils/barcode_scan_mixin.dart';
+import '../utils/app_dropdown.dart';
 import 'widgets/scan_bottom_bar.dart';
 
 class SampleInScreen extends StatefulWidget {
@@ -23,7 +25,7 @@ class SampleInScreen extends StatefulWidget {
   State<SampleInScreen> createState() => _SampleInScreenState();
 }
 
-class _SampleInScreenState extends State<SampleInScreen> {
+class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
   final RfidService _rfidService = RfidService();
   final FocusNode _focusNode = FocusNode();
   final TextEditingController _customerSearchCtrl = TextEditingController();
@@ -77,10 +79,35 @@ class _SampleInScreenState extends State<SampleInScreen> {
         _toggleGscan(context.read<SampleInViewModel>());
       }
     });
+
+    bindBarcodeScanner();
+  }
+
+  @override
+  void onBarcodeScanned(String code) {
+    final vm = context.read<SampleInViewModel>();
+    if (vm.selectedChallan == null || vm.issueItems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.sRead.selectSampleOutNoFirst)),
+      );
+      return;
+    }
+    unawaited(_matchBarcode(code));
+  }
+
+  Future<void> _matchBarcode(String code) async {
+    final matched = await context.read<SampleInViewModel>().processScannedTags([code]);
+    if (!mounted) return;
+    if (!matched) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No matching item in selected Sample Out')),
+      );
+    }
   }
 
   @override
   void dispose() {
+    unbindBarcodeScanner();
     _tagBatcher.dispose();
     _rfidSubscription?.cancel();
     _triggerSubscription?.cancel();
@@ -533,12 +560,13 @@ class _SampleInScreenState extends State<SampleInScreen> {
         actions: [
           PopupMenuButton<int>(
             color: Colors.white,
+            constraints: const BoxConstraints(maxHeight: kDropdownMenuMaxHeight, minWidth: 60),
             onSelected: (val) {
               setState(() => _power = val);
               _rfidService.setPower(val);
             },
             itemBuilder: (context) => List.generate(30, (i) => i + 1)
-                .map((p) => PopupMenuItem(value: p, child: Text(s.powerLabel(p), style: GoogleFonts.poppins(fontSize: 14))))
+                .map((p) => PopupMenuItem(value: p, child: Text('$p', style: GoogleFonts.poppins(fontSize: 14))))
                 .toList(),
             child: Container(
               width: 32,

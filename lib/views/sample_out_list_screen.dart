@@ -4,7 +4,10 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
 import '../models/sample_out.dart';
+import '../services/pref_service.dart';
 import '../viewmodels/sample_out_view_model.dart';
+import 'widgets/list_action_icon.dart';
+import 'widgets/sample_print_pdf.dart';
 import 'widgets/spreadsheet_list_view.dart';
 
 class SampleOutListScreen extends StatefulWidget {
@@ -20,7 +23,8 @@ class _SampleOutListScreenState extends State<SampleOutListScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    Future.microtask(() {
+      if (!mounted) return;
       context.read<SampleOutViewModel>().loadSampleOutList();
     });
   }
@@ -132,6 +136,8 @@ class _SampleOutListScreenState extends State<SampleOutListScreen> {
               ),
             ),
             const Divider(height: 1),
+            if (vm.isListLoading && filtered.isNotEmpty)
+              const LinearProgressIndicator(minHeight: 2, color: Color(0xFF5231A7)),
             Expanded(
               child: vm.isListLoading && filtered.isEmpty
                   ? const Center(child: CircularProgressIndicator())
@@ -236,16 +242,62 @@ class _SampleOutListScreenState extends State<SampleOutListScreen> {
         ),
       ],
       actionBuilder: (context, index) {
-        return GestureDetector(
-          onTap: () => _editSampleOut(list[index]),
-          child: Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: const Color(0xFF5231A7).withValues(alpha: 0.1),
-              shape: BoxShape.circle,
+        final item = list[index];
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            listActionIcon(icon: Icons.edit, onTap: () => _editSampleOut(item)),
+            listActionIcon(
+              icon: Icons.print,
+              onTap: () async {
+                final prefs = await PrefService.init();
+                if (!context.mounted) return;
+                final dateFmt = DateFormat('dd/MM/yyyy');
+                String fmtDate(String raw) {
+                  final p = DateTime.tryParse(raw);
+                  return p == null ? raw : dateFmt.format(p);
+                }
+                final printItems = item.issueItems.isNotEmpty
+                    ? item.issueItems
+                        .map(
+                          (e) => SamplePrintItem(
+                            itemDetails: sampleItemDetailsFromIssue(e),
+                            grossWt: e['GrossWt']?.toString() ?? '0',
+                            stoneWt: e['StoneWeight']?.toString() ?? e['StoneWt']?.toString() ?? '0',
+                            diamondWt: e['DiamondWeight']?.toString() ?? e['DiamondWt']?.toString() ?? '0',
+                            netWt: e['NetWt']?.toString() ?? e['TotalWt']?.toString() ?? '0',
+                            pieces: e['Quantity']?.toString() ?? e['Pcs']?.toString() ?? '1',
+                            status: e['SampleStatus']?.toString() ?? item.sampleStatus,
+                          ),
+                        )
+                        .toList()
+                    : [
+                        SamplePrintItem(
+                          itemDetails: _productNames(item),
+                          grossWt: item.totalGrossWt,
+                          stoneWt: item.totalStoneWeight,
+                          diamondWt: item.totalDiamondWeight,
+                          netWt: item.totalNetWt,
+                          pieces: '${item.quantity}',
+                          status: item.sampleStatus,
+                        ),
+                      ];
+                await printSamplePrintPdf(
+                  context: context,
+                  data: SamplePrintData(
+                    companyName: prefs.getOrganisationName() ?? '',
+                    customerName: item.customerName,
+                    addressCity: '',
+                    contactNo: '',
+                    sampleOutNo: item.sampleOutNo,
+                    date: fmtDate(item.date.isNotEmpty ? item.date : item.createdOn),
+                    returnDate: fmtDate(item.returnDate),
+                    items: printItems,
+                  ),
+                );
+              },
             ),
-            child: const Icon(Icons.edit, size: 14, color: Color(0xFF5231A7)),
-          ),
+          ],
         );
       },
     );

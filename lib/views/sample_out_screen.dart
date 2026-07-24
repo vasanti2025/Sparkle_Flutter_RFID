@@ -15,6 +15,7 @@ import 'widgets/sample_out_fields_dialog.dart';
 import 'widgets/add_customer_dialog.dart';
 import 'widgets/challan_details_dialog.dart';
 import '../utils/tag_scan_batcher.dart';
+import '../utils/barcode_scan_mixin.dart';
 import 'widgets/sample_print_pdf.dart';
 
 class SampleOutScreen extends StatefulWidget {
@@ -24,7 +25,7 @@ class SampleOutScreen extends StatefulWidget {
   State<SampleOutScreen> createState() => _SampleOutScreenState();
 }
 
-class _SampleOutScreenState extends State<SampleOutScreen> {
+class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin {
   final RfidService _rfidService = RfidService();
   final FocusNode _focusNode = FocusNode();
   final TextEditingController _customerSearchCtrl = TextEditingController();
@@ -83,6 +84,8 @@ class _SampleOutScreenState extends State<SampleOutScreen> {
       }
     });
 
+    bindBarcodeScanner();
+
     _leftVScroll.addListener(_syncLeft);
     _dataVScroll.addListener(_syncData);
     _actionVScroll.addListener(_syncAction);
@@ -110,7 +113,27 @@ class _SampleOutScreenState extends State<SampleOutScreen> {
   }
 
   @override
+  void onBarcodeScanned(String code) {
+    _itemCodeCtrl.text = code;
+    setState(() => _showItemSuggestions = false);
+    unawaited(_addItemByBarcode(code));
+  }
+
+  Future<void> _addItemByBarcode(String code) async {
+    final error = await context.read<SampleOutViewModel>().addProductByCodeOrRfid(code);
+    if (!mounted) return;
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+    } else {
+      _itemCodeCtrl.clear();
+      setState(() => _showItemSuggestions = false);
+      _itemCodeFocus.unfocus();
+    }
+  }
+
+  @override
   void dispose() {
+    unbindBarcodeScanner();
     _tagBatcher.dispose();
     _suggestTimer?.cancel();
     _rfidSubscription?.cancel();
@@ -450,7 +473,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> {
                                 _itemCodeCtrl.clear();
                                 setState(() => _showItemSuggestions = false);
                               } else {
-                                addByCode(_itemCodeCtrl.text);
+                                unawaited(startBarcodeFromIcon());
                               }
                             },
                             child: Padding(
@@ -762,7 +785,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> {
               _rfidService.setPower(val);
             },
             itemBuilder: (context) => List.generate(30, (i) => i + 1)
-                .map((p) => PopupMenuItem<int>(value: p, height: 36, child: Text(s.powerLabel(p), style: GoogleFonts.poppins(fontSize: 14))))
+                .map((p) => PopupMenuItem<int>(value: p, height: 36, child: Text('$p', style: GoogleFonts.poppins(fontSize: 14))))
                 .toList(),
             child: Container(
               width: 32,

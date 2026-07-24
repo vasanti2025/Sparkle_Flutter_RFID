@@ -131,6 +131,7 @@ Widget? _buildRoutePage(RouteSettings settings) {
         transferId: args?['transferId'] as int? ?? 0,
         transferTypeName: args?['transferTypeName']?.toString() ?? '',
         items: items,
+        isSelfApproval: args?['isSelfApproval'] == true,
       );
     case '/stock_verification_report':
       return const StockVerificationReportScreen();

@@ -3,7 +3,10 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
+import '../services/pref_service.dart';
 import '../viewmodels/quotation_view_model.dart';
+import 'widgets/list_action_icon.dart';
+import 'widgets/quotation_pdf.dart';
 import 'widgets/spreadsheet_list_view.dart';
 
 class QuotationListScreen extends StatefulWidget {
@@ -19,8 +22,12 @@ class _QuotationListScreenState extends State<QuotationListScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<QuotationViewModel>().fetchQuotationsHistory();
+    Future.microtask(() {
+      if (!mounted) return;
+      final employee = context.read<PrefService>().getEmployee();
+      context.read<QuotationViewModel>().fetchQuotationsHistory(
+            branchId: employee?.defaultBranchId,
+          );
     });
   }
 
@@ -135,11 +142,19 @@ class _QuotationListScreenState extends State<QuotationListScreen> {
             ),
           ),
           Expanded(
-            child: vm.isHistoryLoading
-                ? const Center(child: CircularProgressIndicator(color: Color(0xFF5231A7)))
-                : filtered.isEmpty
-                    ? _buildEmptyState()
-                    : _buildSpreadsheetView(filtered),
+            child: Column(
+              children: [
+                if (vm.isHistoryLoading && filtered.isNotEmpty)
+                  const LinearProgressIndicator(minHeight: 2, color: Color(0xFF5231A7)),
+                Expanded(
+                  child: vm.isHistoryLoading && filtered.isEmpty
+                      ? const Center(child: CircularProgressIndicator(color: Color(0xFF5231A7)))
+                      : filtered.isEmpty
+                          ? _buildEmptyState()
+                          : _buildSpreadsheetView(filtered),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -245,16 +260,24 @@ class _QuotationListScreenState extends State<QuotationListScreen> {
         ),
       ],
       actionBuilder: (context, index) {
-        return GestureDetector(
-          onTap: () => _editQuotation(list[index] as Map<String, dynamic>),
-          child: Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: Colors.blue.withValues(alpha: 0.1),
-              shape: BoxShape.circle,
+        final quotation = list[index] as Map<String, dynamic>;
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            listActionIcon(icon: Icons.edit, onTap: () => _editQuotation(quotation)),
+            listActionIcon(
+              icon: Icons.print,
+              onTap: () async {
+                final prefs = await PrefService.init();
+                if (!context.mounted) return;
+                await printQuotationPdf(
+                  context: context,
+                  quotation: quotation,
+                  orgName: prefs.getOrganisationName() ?? '',
+                );
+              },
             ),
-            child: const Icon(Icons.edit, size: 14, color: Colors.blue),
-          ),
+          ],
         );
       },
     );

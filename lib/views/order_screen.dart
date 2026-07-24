@@ -20,6 +20,7 @@ import 'widgets/order_pdf.dart';
 import 'widgets/add_customer_dialog.dart';
 import 'widgets/order_bulk_details_dialog.dart';
 import '../utils/tag_scan_batcher.dart';
+import '../utils/barcode_scan_mixin.dart';
 
 // Brand gradient used across the screen (matches Sparkle Kotlin app).
 const _brandGradient = LinearGradient(
@@ -33,7 +34,7 @@ class OrderScreen extends StatefulWidget {
   State<OrderScreen> createState() => _OrderScreenState();
 }
 
-class _OrderScreenState extends State<OrderScreen> {
+class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
   final _customerSearchCtrl = TextEditingController();
   final _itemCodeCtrl = TextEditingController();
   final _focusNode = FocusNode();
@@ -100,6 +101,8 @@ class _OrderScreenState extends State<OrderScreen> {
       }
     });
 
+    bindBarcodeScanner();
+
     // Keep the data rows and the fixed action column vertically aligned.
     _dataVScroll.addListener(() => _syncVScroll(_dataVScroll, _actionVScroll));
     _actionVScroll.addListener(() => _syncVScroll(_actionVScroll, _dataVScroll));
@@ -118,7 +121,27 @@ class _OrderScreenState extends State<OrderScreen> {
   }
 
   @override
+  void onBarcodeScanned(String code) {
+    _itemCodeCtrl.text = code;
+    setState(() => _showItemSuggestions = false);
+    unawaited(_addItemByBarcode(code));
+  }
+
+  Future<void> _addItemByBarcode(String code) async {
+    final error = await context.read<OrderViewModel>().addProductByCodeOrRfid(code);
+    if (!mounted) return;
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+    } else {
+      _itemCodeCtrl.clear();
+      setState(() => _showItemSuggestions = false);
+      _itemCodeFocus.unfocus();
+    }
+  }
+
+  @override
   void dispose() {
+    unbindBarcodeScanner();
     _tagBatcher.dispose();
     _suggestTimer?.cancel();
     _rfidSubscription?.cancel();
@@ -136,7 +159,7 @@ class _OrderScreenState extends State<OrderScreen> {
 
   // Helper to construct image URL
   String _resolveImageUrl(String rawPath) {
-    final baseUrl = context.read<PrefService>().getCustomApi() ?? 'https://rrgold.loyalstring.co.in/';
+    final baseUrl = context.read<PrefService>().getEffectiveApiBaseUrl();
     var path = rawPath.trim();
     if (path.endsWith(',')) {
       path = path.substring(0, path.length - 1).trim();
@@ -586,7 +609,7 @@ class _OrderScreenState extends State<OrderScreen> {
                                 _itemCodeCtrl.clear();
                                 setState(() => _showItemSuggestions = false);
                               } else {
-                                addByCode(_itemCodeCtrl.text);
+                                unawaited(startBarcodeFromIcon());
                               }
                             },
                             child: Padding(
@@ -957,10 +980,19 @@ class _OrderScreenState extends State<OrderScreen> {
           try {
             final res = await vm.submitCustomOrder();
             if (res != null) {
-              final msg = vm.isOfflineMode || res['IsPendingSync'] == true
-                  ? s.orderSavedOffline
+              final offline = vm.isOfflineMode || res['IsPendingSync'] == true;
+              final msg = offline
+                  ? (vm.errorMessage != null && vm.errorMessage!.isNotEmpty
+                      ? '${s.orderSavedOffline}\n${vm.errorMessage}'
+                      : s.orderSavedOffline)
                   : s.orderSavedSuccessfully;
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(msg),
+                  duration: Duration(seconds: offline ? 6 : 3),
+                  backgroundColor: offline ? Colors.orange.shade800 : null,
+                ),
+              );
               
               // Open invoice preview
               await _generateAndShowPdf(res);
