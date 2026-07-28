@@ -851,6 +851,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   }
 
   void _showDetailsDialog(BulkItem item) {
+    // Kick off decode before dialog builds (inventory list has no row thumbs).
+    ProductImage.warmUrls([item.imageUrl]);
     final s = context.sRead;
     showDialog(
       context: context,
@@ -885,8 +887,6 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                     child: ProductImage.fromBulkItem(
                       item,
                       iconSize: 48,
-                      cacheWidth: 300,
-                      cacheHeight: 300,
                     ),
                   ),
                 ),
@@ -1945,12 +1945,27 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     return InkWell(
       onTap: () => _showDetailsDialog(item.originalBulkItem),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
         ),
         child: Row(
           children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: SizedBox(
+                width: 36,
+                height: 36,
+                child: ColoredBox(
+                  color: Colors.grey.shade100,
+                  child: ProductImage.fromBulkItem(
+                    item.originalBulkItem,
+                    iconSize: 18,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
             Expanded(
               flex: 28,
               child: Text(

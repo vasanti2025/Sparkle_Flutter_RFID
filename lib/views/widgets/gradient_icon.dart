@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-/// Lightweight menu icon (no ShaderMask — that janks low-RAM handhelds).
+/// Home-screen menu icons only (dashboard). Brand red→purple gradient.
+/// Do not reuse for other screens unless gradient icons are intentional there.
 class GradientIcon extends StatelessWidget {
   final IconData icon;
   final double size;
@@ -11,14 +12,25 @@ class GradientIcon extends StatelessWidget {
     this.size = 24.0,
   });
 
-  static const Color _color = Color(0xFF1565C0);
+  static const List<Color> _gradientColors = [
+    Color(0xFFD32940),
+    Color(0xFF5231A7),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    return Icon(
-      icon,
-      size: size,
-      color: _color,
+    return ShaderMask(
+      blendMode: BlendMode.srcIn,
+      shaderCallback: (bounds) => const LinearGradient(
+        colors: _gradientColors,
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ).createShader(bounds),
+      child: Icon(
+        icon,
+        size: size,
+        color: Colors.white,
+      ),
     );
   }
 }

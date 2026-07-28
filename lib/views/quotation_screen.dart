@@ -545,13 +545,23 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
                     radius: 8,
                     child: SizedBox(
                       height: 35,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(s.quotationDetails, style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey)),
-                          const SizedBox(width: 4),
-                          const Icon(Icons.tune, size: 20, color: Colors.grey),
-                        ],
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                s.quotationDetails,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Icon(Icons.tune, size: 20, color: Colors.grey),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -593,7 +603,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
   }
 
   static const double _cellWidth = 70;
-  static const double _actionWidth = 45;
+  static const double _actionWidth = 48;
   static const double _rowHeight = 34;
   static const double _headerHeight = 30;
   static const double _footerHeight = 34;
@@ -714,11 +724,21 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
               children: [
                 Container(
                   height: _headerHeight,
+                  width: _actionWidth,
                   color: const Color(0xFF2E2E2E),
-                  alignment: Alignment.centerLeft,
+                  alignment: Alignment.center,
                   padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: Text(s.action,
-                      style: GoogleFonts.poppins(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w600)),
+                  child: Text(
+                    s.action,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: 11,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
                 Expanded(
                   child: items.isEmpty
@@ -786,40 +806,69 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
         borderRadius: BorderRadius.only(topLeft: Radius.circular(6), topRight: Radius.circular(6)),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(6)),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: Checkbox(
-                    value: vm.isGstChecked,
-                    activeColor: const Color(0xFF1565C0),
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    visualDensity: VisualDensity.compact,
-                    onChanged: (val) {
-                      if (val != null) vm.setGstChecked(val);
-                    },
+          Flexible(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(6)),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: Checkbox(
+                      value: vm.isGstChecked,
+                      activeColor: const Color(0xFF1565C0),
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      visualDensity: VisualDensity.compact,
+                      onChanged: (val) {
+                        if (val != null) vm.setGstChecked(val);
+                      },
+                    ),
                   ),
-                ),
-                const SizedBox(width: 6),
-                Text(s.gstLabel,
-                    style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.black)),
-              ],
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      s.gstLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.black),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-          Text(s.totalAmount,
-              style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black)),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(6)),
-            child: Text('₹ ${vm.getFinalTotal().toStringAsFixed(2)}',
-                style: GoogleFonts.poppins(fontSize: 13, color: const Color(0xFF1565C0), fontWeight: FontWeight.bold)),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              s.totalAmount,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(6)),
+                child: Text(
+                  '₹ ${vm.getFinalTotal().toStringAsFixed(2)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    color: const Color(0xFF1565C0),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
           ),
         ],
       ),

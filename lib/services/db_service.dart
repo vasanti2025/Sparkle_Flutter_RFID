@@ -432,6 +432,7 @@ class DbService {
     'itemCode',
     'rfid',
     'epc',
+    'imageUrl',
     'grossWeight',
     'netWeight',
     'stoneWeight',

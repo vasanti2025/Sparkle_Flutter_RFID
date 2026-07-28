@@ -77,15 +77,42 @@ class _ProductListScreenState extends State<ProductListScreen> {
     
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final viewModel = Provider.of<ProductViewModel>(context, listen: false);
+      viewModel.addListener(_precacheLoadedImages);
       if (viewModel.products.isEmpty) {
         viewModel.loadNextPage();
+      } else {
+        _precacheLoadedImages();
       }
       _searchController.text = viewModel.searchQuery;
     });
   }
 
+  int _precachedCount = 0;
+
+  void _precacheLoadedImages() {
+    if (!mounted) return;
+    final products = context.read<ProductViewModel>().products;
+    if (products.isEmpty) {
+      _precachedCount = 0;
+      return;
+    }
+    if (products.length < _precachedCount) {
+      _precachedCount = 0;
+    }
+    if (products.length <= _precachedCount) return;
+    final start = _precachedCount;
+    _precachedCount = products.length;
+    // Same ResizeImage key as ProductImage widgets — cache hits on first paint.
+    ProductImage.warmUrls(
+      products.skip(start).take(40).map((e) => e.imageUrl),
+    );
+  }
+
   @override
   void dispose() {
+    try {
+      context.read<ProductViewModel>().removeListener(_precacheLoadedImages);
+    } catch (_) {}
     _leftScrollController.dispose();
     _middleScrollController.dispose();
     _rightScrollController.dispose();
@@ -592,35 +619,50 @@ class _ProductListScreenState extends State<ProductListScreen> {
 
   Widget _buildGridView(List<BulkItem> products, ProductViewModel viewModel) {
     final width = MediaQuery.of(context).size.width;
-    int columns = width > 900 ? 3 : 2;
+    final columns = width > 900 ? 3 : 2;
+    final rowCount = (products.length / columns).ceil();
+    final showLoader = !viewModel.hasReachedEnd;
 
-    return GridView.builder(
+    // Content-sized rows — no fixed cell height, so no empty space under N.Wt.
+    return ListView.builder(
       controller: _middleScrollController,
       padding: const EdgeInsets.all(12),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: columns,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        // Tall enough for 72px image + 2 text rows on small PDA screens.
-        mainAxisExtent: 200,
-      ),
-      itemCount: products.length + (viewModel.hasReachedEnd ? 0 : 1),
-      itemBuilder: (context, index) {
-        if (index == products.length) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(16.0),
-              child: CircularProgressIndicator(),
-            ),
+      itemCount: rowCount + (showLoader ? 1 : 0),
+      itemBuilder: (context, rowIndex) {
+        if (rowIndex >= rowCount) {
+          return const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(child: CircularProgressIndicator()),
           );
         }
-        return _buildGridCard(products[index]);
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (int col = 0; col < columns; col++) ...[
+                if (col > 0) const SizedBox(width: 12),
+                Expanded(
+                  child: Builder(
+                    builder: (_) {
+                      final index = rowIndex * columns + col;
+                      if (index >= products.length) {
+                        return const SizedBox.shrink();
+                      }
+                      return _buildGridCard(products[index]);
+                    },
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
       },
     );
   }
 
   Widget _buildGridCard(BulkItem item) {
-    // Lock text scale so system accessibility font size cannot reintroduce overflow.
     return MediaQuery(
       data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
       child: Material(
@@ -631,110 +673,88 @@ class _ProductListScreenState extends State<ProductListScreen> {
         child: InkWell(
           onTap: () => _showDetailsDialog(item),
           child: Padding(
-            padding: const EdgeInsets.all(6),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                // Reserve ~32px for two text rows; image uses the rest (never overflows).
-                const textReserve = 32.0;
-                final imageSize =
-                    (constraints.maxHeight - textReserve).clamp(28.0, 72.0);
-
-                return Column(
-                  children: [
-                    SizedBox(
-                      height: imageSize,
-                      width: double.infinity,
-                      child: Center(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: SizedBox(
-                            width: imageSize,
-                            height: imageSize,
-                            child: ColoredBox(
-                              color: Colors.grey[100]!,
-                              child: ProductImage.fromBulkItem(
-                                item,
-                                iconSize: imageSize * 0.45,
-                                cacheWidth: 144,
-                                cacheHeight: 144,
-                              ),
-                            ),
-                          ),
-                        ),
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: SizedBox(
+                    width: 72,
+                    height: 72,
+                    child: ColoredBox(
+                      color: Colors.grey[100]!,
+                      child: ProductImage.fromBulkItem(
+                        item,
+                        iconSize: 32,
+                        cacheWidth: 144,
+                        cacheHeight: 144,
                       ),
                     ),
-                    SizedBox(
-                      height: textReserve,
-                      width: double.infinity,
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  'RFID: ${item.rfid.isNotEmpty ? item.rfid : "-"}',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 9,
-                                    color: Colors.black87,
-                                    height: 1.1,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  'Code: ${item.itemCode.isNotEmpty ? item.itemCode : "-"}',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 9,
-                                    color: Colors.black87,
-                                    height: 1.1,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.end,
-                                ),
-                              ),
-                            ],
-                          ),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  'G. Wt: ${item.grossWeight.isNotEmpty ? item.grossWeight : "-"}',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 9,
-                                    color: Colors.black87,
-                                    height: 1.1,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  'N. Wt: ${item.netWeight.isNotEmpty ? item.netWeight : "-"}',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 9,
-                                    color: Colors.black87,
-                                    height: 1.1,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.end,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'RFID: ${item.rfid.isNotEmpty ? item.rfid : "-"}',
+                        style: GoogleFonts.poppins(
+                          fontSize: 9,
+                          color: Colors.black87,
+                          height: 1.15,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        'Code: ${item.itemCode.isNotEmpty ? item.itemCode : "-"}',
+                        style: GoogleFonts.poppins(
+                          fontSize: 9,
+                          color: Colors.black87,
+                          height: 1.15,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.end,
                       ),
                     ),
                   ],
-                );
-              },
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'G. Wt: ${item.grossWeight.isNotEmpty ? item.grossWeight : "-"}',
+                        style: GoogleFonts.poppins(
+                          fontSize: 9,
+                          color: Colors.black87,
+                          height: 1.15,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        'N. Wt: ${item.netWeight.isNotEmpty ? item.netWeight : "-"}',
+                        style: GoogleFonts.poppins(
+                          fontSize: 9,
+                          color: Colors.black87,
+                          height: 1.15,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.end,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
         ),
@@ -792,6 +812,8 @@ class _ProductListScreenState extends State<ProductListScreen> {
 
   // Details dialog on card click
   void _showDetailsDialog(BulkItem item) {
+    // Same thumb cache key as grid/list warm — shows instantly if already loaded.
+    ProductImage.warmUrls([item.imageUrl]);
     final s = context.sRead;
     showDialog(
       context: context,
@@ -827,8 +849,6 @@ class _ProductListScreenState extends State<ProductListScreen> {
                     child: ProductImage.fromBulkItem(
                       item,
                       iconSize: 48,
-                      cacheWidth: 300,
-                      cacheHeight: 300,
                     ),
                   ),
                 ),
@@ -879,7 +899,9 @@ class _ProductListScreenState extends State<ProductListScreen> {
 
   Widget _buildSpreadsheetView(List<BulkItem> products, ProductViewModel viewModel) {
     final s = context.s;
-    const double colSr = 40;
+    const double colImg = 40;
+    const double colSr = 36;
+    const double colLeft = colImg + colSr;
     const double colActions = 75;
 
     const double colProduct = 120;
@@ -906,16 +928,26 @@ class _ProductListScreenState extends State<ProductListScreen> {
 
     return Row(
       children: [
-        // Left Side: Pinned/Fixed Sr Column
+        // Left Side: Pinned image + Sr (thumbs load while scrolling → detail dialog is instant)
         SizedBox(
-          width: colSr,
+          width: colLeft,
           child: Column(
             children: [
               // Header
               Container(
                 height: 40,
                 color: Colors.grey[300],
-                child: _buildHeaderCell(s.headerSr, colSr),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: colImg,
+                      child: Center(
+                        child: Icon(Icons.image_outlined, size: 16, color: Colors.grey[700]),
+                      ),
+                    ),
+                    _buildHeaderCell(s.headerSr, colSr),
+                  ],
+                ),
               ),
               // Pinned rows
               Expanded(
@@ -941,6 +973,22 @@ class _ProductListScreenState extends State<ProductListScreen> {
                             ),
                             child: Row(
                               children: [
+                                SizedBox(
+                                  width: colImg,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(4),
+                                      child: ColoredBox(
+                                        color: Colors.grey.shade100,
+                                        child: ProductImage.fromBulkItem(
+                                          item,
+                                          iconSize: 14,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
                                 _buildDataCell('${index + 1}', colSr),
                               ],
                             ),

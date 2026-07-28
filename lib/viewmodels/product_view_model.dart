@@ -8,8 +8,8 @@ import '../models/bulk_item.dart';
 import '../services/db_service.dart';
 import '../services/pref_service.dart';
 import '../services/sync_isolate.dart';
-
 import '../services/api_service.dart';
+import '../utils/product_image.dart';
 
 class ProductViewModel extends ChangeNotifier {
   final PrefService _prefService;
@@ -322,9 +322,11 @@ class ProductViewModel extends ChangeNotifier {
       if (items.length < _pageSize) {
         _hasReachedEnd = true;
       }
-      
+
       _products.addAll(items);
       _offset += items.length;
+      // Begin image download/decode BEFORE UI rebuild so thumbs arrive with rows.
+      ProductImage.warmUrls(items.map((e) => e.imageUrl));
     } catch (e) {
       _errorMessage = 'Failed to load products: ${e.toString()}';
     } finally {

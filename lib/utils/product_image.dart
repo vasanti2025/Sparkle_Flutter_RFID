@@ -6,8 +6,8 @@ import 'package:provider/provider.dart';
 import '../models/bulk_item.dart';
 import '../services/pref_service.dart';
 
-/// Product thumbnail from a [BulkItem] image URL or local path.
-class ProductImage extends StatelessWidget {
+/// Fast product thumbnail. Uses CDN base first (same as Sparkle ProductList).
+class ProductImage extends StatefulWidget {
   const ProductImage._({
     required this.imageUrl,
     required this.iconSize,
@@ -20,6 +20,9 @@ class ProductImage extends StatelessWidget {
   final int? cacheWidth;
   final int? cacheHeight;
 
+  /// Default decode size for list/grid thumbs (must match [warmUrls]).
+  static const int thumbCachePx = 144;
+
   factory ProductImage.fromBulkItem(
     BulkItem item, {
     required double iconSize,
@@ -29,87 +32,216 @@ class ProductImage extends StatelessWidget {
     return ProductImage._(
       imageUrl: item.imageUrl,
       iconSize: iconSize,
-      cacheWidth: cacheWidth,
-      cacheHeight: cacheHeight,
+      cacheWidth: cacheWidth ?? thumbCachePx,
+      cacheHeight: cacheHeight ?? thumbCachePx,
     );
   }
 
-  String _resolveUrl(BuildContext context) {
+  /// CDN host for relative product image paths (Sparkle default).
+  static const String cdnBaseUrl = PrefService.defaultApiBaseUrl;
+
+  static String resolveUrl(String imageUrl, {String? effectiveBaseUrl}) {
     var path = imageUrl.trim();
     if (path.isEmpty) return '';
-    if (path.endsWith(',')) {
+    while (path.endsWith(',')) {
       path = path.substring(0, path.length - 1).trim();
     }
-    if (path.startsWith('http://') || path.startsWith('https://')) {
-      return path;
+    if (path.isEmpty) return '';
+
+    final parts = path
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return '';
+    final selected = parts.last;
+
+    if (selected.startsWith('http://') || selected.startsWith('https://')) {
+      return selected;
     }
-    if (path.startsWith('file://')) {
-      return path;
+    if (selected.startsWith('file://')) {
+      return selected;
     }
-    if (File(path).existsSync()) {
-      return path;
+    if (selected.startsWith('/') &&
+        (selected.startsWith('/data/') ||
+            selected.startsWith('/storage/') ||
+            selected.startsWith('/sdcard/'))) {
+      return selected;
     }
 
-    final baseUrl = context.read<PrefService>().getEffectiveApiBaseUrl();
-    final imgList = path.split(',');
-    final lastImg = imgList.isNotEmpty ? imgList.last.trim() : '';
-    if (lastImg.isEmpty) return '';
-    return '$baseUrl$lastImg';
+    final base = (effectiveBaseUrl != null && effectiveBaseUrl.isNotEmpty)
+        ? (effectiveBaseUrl.endsWith('/')
+            ? effectiveBaseUrl
+            : '$effectiveBaseUrl/')
+        : cdnBaseUrl;
+    final relative =
+        selected.startsWith('/') ? selected.substring(1) : selected;
+    return '$base$relative';
+  }
+
+  static ImageProvider? networkProvider(
+    String imageUrl, {
+    int pixelSize = thumbCachePx,
+  }) {
+    final url = resolveUrl(imageUrl);
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      return null;
+    }
+    return ResizeImage(
+      NetworkImage(url),
+      width: pixelSize,
+      height: pixelSize,
+    );
+  }
+
+  /// Start downloading/decoding as soon as item rows exist (before paint).
+  /// Uses the same [ResizeImage] key as [Image.network] cacheWidth.
+  static void warmUrls(
+    Iterable<String> imageUrls, {
+    int pixelSize = thumbCachePx,
+  }) {
+    for (final raw in imageUrls) {
+      final provider = networkProvider(raw, pixelSize: pixelSize);
+      if (provider == null) continue;
+      provider.resolve(const ImageConfiguration()).addListener(
+            ImageStreamListener(
+              (ImageInfo _, bool __) {},
+              onError: (Object _, StackTrace? __) {},
+            ),
+          );
+    }
+  }
+
+  @override
+  State<ProductImage> createState() => _ProductImageState();
+}
+
+class _ProductImageState extends State<ProductImage> {
+  int _urlIndex = 0;
+  List<String>? _urls;
+
+  List<String> _buildUrls(BuildContext context) {
+    String? effective;
+    try {
+      effective = context.read<PrefService>().getEffectiveApiBaseUrl();
+    } catch (_) {}
+
+    final urls = <String>[];
+    final seen = <String>{};
+
+    void add(String u) {
+      if (u.isEmpty) return;
+      if (seen.add(u.toLowerCase())) urls.add(u);
+    }
+
+    add(ProductImage.resolveUrl(widget.imageUrl));
+    if (effective != null &&
+        effective.isNotEmpty &&
+        effective.toLowerCase() != ProductImage.cdnBaseUrl.toLowerCase()) {
+      add(ProductImage.resolveUrl(widget.imageUrl, effectiveBaseUrl: effective));
+    }
+    return urls;
+  }
+
+  @override
+  void didUpdateWidget(covariant ProductImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.imageUrl != widget.imageUrl) {
+      _urls = null;
+      _urlIndex = 0;
+    }
   }
 
   Widget _placeholder() {
-    return Center(
-      child: Icon(Icons.image_outlined, size: iconSize, color: Colors.grey[400]),
+    return ColoredBox(
+      color: Colors.grey.shade100,
+      child: Center(
+        child: Icon(
+          Icons.image_outlined,
+          size: widget.iconSize,
+          color: Colors.grey[400],
+        ),
+      ),
     );
+  }
+
+  void _tryNext() {
+    if (_urls == null) return;
+    if (_urlIndex < _urls!.length - 1) {
+      setState(() => _urlIndex++);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final resolved = _resolveUrl(context);
-    if (resolved.isEmpty) {
+    _urls ??= _buildUrls(context);
+    if (_urls!.isEmpty || _urlIndex >= _urls!.length) {
       return _placeholder();
     }
 
+    final resolved = _urls![_urlIndex];
+    final cacheW = widget.cacheWidth ?? ProductImage.thumbCachePx;
+    final cacheH = widget.cacheHeight ?? ProductImage.thumbCachePx;
+
     if (resolved.startsWith('file://')) {
       final file = File(Uri.parse(resolved).toFilePath());
-      if (!file.existsSync()) return _placeholder();
+      if (!file.existsSync()) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _tryNext());
+        return _placeholder();
+      }
       return Image.file(
         file,
         fit: BoxFit.cover,
-        cacheWidth: cacheWidth,
-        cacheHeight: cacheHeight,
-        errorBuilder: (_, __, ___) => _placeholder(),
+        width: double.infinity,
+        height: double.infinity,
+        cacheWidth: cacheW,
+        cacheHeight: cacheH,
+        gaplessPlayback: true,
+        errorBuilder: (_, __, ___) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => _tryNext());
+          return _placeholder();
+        },
       );
     }
 
-    if (!resolved.startsWith('http')) {
+    if (!resolved.startsWith('http://') && !resolved.startsWith('https://')) {
       final file = File(resolved);
       if (file.existsSync()) {
         return Image.file(
           file,
           fit: BoxFit.cover,
-          cacheWidth: cacheWidth,
-          cacheHeight: cacheHeight,
-          errorBuilder: (_, __, ___) => _placeholder(),
+          width: double.infinity,
+          height: double.infinity,
+          cacheWidth: cacheW,
+          cacheHeight: cacheH,
+          gaplessPlayback: true,
+          errorBuilder: (_, __, ___) {
+            WidgetsBinding.instance.addPostFrameCallback((_) => _tryNext());
+            return _placeholder();
+          },
         );
       }
+      WidgetsBinding.instance.addPostFrameCallback((_) => _tryNext());
+      return _placeholder();
     }
 
     return Image.network(
       resolved,
       fit: BoxFit.cover,
-      cacheWidth: cacheWidth,
-      cacheHeight: cacheHeight,
-      errorBuilder: (_, __, ___) => _placeholder(),
-      loadingBuilder: (context, child, progress) {
-        if (progress == null) return child;
-        return Center(
-          child: SizedBox(
-            width: iconSize * 0.45,
-            height: iconSize * 0.45,
-            child: const CircularProgressIndicator(strokeWidth: 2),
-          ),
-        );
+      width: double.infinity,
+      height: double.infinity,
+      cacheWidth: cacheW,
+      cacheHeight: cacheH,
+      gaplessPlayback: true,
+      filterQuality: FilterQuality.low,
+      // If already warmed/cached, paint immediately with the row text.
+      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+        if (wasSynchronouslyLoaded || frame != null) return child;
+        return _placeholder();
+      },
+      errorBuilder: (_, __, ___) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _tryNext());
+        return _placeholder();
       },
     );
   }
