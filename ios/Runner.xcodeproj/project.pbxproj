@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 60;
+	objectVersion = 54;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -17,6 +17,7 @@
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		A1B2C3D41F00000100000001 /* RfidBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D41F00000100000002 /* RfidBridge.swift */; };
+		A1B2C3D41F00000100000005 /* PdfBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D41F00000100000006 /* PdfBridge.swift */; };
 		A1B2C3D41F00000100000003 /* barcodebeep.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D41F00000100000004 /* barcodebeep.mp3 */; };
 		C61713F8DCAE8D2FC74C5CE0 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F89340A7D5B884AE64BFA005 /* Pods_RunnerTests.framework */; };
 /* End PBXBuildFile section */
@@ -66,6 +67,7 @@
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1B2C3D41F00000100000002 /* RfidBridge.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = RfidBridge.swift; sourceTree = "<group>"; };
+		A1B2C3D41F00000100000006 /* PdfBridge.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = PdfBridge.swift; sourceTree = "<group>"; };
 		A1B2C3D41F00000100000004 /* barcodebeep.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; name = barcodebeep.mp3; path = Sounds/barcodebeep.mp3; sourceTree = "<group>"; };
 		A30CAAFD8EFB9A1DC5112BF1 /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
 		B57F3C2E6565253D2FEC99C2 /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
@@ -155,6 +157,7 @@
 				1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */,
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				A1B2C3D41F00000100000002 /* RfidBridge.swift */,
+				A1B2C3D41F00000100000006 /* PdfBridge.swift */,
 				A1B2C3D41F00000100000004 /* barcodebeep.mp3 */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
@@ -413,6 +416,7 @@
 			files = (
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				A1B2C3D41F00000100000001 /* RfidBridge.swift in Sources */,
+				A1B2C3D41F00000100000005 /* PdfBridge.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
