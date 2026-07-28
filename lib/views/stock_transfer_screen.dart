@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:rfid_flutter/utils/app_fonts.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
 import '../models/bulk_item.dart';
@@ -42,6 +42,10 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
     _vm = context.read<StockTransferViewModel>();
     _vm!.addListener(_onVmChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      // Let the route fade finish before heavy stock load.
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      if (!mounted) return;
       // Reuse in-memory list when possible — avoid full DB reload every open.
       await _vm!.initialize(forceReload: false);
       if (!mounted) return;
@@ -158,7 +162,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setLocal) => AlertDialog(
-          title: Text(s.tr('filter'), style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+          title: Text(s.tr('filter'), style: AppFonts.poppins(fontWeight: FontWeight.bold)),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -252,7 +256,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
       },
       child: InputDecorator(
         decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
-        child: Text(value, style: GoogleFonts.poppins(fontSize: 13)),
+        child: Text(value, style: AppFonts.poppins(fontSize: 13)),
       ),
     );
   }
@@ -370,7 +374,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                                         },
                                       ),
                               ),
-                              style: GoogleFonts.poppins(fontSize: 13),
+                              style: AppFonts.poppins(fontSize: 13),
                               onSubmitted: (_) => onFieldSubmitted(),
                             );
                           },
@@ -391,14 +395,14 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                                         dense: true,
                                         title: Text(
                                           option.itemCode,
-                                          style: GoogleFonts.poppins(
+                                          style: AppFonts.poppins(
                                             fontSize: 13,
                                             fontWeight: FontWeight.w600,
                                           ),
                                         ),
                                         subtitle: Text(
                                           option.productName,
-                                          style: GoogleFonts.poppins(fontSize: 11),
+                                          style: AppFonts.poppins(fontSize: 11),
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                         ),
@@ -457,10 +461,10 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('${s.tr('totalQty')}: ${rows.length}', style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600)),
-                      Text('${s.tr('selectedQty')}: ${selected.length}', style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600)),
-                      Text('${s.tr('grossWt')}: ${totalGross.toStringAsFixed(2)}', style: GoogleFonts.poppins(fontSize: 11)),
-                      Text('${s.tr('netWt')}: ${totalNet.toStringAsFixed(2)}', style: GoogleFonts.poppins(fontSize: 11)),
+                      Text('${s.tr('totalQty')}: ${rows.length}', style: AppFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600)),
+                      Text('${s.tr('selectedQty')}: ${selected.length}', style: AppFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600)),
+                      Text('${s.tr('grossWt')}: ${totalGross.toStringAsFixed(2)}', style: AppFonts.poppins(fontSize: 11)),
+                      Text('${s.tr('netWt')}: ${totalNet.toStringAsFixed(2)}', style: AppFonts.poppins(fontSize: 11)),
                     ],
                   ),
                 ),
@@ -506,7 +510,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
           gradient: const LinearGradient(colors: [Color(0xFF5231A7), Color(0xFFD32940)]),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Text(label, style: GoogleFonts.poppins(color: Colors.white, fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center),
+        child: Text(label, style: AppFonts.poppins(color: Colors.white, fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center),
       ),
     );
   }
@@ -528,6 +532,6 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
     );
   }
 
-  TextStyle _header() => GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10);
-  TextStyle _cell() => GoogleFonts.poppins(fontSize: 10, color: Colors.black87);
+  TextStyle _header() => AppFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10);
+  TextStyle _cell() => AppFonts.poppins(fontSize: 10, color: Colors.black87);
 }

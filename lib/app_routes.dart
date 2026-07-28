@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
 import 'models/stock_transfer_models.dart';
-import 'services/app_warmup_service.dart';
 import 'utils/fast_page_route.dart';
-import 'viewmodels/dashboard_view_model.dart';
 import 'views/add_face_screen.dart';
 import 'views/add_product_screen.dart';
 import 'views/bulk_product_screen.dart';
@@ -155,23 +152,8 @@ Widget? _buildRoutePage(RouteSettings settings) {
   }
 }
 
-class _DashboardRoute extends StatefulWidget {
+class _DashboardRoute extends StatelessWidget {
   const _DashboardRoute();
-
-  @override
-  State<_DashboardRoute> createState() => _DashboardRouteState();
-}
-
-class _DashboardRouteState extends State<_DashboardRoute> {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      Provider.of<DashboardViewModel>(context, listen: false).loadUser();
-      AppWarmupService.instance.start(appNavigatorKey);
-    });
-  }
 
   @override
   Widget build(BuildContext context) => const DashboardScreen();

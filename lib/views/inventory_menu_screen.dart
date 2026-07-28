@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:rfid_flutter/utils/app_fonts.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
 import '../viewmodels/product_view_model.dart';
@@ -111,7 +111,7 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message, style: GoogleFonts.poppins()),
+        content: Text(message, style: AppFonts.poppins()),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -151,7 +151,7 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
             ),
             title: Text(
               s.inventory,
-              style: GoogleFonts.poppins(
+              style: AppFonts.poppins(
                 color: Colors.white,
                 fontWeight: FontWeight.w600,
               ),
@@ -218,7 +218,7 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
                 const SizedBox(width: 24),
                 Text(
                   title,
-                  style: GoogleFonts.poppins(
+                  style: AppFonts.poppins(
                     color: Colors.white,
                     fontSize: 18,
                     fontWeight: FontWeight.w500,
@@ -288,7 +288,7 @@ class _SelectionDialogState extends State<_SelectionDialog> {
                 children: [
                   Text(
                     s.selectLabel(widget.title),
-                    style: GoogleFonts.poppins(
+                    style: AppFonts.poppins(
                       fontWeight: FontWeight.w600,
                       fontSize: 15,
                       color: const Color(0xFF3B363E),
@@ -344,7 +344,7 @@ class _SelectionDialogState extends State<_SelectionDialog> {
                         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                         child: Text(
                           item,
-                          style: GoogleFonts.poppins(
+                          style: AppFonts.poppins(
                             fontSize: 14,
                             color: const Color(0xFF3B363E),
                           ),

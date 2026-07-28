@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.loyalstring.rfid.rfid_flutter"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -36,16 +36,23 @@ android {
 
     buildTypes {
         debug {
-            // Keep debuggable=true for hot reload / breakpoints.
-            // Flutter debug (JIT) is slow to open — use profile/release for real speed.
-            isDebuggable = true
+            // Debug/JIT is 5–20x slower to open than release. Use release for real devices.
+            isDebuggable = false
         }
         release {
-            // AOT + non-debuggable — cold start close to Sparkle Kotlin.
+            // AOT (fast open). Minify off — R8 fights Flutter Play Core stubs;
+            // release AOT alone is the main cold-start win vs debug.
             isDebuggable = false
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            isMinifyEnabled = false
+            isShrinkResources = false
             signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // Extract .so to disk once — faster cold start on handhelds than mmap-from-APK.
+            useLegacyPackaging = true
         }
     }
 }

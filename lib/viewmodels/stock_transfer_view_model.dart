@@ -142,7 +142,21 @@ class StockTransferViewModel extends ChangeNotifier {
 
   Future<void> loadAllLabelledStock() async {
     try {
-      allLabelledItems = await _dbService.getLabelledBulkItems();
+      // Page load so Stock Transfer open doesn't freeze the UI on large DBs.
+      const pageSize = 3000;
+      final all = <BulkItem>[];
+      var offset = 0;
+      while (true) {
+        final batch =
+            await _dbService.getLabelledBulkItemsPaged(pageSize, offset);
+        if (batch.isEmpty) break;
+        all.addAll(batch);
+        offset += batch.length;
+        await Future<void>.delayed(Duration.zero);
+        if (batch.length < pageSize) break;
+        if (all.length >= 20000) break;
+      }
+      allLabelledItems = all;
       // If From is set with a transfer type, keep that filter; else show all.
       if (selectedTransferType != null &&
           selectedFrom != fromPlaceholder &&

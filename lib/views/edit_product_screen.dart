@@ -5,7 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
 import '../models/bulk_item.dart';
-import '../services/pref_service.dart';
+import '../utils/product_image.dart';
 import '../viewmodels/product_view_model.dart';
 
 class EditProductScreen extends StatefulWidget {
@@ -681,34 +681,13 @@ class _EditProductScreenState extends State<EditProductScreen> {
     if (_localImagePath != null) {
       return Image.file(File(_localImagePath!), fit: BoxFit.cover);
     }
-    
-    if (item.imageUrl.isNotEmpty) {
-      final baseUrl = PrefService.defaultApiBaseUrl;
-      var storedUrl = item.imageUrl.trim();
-      if (storedUrl.endsWith(',')) {
-        storedUrl = storedUrl.substring(0, storedUrl.length - 1).trim();
-      }
-      String finalUrl;
-      
-      if (storedUrl.startsWith('http://') || storedUrl.startsWith('https://')) {
-        finalUrl = storedUrl;
-      } else {
-        // Splitting by comma if there are multiple images
-        final imgList = storedUrl.split(',');
-        final lastImg = imgList.isNotEmpty ? imgList.last.trim() : '';
-        finalUrl = '$baseUrl$lastImg';
-      }
 
-      return Image.network(
-        finalUrl,
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) {
-          return const Icon(Icons.image, color: Colors.grey, size: 50);
-        },
-      );
-    }
-    
-    return const Icon(Icons.image, color: Colors.grey, size: 50);
+    return ProductImage.fromBulkItem(
+      item,
+      iconSize: 50,
+      cacheWidth: 400,
+      cacheHeight: 400,
+    );
   }
 
   Widget _buildFormCard({

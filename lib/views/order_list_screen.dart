@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:rfid_flutter/utils/app_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
+import '../utils/nav_perf.dart';
 import '../viewmodels/order_view_model.dart';
 import 'widgets/list_action_icon.dart';
 import 'widgets/order_pdf.dart';
@@ -21,11 +24,15 @@ class _OrderListScreenState extends State<OrderListScreen> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(() async {
+    // Wait for page transition so dashboard → list feels instant.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final vm = context.read<OrderViewModel>();
-      // Skip long pending sync on open — cloud button / background worker handle that.
-      await vm.fetchOrdersHistory(syncPendingFirst: false);
+      runAfterRouteSettled(context, () {
+        if (!mounted) return;
+        final vm = context.read<OrderViewModel>();
+        // Skip long pending sync on open — cloud button / background worker handle that.
+        unawaited(vm.fetchOrdersHistory(syncPendingFirst: false));
+      });
     });
   }
 
@@ -55,12 +62,12 @@ class _OrderListScreenState extends State<OrderListScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text(s.deleteOrder, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-          content: Text(s.deleteOrderConfirm.replaceAll('{id}', displayId), style: GoogleFonts.poppins(fontSize: 14)),
+          title: Text(s.deleteOrder, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
+          content: Text(s.deleteOrderConfirm.replaceAll('{id}', displayId), style: AppFonts.poppins(fontSize: 14)),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text(s.cancel, style: GoogleFonts.poppins(color: Colors.grey)),
+              child: Text(s.cancel, style: AppFonts.poppins(color: Colors.grey)),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
@@ -82,7 +89,7 @@ class _OrderListScreenState extends State<OrderListScreen> {
                   );
                 }
               },
-              child: Text(s.delete, style: GoogleFonts.poppins(color: Colors.white)),
+              child: Text(s.delete, style: AppFonts.poppins(color: Colors.white)),
             ),
           ],
         );
@@ -138,12 +145,12 @@ class _OrderListScreenState extends State<OrderListScreen> {
       builder: (ctx) => AlertDialog(
         title: Text(
           count > 0 ? 'Partial sync' : s.error,
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+          style: AppFonts.poppins(fontWeight: FontWeight.w600),
         ),
         content: SingleChildScrollView(
           child: SelectableText(
             message,
-            style: GoogleFonts.poppins(fontSize: 13),
+            style: AppFonts.poppins(fontSize: 13),
           ),
         ),
         actions: [
@@ -160,11 +167,11 @@ class _OrderListScreenState extends State<OrderListScreen> {
                 ),
               );
             },
-            child: Text('Clear stuck', style: GoogleFonts.poppins(color: Colors.red)),
+            child: Text('Clear stuck', style: AppFonts.poppins(color: Colors.red)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: Text('OK', style: GoogleFonts.poppins()),
+            child: Text('OK', style: AppFonts.poppins()),
           ),
         ],
       ),
@@ -244,7 +251,7 @@ class _OrderListScreenState extends State<OrderListScreen> {
         ),
         title: Text(
           s.customerOrdersList,
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white),
+          style: AppFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white),
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
@@ -297,7 +304,7 @@ class _OrderListScreenState extends State<OrderListScreen> {
                   Expanded(
                     child: Text(
                       s.offlineOrderMode,
-                      style: GoogleFonts.poppins(fontSize: 12, color: Colors.orange.shade900),
+                      style: AppFonts.poppins(fontSize: 12, color: Colors.orange.shade900),
                     ),
                   ),
                 ],
@@ -312,10 +319,10 @@ class _OrderListScreenState extends State<OrderListScreen> {
                   child: TextField(
                     controller: _searchController,
                     onChanged: (val) => setState(() {}),
-                    style: GoogleFonts.poppins(fontSize: 13),
+                    style: AppFonts.poppins(fontSize: 13),
                     decoration: InputDecoration(
                       hintText: s.searchOrderHint,
-                      hintStyle: GoogleFonts.poppins(fontSize: 13, color: Colors.grey[400]),
+                      hintStyle: AppFonts.poppins(fontSize: 13, color: Colors.grey[400]),
                       prefixIcon: const Icon(Icons.search, size: 20),
                       isDense: true,
                       contentPadding: const EdgeInsets.symmetric(vertical: 10),
@@ -366,7 +373,7 @@ class _OrderListScreenState extends State<OrderListScreen> {
           const SizedBox(height: 16),
           Text(
             s.noOrdersFound,
-            style: GoogleFonts.poppins(fontSize: 16, color: Colors.grey[600], fontWeight: FontWeight.w500),
+            style: AppFonts.poppins(fontSize: 16, color: Colors.grey[600], fontWeight: FontWeight.w500),
           ),
         ],
       ),

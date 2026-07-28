@@ -6,10 +6,10 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../l10n/l10n_extension.dart';
 import '../models/bulk_item.dart';
-import '../services/pref_service.dart';
 import '../viewmodels/product_view_model.dart';
 import '../theme/list_text_styles.dart';
 import '../utils/app_dropdown.dart';
+import '../utils/product_image.dart';
 import 'widgets/scan_bottom_bar.dart';
 
 class ProductListScreen extends StatefulWidget {
@@ -601,12 +601,18 @@ class _ProductListScreenState extends State<ProductListScreen> {
         crossAxisCount: columns,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
-        childAspectRatio: 1.15,
+        // Tall enough for 72px image + 2 text rows on small PDA screens.
+        mainAxisExtent: 200,
       ),
       itemCount: products.length + (viewModel.hasReachedEnd ? 0 : 1),
       itemBuilder: (context, index) {
         if (index == products.length) {
-          return const Center(child: Padding(padding: EdgeInsets.all(16.0), child: CircularProgressIndicator()));
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(16.0),
+              child: CircularProgressIndicator(),
+            ),
+          );
         }
         return _buildGridCard(products[index]);
       },
@@ -614,78 +620,122 @@ class _ProductListScreenState extends State<ProductListScreen> {
   }
 
   Widget _buildGridCard(BulkItem item) {
-    return Card(
-      color: Colors.white,
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: InkWell(
+    // Lock text scale so system accessibility font size cannot reintroduce overflow.
+    return MediaQuery(
+      data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
+      child: Material(
+        color: Colors.white,
+        elevation: 2,
         borderRadius: BorderRadius.circular(12),
-        onTap: () => _showDetailsDialog(item),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 12.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // Image
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  width: 72,
-                  height: 72,
-                  color: Colors.grey[100],
-                  child: _buildItemImage(item),
-                ),
-              ),
-              const SizedBox(height: 12),
-              // Row 1: RFID & Code
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'RFID: ${item.rfid.isNotEmpty ? item.rfid : "-"}',
-                      style: GoogleFonts.poppins(fontSize: 9, color: Colors.black87),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+        clipBehavior: Clip.hardEdge,
+        child: InkWell(
+          onTap: () => _showDetailsDialog(item),
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // Reserve ~32px for two text rows; image uses the rest (never overflows).
+                const textReserve = 32.0;
+                final imageSize =
+                    (constraints.maxHeight - textReserve).clamp(28.0, 72.0);
+
+                return Column(
+                  children: [
+                    SizedBox(
+                      height: imageSize,
+                      width: double.infinity,
+                      child: Center(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: SizedBox(
+                            width: imageSize,
+                            height: imageSize,
+                            child: ColoredBox(
+                              color: Colors.grey[100]!,
+                              child: ProductImage.fromBulkItem(
+                                item,
+                                iconSize: imageSize * 0.45,
+                                cacheWidth: 144,
+                                cacheHeight: 144,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      'Code: ${item.itemCode.isNotEmpty ? item.itemCode : "-"}',
-                      style: GoogleFonts.poppins(fontSize: 9, color: Colors.black87),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.end,
+                    SizedBox(
+                      height: textReserve,
+                      width: double.infinity,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'RFID: ${item.rfid.isNotEmpty ? item.rfid : "-"}',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 9,
+                                    color: Colors.black87,
+                                    height: 1.1,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  'Code: ${item.itemCode.isNotEmpty ? item.itemCode : "-"}',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 9,
+                                    color: Colors.black87,
+                                    height: 1.1,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.end,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'G. Wt: ${item.grossWeight.isNotEmpty ? item.grossWeight : "-"}',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 9,
+                                    color: Colors.black87,
+                                    height: 1.1,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  'N. Wt: ${item.netWeight.isNotEmpty ? item.netWeight : "-"}',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 9,
+                                    color: Colors.black87,
+                                    height: 1.1,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.end,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              // Row 2: Gross Wt & Net Wt
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'G. Wt: ${item.grossWeight.isNotEmpty ? item.grossWeight : "-"}',
-                      style: GoogleFonts.poppins(fontSize: 9, color: Colors.black87),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      'N. Wt: ${item.netWeight.isNotEmpty ? item.netWeight : "-"}',
-                      style: GoogleFonts.poppins(fontSize: 9, color: Colors.black87),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.end,
-                    ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                );
+              },
+            ),
           ),
         ),
       ),
@@ -774,7 +824,12 @@ class _ProductListScreenState extends State<ProductListScreen> {
                     width: 150,
                     height: 150,
                     color: Colors.grey[100],
-                    child: _buildItemImage(item),
+                    child: ProductImage.fromBulkItem(
+                      item,
+                      iconSize: 48,
+                      cacheWidth: 300,
+                      cacheHeight: 300,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -873,17 +928,23 @@ class _ProductListScreenState extends State<ProductListScreen> {
                       if (index == products.length) {
                         return const SizedBox(height: 52); // Keep space matching loading indicator on right
                       }
+                      final item = products[index];
                       final isOdd = index % 2 == 1;
-                      return Container(
-                        height: 52,
-                        decoration: BoxDecoration(
-                          color: isOdd ? Colors.grey[50] : Colors.white,
-                          border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
-                        ),
-                        child: Row(
-                          children: [
-                            _buildDataCell('${index + 1}', colSr),
-                          ],
+                      return Material(
+                        color: isOdd ? Colors.grey[50] : Colors.white,
+                        child: InkWell(
+                          onTap: () => _showDetailsDialog(item),
+                          child: Container(
+                            height: 52,
+                            decoration: BoxDecoration(
+                              border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
+                            ),
+                            child: Row(
+                              children: [
+                                _buildDataCell('${index + 1}', colSr),
+                              ],
+                            ),
+                          ),
                         ),
                       );
                     },
@@ -946,34 +1007,39 @@ class _ProductListScreenState extends State<ProductListScreen> {
                           final item = products[index];
                           final isOdd = index % 2 == 1;
 
-                          return Container(
-                            height: 52,
-                            decoration: BoxDecoration(
-                              color: isOdd ? Colors.grey[50] : Colors.white,
-                              border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
-                            ),
-                            child: Row(
-                              children: [
-                                _buildDataCell(item.productName, colProduct),
-                                _buildDataCell(item.itemCode, colCode),
-                                _buildDataCell(item.rfid, colRfid),
-                                _buildDataCell(item.grossWeight, colGwt),
-                                _buildDataCell(item.stoneWeight, colSwt),
-                                _buildDataCell(item.diamondWeight, colDwt),
-                                _buildDataCell(item.netWeight, colNwt),
-                                _buildDataCell(item.category, colCat),
-                                _buildDataCell(item.design, colDesign),
-                                _buildDataCell(item.purity, colPur),
-                                _buildDataCell(item.makingPerGram, colMakingGram),
-                                _buildDataCell(item.makingPercent, colMakingPercent),
-                                _buildDataCell(item.fixMaking, colFixMaking),
-                                _buildDataCell(item.fixWastage, colFixWastage),
-                                _buildDataCell(item.stoneAmount, colStoneAmt),
-                                _buildDataCell(item.diamondAmount, colDiamondAmt),
-                                _buildDataCell(item.sku, colSku),
-                                _buildDataCell(item.epc, colEpc),
-                                _buildDataCell(item.vendor, colVendor),
-                              ],
+                          return Material(
+                            color: isOdd ? Colors.grey[50] : Colors.white,
+                            child: InkWell(
+                              onTap: () => _showDetailsDialog(item),
+                              child: Container(
+                                height: 52,
+                                decoration: BoxDecoration(
+                                  border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    _buildDataCell(item.productName, colProduct),
+                                    _buildDataCell(item.itemCode, colCode),
+                                    _buildDataCell(item.rfid, colRfid),
+                                    _buildDataCell(item.grossWeight, colGwt),
+                                    _buildDataCell(item.stoneWeight, colSwt),
+                                    _buildDataCell(item.diamondWeight, colDwt),
+                                    _buildDataCell(item.netWeight, colNwt),
+                                    _buildDataCell(item.category, colCat),
+                                    _buildDataCell(item.design, colDesign),
+                                    _buildDataCell(item.purity, colPur),
+                                    _buildDataCell(item.makingPerGram, colMakingGram),
+                                    _buildDataCell(item.makingPercent, colMakingPercent),
+                                    _buildDataCell(item.fixMaking, colFixMaking),
+                                    _buildDataCell(item.fixWastage, colFixWastage),
+                                    _buildDataCell(item.stoneAmount, colStoneAmt),
+                                    _buildDataCell(item.diamondAmount, colDiamondAmt),
+                                    _buildDataCell(item.sku, colSku),
+                                    _buildDataCell(item.epc, colEpc),
+                                    _buildDataCell(item.vendor, colVendor),
+                                  ],
+                                ),
+                              ),
                             ),
                           );
                         },
@@ -1089,36 +1155,5 @@ class _ProductListScreenState extends State<ProductListScreen> {
         overflow: TextOverflow.ellipsis,
       ),
     );
-  }
-
-  Widget _buildItemImage(BulkItem item) {
-    if (item.imageUrl.isNotEmpty) {
-      final baseUrl = PrefService.defaultApiBaseUrl;
-      var storedUrl = item.imageUrl.trim();
-      if (storedUrl.endsWith(',')) {
-        storedUrl = storedUrl.substring(0, storedUrl.length - 1).trim();
-      }
-      String finalUrl;
-      
-      if (storedUrl.startsWith('http://') || storedUrl.startsWith('https://')) {
-        finalUrl = storedUrl;
-      } else {
-        final imgList = storedUrl.split(',');
-        final lastImg = imgList.isNotEmpty ? imgList.last.trim() : '';
-        finalUrl = '$baseUrl$lastImg';
-      }
-
-      return Image.network(
-        finalUrl,
-        fit: BoxFit.cover,
-        cacheWidth: 144,
-        cacheHeight: 144,
-        errorBuilder: (context, error, stackTrace) {
-          return Icon(Icons.image, color: Colors.grey[400], size: 36);
-        },
-      );
-    }
-    
-    return Icon(Icons.image, color: Colors.grey[400], size: 36);
   }
 }

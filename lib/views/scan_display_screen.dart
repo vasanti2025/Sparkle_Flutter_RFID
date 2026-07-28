@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:rfid_flutter/utils/app_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,6 +12,7 @@ import '../viewmodels/dashboard_view_model.dart';
 import '../services/pref_service.dart';
 import '../services/rfid_service.dart';
 import '../services/email_service.dart';
+import '../utils/product_image.dart';
 import 'widgets/scan_bottom_bar.dart';
 
 class ScannedBulkItem {
@@ -153,25 +154,39 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     final list = await viewModel.loadScanDisplayItems(
       filterType: filterType,
       filterValue: filterValue,
+      onProgress: (loaded, total) {
+        // Keep splash/spinner responsive while large catalogs load.
+        if (!mounted || total <= 0) return;
+        if (loaded == total || loaded % 4000 == 0) {
+          // Avoid setState every page — only tick occasionally.
+        }
+      },
     );
 
     if (!mounted) return;
 
-    final scanned = List<ScannedBulkItem>.generate(
-      list.length,
-      (i) => ScannedBulkItem(list[i], 'Unmatched'),
-    );
+    // Build scanned wrappers in chunks so we don't freeze on huge lists.
+    final scanned = <ScannedBulkItem>[];
+    const chunk = 1500;
+    for (var i = 0; i < list.length; i += chunk) {
+      final end = (i + chunk < list.length) ? i + chunk : list.length;
+      for (var j = i; j < end; j++) {
+        scanned.add(ScannedBulkItem(list[j], 'Unmatched'));
+      }
+      await Future<void>.delayed(Duration.zero);
+      if (!mounted) return;
+    }
 
     setState(() {
       _scannedItems = scanned;
       _isLoadingItems = false;
     });
 
-    // Build lookup maps after the list is on screen so first paint stays smooth.
-    scheduleMicrotask(() {
+    scheduleMicrotask(() async {
       if (!mounted) return;
-      _buildLookupMaps();
-      _setFilteredItemsForScan();
+      await _buildLookupMapsChunked();
+      if (!mounted) return;
+      await _setFilteredItemsForScanChunked();
     });
   }
 
@@ -212,6 +227,19 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     }
   }
 
+  Future<void> _buildLookupMapsChunked() async {
+    _epcToMasterIndex.clear();
+    const chunk = 2000;
+    for (int i = 0; i < _scannedItems.length; i++) {
+      _indexTagKey(_epcToMasterIndex, _scannedItems[i].epc, i);
+      _indexTagKey(_epcToMasterIndex, _scannedItems[i].rfid, i);
+      if (i > 0 && i % chunk == 0) {
+        await Future<void>.delayed(Duration.zero);
+        if (!mounted) return;
+      }
+    }
+  }
+
   /// Same as Kotlin setFilteredItems(displayItems) — scope tag keys for matching.
   void _setFilteredItemsForScan([List<ScannedBulkItem>? scopeItems]) {
     _filteredDbEpcSet = {};
@@ -219,6 +247,21 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     for (final item in scope) {
       for (final key in _matchKeysForItem(item)) {
         _filteredDbEpcSet.add(key);
+      }
+    }
+  }
+
+  Future<void> _setFilteredItemsForScanChunked([List<ScannedBulkItem>? scopeItems]) async {
+    _filteredDbEpcSet = {};
+    final scope = scopeItems ?? _getDisplayScopeItems();
+    const chunk = 2000;
+    for (var i = 0; i < scope.length; i++) {
+      for (final key in _matchKeysForItem(scope[i])) {
+        _filteredDbEpcSet.add(key);
+      }
+      if (i > 0 && i % chunk == 0) {
+        await Future<void>.delayed(Duration.zero);
+        if (!mounted) return;
       }
     }
   }
@@ -588,7 +631,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message, style: GoogleFonts.poppins()),
+        content: Text(message, style: AppFonts.poppins()),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -631,7 +674,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
               const SizedBox(height: 4),
               Text(
                 displayText,
-                style: GoogleFonts.poppins(
+                style: AppFonts.poppins(
                   fontSize: 10,
                   fontWeight: FontWeight.w600,
                   color: Colors.black87,
@@ -805,7 +848,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
             children: [
               Text(
                 s.itemDetails,
-                style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16),
+                style: AppFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16),
               ),
               IconButton(
                 icon: const Icon(Icons.close),
@@ -818,7 +861,20 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const Icon(Icons.image, size: 80, color: Colors.grey),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    width: 150,
+                    height: 150,
+                    color: Colors.grey[100],
+                    child: ProductImage.fromBulkItem(
+                      item,
+                      iconSize: 48,
+                      cacheWidth: 300,
+                      cacheHeight: 300,
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 16),
                 _buildInfoRow(s.productName, item.productName),
                 _buildInfoRow(s.itemCode, item.itemCode),
@@ -846,14 +902,14 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
             flex: 2,
             child: Text(
               '$label:',
-              style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey[700]),
+              style: AppFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey[700]),
             ),
           ),
           Expanded(
             flex: 3,
             child: Text(
               value.isNotEmpty ? value : '-',
-              style: GoogleFonts.poppins(fontSize: 13, color: Colors.black87),
+              style: AppFonts.poppins(fontSize: 13, color: Colors.black87),
             ),
           ),
         ],
@@ -1004,7 +1060,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: Text(
                 s.sendReport,
-                style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18),
+                style: AppFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18),
               ),
               content: SingleChildScrollView(
                 child: Column(
@@ -1014,7 +1070,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                     if (savedEmails.isNotEmpty) ...[
                       Text(
                         s.savedEmails,
-                        style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey[700]),
+                        style: AppFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey[700]),
                       ),
                       const SizedBox(height: 6),
                       Container(
@@ -1039,7 +1095,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                                 color: isSelected ? Colors.grey[200] : Colors.transparent,
                                 child: Text(
                                   email,
-                                  style: GoogleFonts.poppins(fontSize: 13),
+                                  style: AppFonts.poppins(fontSize: 13),
                                 ),
                               ),
                             );
@@ -1053,13 +1109,13 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                       enabled: !isSending,
                       decoration: InputDecoration(
                         labelText: s.enterEmailAddress,
-                        labelStyle: GoogleFonts.poppins(fontSize: 13),
+                        labelStyle: AppFonts.poppins(fontSize: 13),
                         border: const OutlineInputBorder(),
                       ),
                       onChanged: (val) {
                         newEmail = val;
                       },
-                      style: GoogleFonts.poppins(fontSize: 13),
+                      style: AppFonts.poppins(fontSize: 13),
                     ),
                   ],
                 ),
@@ -1071,7 +1127,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                       : () {
                           Navigator.pop(context);
                         },
-                  child: Text(s.cancel, style: GoogleFonts.poppins(color: Colors.grey[600])),
+                  child: Text(s.cancel, style: AppFonts.poppins(color: Colors.grey[600])),
                 ),
                 ElevatedButton(
                   onPressed: isSending
@@ -1138,7 +1194,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                           height: 20,
                           child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                         )
-                      : Text(s.send, style: GoogleFonts.poppins(color: Colors.white)),
+                      : Text(s.send, style: AppFonts.poppins(color: Colors.white)),
                 ),
               ],
             );
@@ -1199,10 +1255,10 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
               title: _showSearchInput
                   ? TextField(
                       controller: _searchController,
-                      style: GoogleFonts.poppins(color: Colors.white, fontSize: 16),
+                      style: AppFonts.poppins(color: Colors.white, fontSize: 16),
                       decoration: InputDecoration(
                         hintText: s.searchProductRfidEpc,
-                        hintStyle: GoogleFonts.poppins(color: Colors.white60),
+                        hintStyle: AppFonts.poppins(color: Colors.white60),
                         border: InputBorder.none,
                       ),
                       onChanged: (val) {
@@ -1216,7 +1272,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                       _filterType == 'Scan Display'
                           ? s.scanDisplay
                           : (_filterValue.isNotEmpty ? _filterValue : s.inventory),
-                      style: GoogleFonts.poppins(
+                      style: AppFonts.poppins(
                         color: Colors.white,
                         fontWeight: FontWeight.w600,
                       ),
@@ -1248,7 +1304,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                         .map((p) => PopupMenuItem<int>(
                               value: p,
                               height: 36,
-                              child: Text('$p', style: GoogleFonts.poppins(fontSize: 14)),
+                              child: Text('$p', style: AppFonts.poppins(fontSize: 14)),
                             ))
                         .toList(),
                     child: Container(
@@ -1261,7 +1317,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                       ),
                       child: Text(
                         '$_selectedPower',
-                        style: GoogleFonts.poppins(
+                        style: AppFonts.poppins(
                           color: Colors.red,
                           fontSize: 14,
                           fontWeight: FontWeight.bold,
@@ -1520,7 +1576,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.poppins(
+                style: AppFonts.poppins(
                   fontSize: 12,
                   color: Colors.grey[800],
                   fontWeight: FontWeight.w500,
@@ -1584,7 +1640,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               title: Text(
                 s.selectFilterType(filterTypeLocal),
-                style: GoogleFonts.poppins(
+                style: AppFonts.poppins(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                   color: Colors.black87,
@@ -1640,7 +1696,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                                       item,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: GoogleFonts.poppins(
+                                      style: AppFonts.poppins(
                                         fontSize: 13,
                                         color: Colors.grey[800],
                                       ),
@@ -1661,7 +1717,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                           onPressed: () => Navigator.pop(context),
                           child: Text(
                             s.cancel.toUpperCase(),
-                            style: GoogleFonts.poppins(
+                            style: AppFonts.poppins(
                               color: const Color(0xFFE82E5A),
                               fontWeight: FontWeight.bold,
                             ),
@@ -1708,7 +1764,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                           ),
                           child: Text(
                             s.ok,
-                            style: GoogleFonts.poppins(
+                            style: AppFonts.poppins(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
                             ),
@@ -1764,7 +1820,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       flex: (flex * 10).toInt(),
       child: Text(
         text,
-        style: GoogleFonts.poppins(
+        style: AppFonts.poppins(
           color: Colors.white,
           fontSize: 11,
           fontWeight: FontWeight.bold,
@@ -1830,26 +1886,26 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
               flex: 20,
               child: Text(
                 label,
-                style: GoogleFonts.poppins(fontSize: 12, color: Colors.black87),
+                style: AppFonts.poppins(fontSize: 12, color: Colors.black87),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
             Expanded(
               flex: 10,
-              child: Text('$qty', style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[700])),
+              child: Text('$qty', style: AppFonts.poppins(fontSize: 12, color: Colors.grey[700])),
             ),
             Expanded(
               flex: 15,
-              child: Text(grossWt.toStringAsFixed(3), style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[700])),
+              child: Text(grossWt.toStringAsFixed(3), style: AppFonts.poppins(fontSize: 12, color: Colors.grey[700])),
             ),
             Expanded(
               flex: 10,
-              child: Text('$mQty', style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[700])),
+              child: Text('$mQty', style: AppFonts.poppins(fontSize: 12, color: Colors.grey[700])),
             ),
             Expanded(
               flex: 15,
-              child: Text(mWt.toStringAsFixed(3), style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[700])),
+              child: Text(mWt.toStringAsFixed(3), style: AppFonts.poppins(fontSize: 12, color: Colors.grey[700])),
             ),
             Expanded(
               flex: 10,
@@ -1884,7 +1940,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
               flex: 28,
               child: Text(
                 item.design.isNotEmpty ? item.design : '-',
-                style: GoogleFonts.poppins(fontSize: 10.5, color: Colors.black87),
+                style: AppFonts.poppins(fontSize: 10.5, color: Colors.black87),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -1893,7 +1949,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
               flex: 18,
               child: Text(
                 item.rfid.isNotEmpty ? item.rfid : '-',
-                style: GoogleFonts.poppins(fontSize: 10.5, color: Colors.grey[700]),
+                style: AppFonts.poppins(fontSize: 10.5, color: Colors.grey[700]),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -1902,7 +1958,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
               flex: 17,
               child: Text(
                 item.itemCode.isNotEmpty ? item.itemCode : '-',
-                style: GoogleFonts.poppins(fontSize: 10.5, color: Colors.grey[700]),
+                style: AppFonts.poppins(fontSize: 10.5, color: Colors.grey[700]),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -1911,7 +1967,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
               flex: 17,
               child: Text(
                 grossWt.toStringAsFixed(3),
-                style: GoogleFonts.poppins(fontSize: 10.5, color: Colors.grey[700]),
+                style: AppFonts.poppins(fontSize: 10.5, color: Colors.grey[700]),
               ),
             ),
             Expanded(
@@ -1959,7 +2015,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                     alignment: Alignment.centerLeft,
                     child: Text(
                       '${s.matchedItems[0]}:$matchedCount\n${s.unmatchedItems[0]}:$unmatchedCount',
-                      style: GoogleFonts.poppins(
+                      style: AppFonts.poppins(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
                         fontSize: 10,
@@ -1992,7 +2048,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         alignment: isCenter ? Alignment.center : Alignment.centerLeft,
         child: Text(
           text,
-          style: GoogleFonts.poppins(
+          style: AppFonts.poppins(
             color: Colors.white,
             fontSize: 10,
             fontWeight: FontWeight.bold,
@@ -2029,7 +2085,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
           const SizedBox(height: 12),
           Text(
             s.noItemsFoundUnderScope,
-            style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey[600]),
+            style: AppFonts.poppins(fontSize: 14, color: Colors.grey[600]),
           ),
         ],
       ),

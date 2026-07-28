@@ -40,8 +40,23 @@ class MainActivity : FlutterActivity() {
     private var posConnectInited = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Paint Flutter splash immediately — no POSConnect / DeviceAPI here.
+        // Native LaunchTheme stays until Flutter's first frame (Login/Home).
+        // Never load DeviceAPI / POSConnect here.
         super.onCreate(savedInstanceState)
+    }
+
+    /**
+     * Pass login hint into Dart before prefs finish — first frame can be Login/Home.
+     * Flutter SharedPreferences keys are stored as "flutter.<key>".
+     */
+    override fun getDartEntrypointArgs(): MutableList<String> {
+        return try {
+            val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+            val loggedIn = prefs.getBoolean("flutter.logged_in", false)
+            mutableListOf(if (loggedIn) "dashboard" else "login")
+        } catch (_: Throwable) {
+            mutableListOf("login")
+        }
     }
 
     /**

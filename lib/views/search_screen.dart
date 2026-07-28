@@ -1,8 +1,7 @@
 import 'dart:async';
-import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:rfid_flutter/utils/app_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../l10n/l10n_extension.dart';
@@ -478,7 +477,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message, style: GoogleFonts.poppins()),
+        content: Text(message, style: AppFonts.poppins()),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -511,7 +510,7 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
             title: Text(
               isUnmatchedList ? s.searchUnmatched : s.searchAllItems,
-              style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 18),
+              style: AppFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 18),
             ),
             actions: [
               // White counter box showing selected power (1-30), same as Scan Display / Delivery Challan.
@@ -528,7 +527,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     .map((p) => PopupMenuItem<int>(
                           value: p,
                           height: 36,
-                          child: Text('$p', style: GoogleFonts.poppins(fontSize: 14)),
+                          child: Text('$p', style: AppFonts.poppins(fontSize: 14)),
                         ))
                     .toList(),
                 child: Container(
@@ -541,7 +540,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
                   child: Text(
                     '$_selectedPower',
-                    style: GoogleFonts.poppins(
+                    style: AppFonts.poppins(
                       color: Colors.red,
                       fontSize: 14,
                       fontWeight: FontWeight.bold,
@@ -565,14 +564,14 @@ class _SearchScreenState extends State<SearchScreen> {
                 menuMaxHeight: kDropdownMenuMaxHeight,
                 decoration: InputDecoration(
                   labelText: s.searchType,
-                  labelStyle: GoogleFonts.poppins(fontSize: 13),
+                  labelStyle: AppFonts.poppins(fontSize: 13),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   border: const OutlineInputBorder(),
                 ),
                 items: [
-                  DropdownMenuItem(value: 'LabelStock', child: Text(s.labelStock, style: GoogleFonts.poppins(fontSize: 13))),
-                  DropdownMenuItem(value: 'Order', child: Text(s.order, style: GoogleFonts.poppins(fontSize: 13))),
-                  DropdownMenuItem(value: 'Box', child: Text(s.box, style: GoogleFonts.poppins(fontSize: 13))),
+                  DropdownMenuItem(value: 'LabelStock', child: Text(s.labelStock, style: AppFonts.poppins(fontSize: 13))),
+                  DropdownMenuItem(value: 'Order', child: Text(s.order, style: AppFonts.poppins(fontSize: 13))),
+                  DropdownMenuItem(value: 'Box', child: Text(s.box, style: AppFonts.poppins(fontSize: 13))),
                 ],
                 onChanged: _isScanning
                     ? null
@@ -608,13 +607,13 @@ class _SearchScreenState extends State<SearchScreen> {
                         : (_selectedSearchType == 'Box'
                             ? s.enterRfidBoxRfid
                             : s.enterRfidItemcode)),
-                labelStyle: GoogleFonts.poppins(fontSize: 13),
+                labelStyle: AppFonts.poppins(fontSize: 13),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 border: const OutlineInputBorder(),
                 prefixIcon: const Icon(Icons.search),
               ),
               onChanged: _onQueryChanged,
-              style: GoogleFonts.poppins(fontSize: 13),
+              style: AppFonts.poppins(fontSize: 13),
             ),
           ),
 
@@ -651,7 +650,7 @@ class _SearchScreenState extends State<SearchScreen> {
                           isUnmatchedList && _searchItems.isEmpty
                               ? s.noUnmatchedItemsToSearch
                               : s.typeRfidItemcodeToSearch,
-                          style: GoogleFonts.poppins(color: Colors.grey, fontSize: 13),
+                          style: AppFonts.poppins(color: Colors.grey, fontSize: 13),
                           textAlign: TextAlign.center,
                         ),
                       )
@@ -705,7 +704,7 @@ class _SearchScreenState extends State<SearchScreen> {
       flex: flex,
       child: Text(
         text,
-        style: GoogleFonts.poppins(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+        style: AppFonts.poppins(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
@@ -717,7 +716,7 @@ class _SearchScreenState extends State<SearchScreen> {
       flex: flex,
       child: Text(
         text.isNotEmpty ? text : '-',
-        style: GoogleFonts.poppins(fontSize: 11, color: Colors.black87),
+        style: AppFonts.poppins(fontSize: 11, color: Colors.black87),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),

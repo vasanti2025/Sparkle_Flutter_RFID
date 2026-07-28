@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+/// Lightweight menu icon (no ShaderMask — that janks low-RAM handhelds).
 class GradientIcon extends StatelessWidget {
   final IconData icon;
   final double size;
@@ -10,24 +11,14 @@ class GradientIcon extends StatelessWidget {
     this.size = 24.0,
   });
 
+  static const Color _color = Color(0xFF1565C0);
+
   @override
   Widget build(BuildContext context) {
-    return ShaderMask(
-      shaderCallback: (Rect bounds) {
-        return const LinearGradient(
-          colors: [
-            Color(0xFF0077D4),
-            Color(0xFFD60000),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ).createShader(bounds);
-      },
-      child: Icon(
-        icon,
-        size: size,
-        color: Colors.white,
-      ),
+    return Icon(
+      icon,
+      size: size,
+      color: _color,
     );
   }
 }

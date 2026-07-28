@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Plain white while Flutter boots — first Dart frame is Login/Dashboard (no logo splash linger). -->
+<!-- Brief native splash only — dismissed as soon as Login/Home paints. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@android:color/white" />
+    <item>
+        <bitmap
+            android:gravity="center"
+            android:src="@drawable/sprakle_rfid_logo_1" />
+    </item>
 </layer-list>

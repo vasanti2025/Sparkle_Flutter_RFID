@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:rfid_flutter/utils/app_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../l10n/l10n_extension.dart';
@@ -7,6 +7,7 @@ import '../../models/stock_verification_report.dart';
 import '../../services/consolidated_report_export_service.dart';
 import '../../viewmodels/stock_verification_view_model.dart';
 import '../utils/app_dropdown.dart';
+import '../utils/nav_perf.dart';
 import 'widgets/consolidated_report_tree.dart';
 
 class StockVerificationReportScreen extends StatefulWidget {
@@ -30,7 +31,12 @@ class _StockVerificationReportScreenState extends State<StockVerificationReportS
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadData());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      runAfterRouteSettled(context, () {
+        if (mounted) _loadData();
+      });
+    });
   }
 
   Future<void> _loadData() async {
@@ -126,7 +132,7 @@ class _StockVerificationReportScreenState extends State<StockVerificationReportS
           children: [
             const CircularProgressIndicator(),
             const SizedBox(height: 16),
-            Text(sRead.exportingProgress(_exportProgress), style: GoogleFonts.poppins()),
+            Text(sRead.exportingProgress(_exportProgress), style: AppFonts.poppins()),
           ],
         ),
       ),
@@ -168,7 +174,7 @@ class _StockVerificationReportScreenState extends State<StockVerificationReportS
         ),
         title: Text(
           s.stockVerificationReport,
-          style: GoogleFonts.poppins(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600),
+          style: AppFonts.poppins(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600),
         ),
         actions: [
           if (!isBatch && vm.consolidatedReport != null)
@@ -353,7 +359,7 @@ class _ReportTypeBar extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    Text(formatDisplayDate(selectedDate), style: GoogleFonts.poppins(fontSize: 12)),
+                    Text(formatDisplayDate(selectedDate), style: AppFonts.poppins(fontSize: 12)),
                     const SizedBox(width: 4),
                     const Icon(Icons.date_range, size: 16, color: Color(0xFF666666)),
                   ],
@@ -384,7 +390,7 @@ class _ReportTypeBar extends StatelessWidget {
             child: Center(
               child: Text(
                 label,
-                style: GoogleFonts.poppins(
+                style: AppFonts.poppins(
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
                   color: selected ? Colors.white : const Color(0xFF222222),
@@ -476,13 +482,13 @@ class _BatchFilterDialogState extends State<_BatchFilterDialog> {
   Widget build(BuildContext context) {
     final s = context.s;
     return AlertDialog(
-      title: Text(s.filter, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+      title: Text(s.filter, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(s.branch, style: GoogleFonts.poppins(fontSize: 13)),
+            Text(s.branch, style: AppFonts.poppins(fontSize: 13)),
             const SizedBox(height: 6),
             DropdownButtonFormField<int?>(
               value: _branchId,
@@ -525,7 +531,7 @@ class _BatchFilterDialogState extends State<_BatchFilterDialog> {
           suffixIcon: const Icon(Icons.date_range),
           isDense: true,
         ),
-        child: Text(value, style: GoogleFonts.poppins(fontSize: 13)),
+        child: Text(value, style: AppFonts.poppins(fontSize: 13)),
       ),
     );
   }

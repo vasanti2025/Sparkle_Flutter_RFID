@@ -2,15 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../app_routes.dart';
 import '../l10n/l10n_extension.dart';
-import '../services/pref_service.dart';
+import '../services/app_warmup_service.dart';
 import '../viewmodels/dashboard_view_model.dart';
-import '../viewmodels/delivery_challan_view_model.dart';
-import '../viewmodels/order_view_model.dart';
 import '../viewmodels/product_view_model.dart';
-import '../viewmodels/quotation_view_model.dart';
-import '../viewmodels/sample_in_view_model.dart';
-import '../viewmodels/sample_out_view_model.dart';
 import '../viewmodels/stock_transfer_view_model.dart';
 import 'widgets/gradient_icon.dart';
 
@@ -22,7 +18,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  static bool _listsPrefetched = false;
+  bool _navigating = false;
 
   static const _menuDefs = [
     {'key': 'product', 'icon': Icons.shopping_bag, 'route': '/product_management'},
@@ -47,34 +43,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    // Warm list caches in background so screens open with data already ready.
-    Future.microtask(_prefetchListCaches);
-  }
-
-  void _prefetchListCaches() {
-    if (!mounted || _listsPrefetched) return;
-    _listsPrefetched = true;
-    // Stagger background warmups so first dashboard frame stays smooth.
-    Future<void>(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 600));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final employee = context.read<PrefService>().getEmployee();
-      unawaited(context.read<OrderViewModel>().fetchOrdersHistory(syncPendingFirst: false));
-      await Future<void>.delayed(const Duration(milliseconds: 350));
-      if (!mounted) return;
-      unawaited(context.read<DeliveryChallanViewModel>().loadChallanList());
-      await Future<void>.delayed(const Duration(milliseconds: 350));
-      if (!mounted) return;
-      unawaited(context.read<QuotationViewModel>().fetchQuotationsHistory(
-            branchId: employee?.defaultBranchId,
-          ));
-      await Future<void>.delayed(const Duration(milliseconds: 350));
-      if (!mounted) return;
-      unawaited(context.read<SampleOutViewModel>().loadSampleOutList());
-      await Future<void>.delayed(const Duration(milliseconds: 350));
-      if (!mounted) return;
-      unawaited(context.read<SampleInViewModel>().loadSampleInList());
+      context.read<DashboardViewModel>().loadUser();
+      AppWarmupService.instance.start(appNavigatorKey);
     });
+    // Do NOT prefetch all list APIs here — it competes with navigation and
+    // freezes/hangs the handheld. Each list screen loads when opened.
   }
 
   String _titleForKey(String key, dynamic s) {
@@ -112,35 +87,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Future<void> _pushNamed(BuildContext context, String route, [Object? arguments]) async {
+    if (_navigating || !mounted) return;
+    _navigating = true;
+    try {
+      await Navigator.pushNamed(context, route, arguments: arguments);
+    } finally {
+      if (mounted) _navigating = false;
+    }
+  }
+
   void _navigateByKey(BuildContext context, String key, dynamic s) {
     switch (key) {
       case 'product':
-        Navigator.pushNamed(context, '/product_management');
+        unawaited(_pushNamed(context, '/product_management'));
       case 'inventory':
-        Navigator.pushNamed(context, '/inventory');
+        unawaited(_pushNamed(context, '/inventory'));
       case 'order':
-        Navigator.pushNamed(context, '/order_list');
+        unawaited(_pushNamed(context, '/order_list'));
       case 'search':
-        Navigator.pushNamed(context, '/search', arguments: {
+        unawaited(_pushNamed(context, '/search', {
           'listKey': 'normal',
           'items': const [],
-        });
+        }));
       case 'deliveryChallan':
-        Navigator.pushNamed(context, '/delivery_challan_list');
+        unawaited(_pushNamed(context, '/delivery_challan_list'));
       case 'quotations':
-        Navigator.pushNamed(context, '/quotation_list');
+        unawaited(_pushNamed(context, '/quotation_list'));
       case 'sampleIn':
-        Navigator.pushNamed(context, '/sample_in_list');
+        unawaited(_pushNamed(context, '/sample_in_list'));
       case 'sampleOut':
-        Navigator.pushNamed(context, '/sample_out_list');
+        unawaited(_pushNamed(context, '/sample_out_list'));
       case 'report':
-        Navigator.pushNamed(context, '/stock_verification_report');
+        unawaited(_pushNamed(context, '/stock_verification_report'));
       case 'labelTodayRate':
-        Navigator.pushNamed(context, '/todays_rate');
+        unawaited(_pushNamed(context, '/todays_rate'));
       case 'settings':
-        Navigator.pushNamed(context, '/settings');
+        unawaited(_pushNamed(context, '/settings'));
       case 'stockTransfer':
-        Navigator.pushNamed(context, '/stock_transfer');
+        unawaited(_pushNamed(context, '/stock_transfer'));
       default:
         break;
     }
@@ -261,7 +246,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         await productVm.resetForLogout();
                         stockVm.resetSession();
                         await dashVm.logout();
-                        _listsPrefetched = false;
                         nav.pushNamedAndRemoveUntil('/login', (_) => false);
                       } else if (item['isHome'] == true) {
                         Navigator.pop(context);
@@ -328,12 +312,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 return;
                               }
                               if (route == '/search') {
-                                Navigator.pushNamed(context, '/search', arguments: {
+                                unawaited(_pushNamed(context, '/search', {
                                   'listKey': 'normal',
                                   'items': const [],
-                                });
+                                }));
                               } else {
-                                Navigator.pushNamed(context, route);
+                                unawaited(_pushNamed(context, route));
                               }
                             },
                             borderRadius: BorderRadius.circular(12),

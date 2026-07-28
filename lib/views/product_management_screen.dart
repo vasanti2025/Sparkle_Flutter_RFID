@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:rfid_flutter/utils/app_fonts.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
 import '../services/db_service.dart';
@@ -159,7 +159,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
             ),
             title: Text(
               s.product,
-              style: GoogleFonts.poppins(
+              style: AppFonts.poppins(
                 color: Colors.white,
                 fontWeight: FontWeight.w600,
               ),
@@ -266,7 +266,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                                       const SizedBox(height: 8),
                                       Text(
                                         item['label'] as String,
-                                        style: GoogleFonts.poppins(
+                                        style: AppFonts.poppins(
                                           fontSize: width > 600 ? 13 : 12,
                                           fontWeight: FontWeight.w500,
                                           color: Colors.white,
@@ -314,7 +314,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                           ),
                           child: Text(
                             s.openProductList,
-                            style: GoogleFonts.poppins(
+                            style: AppFonts.poppins(
                               color: Colors.white,
                               fontSize: 15,
                               fontWeight: FontWeight.w600,
@@ -355,7 +355,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                             const SizedBox(height: 24),
                             Text(
                               _exporting ? s.exportingExcel : viewModel.syncStatusText,
-                              style: GoogleFonts.poppins(
+                              style: AppFonts.poppins(
                                 color: Colors.black87,
                                 fontSize: 15,
                                 fontWeight: FontWeight.w500,
@@ -375,7 +375,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                             const SizedBox(height: 12),
                             Text(
                               s.percentCompleted((viewModel.syncProgress * 100).toInt()),
-                              style: GoogleFonts.poppins(
+                              style: AppFonts.poppins(
                                 color: Colors.grey[600],
                                 fontSize: 13,
                                 fontWeight: FontWeight.w500,
@@ -437,7 +437,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                   const SizedBox(height: 12),
                   Text(
                     s.dataSyncSuccessfully,
-                    style: GoogleFonts.poppins(
+                    style: AppFonts.poppins(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                       color: Colors.black87,
@@ -447,7 +447,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                   const SizedBox(height: 6),
                   Text(
                     s.syncedItemsCount(viewModel.syncSyncedCount, viewModel.syncTotalCount),
-                    style: GoogleFonts.poppins(
+                    style: AppFonts.poppins(
                       fontSize: 14,
                       color: Colors.grey[600],
                     ),
@@ -459,7 +459,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                     const SizedBox(height: 12),
                     Text(
                       s.notSyncedCount(skipped.length),
-                      style: GoogleFonts.poppins(
+                      style: AppFonts.poppins(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
                         color: const Color(0xFFE82E5A),
@@ -479,7 +479,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
                             child: Text(
                               '• ${skipped[i]}',
-                              style: GoogleFonts.poppins(fontSize: 12, color: Colors.black87),
+                              style: AppFonts.poppins(fontSize: 12, color: Colors.black87),
                             ),
                           );
                         },
@@ -495,7 +495,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                         },
                         child: Text(
                           isExpanded ? s.showLess : s.showMoreCount(more),
-                          style: GoogleFonts.poppins(
+                          style: AppFonts.poppins(
                             fontSize: 12,
                             color: const Color(0xFF3053F0),
                             fontWeight: FontWeight.w600,
@@ -530,7 +530,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                       ),
                       child: Text(
                         s.done,
-                        style: GoogleFonts.poppins(
+                        style: AppFonts.poppins(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
                         ),

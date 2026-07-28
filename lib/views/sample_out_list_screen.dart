@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:rfid_flutter/utils/app_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
 import '../models/sample_out.dart';
 import '../services/pref_service.dart';
+import '../utils/nav_perf.dart';
 import '../viewmodels/sample_out_view_model.dart';
 import 'widgets/list_action_icon.dart';
 import 'widgets/sample_print_pdf.dart';
@@ -23,9 +24,12 @@ class _SampleOutListScreenState extends State<SampleOutListScreen> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<SampleOutViewModel>().loadSampleOutList();
+      runAfterRouteSettled(context, () {
+        if (!mounted) return;
+        context.read<SampleOutViewModel>().loadSampleOutList();
+      });
     });
   }
 
@@ -94,7 +98,7 @@ class _SampleOutListScreenState extends State<SampleOutListScreen> {
             ),
             title: Text(
               s.sampleOutList,
-              style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600),
+              style: AppFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600),
             ),
             actions: [
               IconButton(
@@ -121,10 +125,10 @@ class _SampleOutListScreenState extends State<SampleOutListScreen> {
               child: TextField(
                 controller: _searchController,
                 onChanged: (_) => setState(() {}),
-                style: GoogleFonts.poppins(fontSize: 13),
+                style: AppFonts.poppins(fontSize: 13),
                 decoration: InputDecoration(
                   hintText: s.searchSampleOutHint,
-                  hintStyle: GoogleFonts.poppins(fontSize: 13, color: Colors.grey[400]),
+                  hintStyle: AppFonts.poppins(fontSize: 13, color: Colors.grey[400]),
                   prefixIcon: const Icon(Icons.search, size: 20),
                   isDense: true,
                   contentPadding: const EdgeInsets.symmetric(vertical: 10),
@@ -161,12 +165,12 @@ class _SampleOutListScreenState extends State<SampleOutListScreen> {
           const SizedBox(height: 16),
           Text(
             s.noSampleOutRecordsFound,
-            style: GoogleFonts.poppins(fontSize: 16, color: Colors.grey[600], fontWeight: FontWeight.w500),
+            style: AppFonts.poppins(fontSize: 16, color: Colors.grey[600], fontWeight: FontWeight.w500),
           ),
           const SizedBox(height: 8),
           Text(
             s.createSampleOutHint,
-            style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey[400]),
+            style: AppFonts.poppins(fontSize: 14, color: Colors.grey[400]),
           ),
         ],
       ),

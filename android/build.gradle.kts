@@ -19,8 +19,10 @@ subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 
-    plugins.withId("com.android.library") {
-        extensions.configure(LibraryExtension::class.java) {
+    // Force modern compileSdk so ML Kit / CameraX release resources link (lStar, etc.).
+    afterEvaluate {
+        extensions.findByType(LibraryExtension::class.java)?.apply {
+            compileSdk = 36
             defaultConfig.ndk.abiFilters.clear()
             defaultConfig.ndk.abiFilters.add("arm64-v8a")
         }

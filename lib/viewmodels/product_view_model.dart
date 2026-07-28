@@ -660,13 +660,16 @@ class ProductViewModel extends ChangeNotifier {
     );
   }
 
-  /// Paginated minimal-column load for scan display with progress callback.
+  /// Paginated load for scan display — yields to UI between pages to avoid hangs.
   Future<List<BulkItem>> loadScanDisplayItems({
     String? filterType,
     String? filterValue,
     void Function(int loaded, int total)? onProgress,
   }) async {
-    const pageSize = 5000;
+    const pageSize = 2000;
+    // Hard cap protects low-RAM handhelds from OOM crash.
+    const maxItems = 40000;
+
     final total = await _dbService.getScanDisplayItemCount(
       filterType: filterType,
       filterValue: filterValue,
@@ -676,8 +679,9 @@ class ProductViewModel extends ChangeNotifier {
       return [];
     }
 
+    final target = total > maxItems ? maxItems : total;
     final all = <BulkItem>[];
-    for (int offset = 0; offset < total; offset += pageSize) {
+    for (int offset = 0; offset < target; offset += pageSize) {
       final batch = await _dbService.getScanDisplayItemsPaged(
         pageSize,
         offset,
@@ -685,8 +689,15 @@ class ProductViewModel extends ChangeNotifier {
         filterValue: filterValue,
       );
       all.addAll(batch);
-      onProgress?.call(all.length, total);
+      onProgress?.call(all.length, target);
+      // Let the UI breathe — prevents ANR / "system hanging".
+      await Future<void>.delayed(Duration.zero);
       if (batch.length < pageSize) break;
+    }
+    if (total > maxItems) {
+      debugPrint(
+        'ScanDisplay: capped load at $maxItems of $total items (device RAM safety)',
+      );
     }
     return all;
   }

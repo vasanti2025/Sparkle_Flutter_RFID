@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:rfid_flutter/utils/app_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
 import '../models/sample_in.dart';
 import '../services/pref_service.dart';
+import '../utils/nav_perf.dart';
 import '../viewmodels/sample_in_view_model.dart';
 import 'widgets/list_action_icon.dart';
 import 'widgets/sample_print_pdf.dart';
@@ -23,9 +24,12 @@ class _SampleInListScreenState extends State<SampleInListScreen> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<SampleInViewModel>().loadSampleInList();
+      runAfterRouteSettled(context, () {
+        if (!mounted) return;
+        context.read<SampleInViewModel>().loadSampleInList();
+      });
     });
   }
 
@@ -71,7 +75,7 @@ class _SampleInListScreenState extends State<SampleInListScreen> {
               icon: const Icon(Icons.arrow_back, color: Colors.white),
               onPressed: () => Navigator.pop(context),
             ),
-            title: Text(s.sampleInList, style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
+            title: Text(s.sampleInList, style: AppFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
             actions: [
               IconButton(
                 icon: const Icon(Icons.add, color: Colors.white),
@@ -97,10 +101,10 @@ class _SampleInListScreenState extends State<SampleInListScreen> {
               child: TextField(
                 controller: _searchController,
                 onChanged: (_) => setState(() {}),
-                style: GoogleFonts.poppins(fontSize: 13),
+                style: AppFonts.poppins(fontSize: 13),
                 decoration: InputDecoration(
                   hintText: s.searchSoNoCustomerProduct,
-                  hintStyle: GoogleFonts.poppins(fontSize: 13, color: Colors.grey[400]),
+                  hintStyle: AppFonts.poppins(fontSize: 13, color: Colors.grey[400]),
                   prefixIcon: const Icon(Icons.search, size: 20),
                   isDense: true,
                   contentPadding: const EdgeInsets.symmetric(vertical: 10),
@@ -124,7 +128,7 @@ class _SampleInListScreenState extends State<SampleInListScreen> {
                             children: [
                               Icon(Icons.login, size: 80, color: Colors.grey[300]),
                               const SizedBox(height: 16),
-                              Text(s.noSampleInRecordsFound, style: GoogleFonts.poppins(fontSize: 16, color: Colors.grey[600], fontWeight: FontWeight.w500)),
+                              Text(s.noSampleInRecordsFound, style: AppFonts.poppins(fontSize: 16, color: Colors.grey[600], fontWeight: FontWeight.w500)),
                             ],
                           ),
                         )

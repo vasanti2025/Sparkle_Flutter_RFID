@@ -553,7 +553,7 @@ class RfidService {
         // Lazy UART init only when user actually scans (never on app open).
         await _methodChannel
             .invokeMethod('initReader')
-            .timeout(const Duration(seconds: 20), onTimeout: () => false);
+            .timeout(const Duration(seconds: 8), onTimeout: () => false);
         return await _methodChannel.invokeMethod<bool>('prepareForScan') ?? false;
       } catch (e) {
         debugPrint('Error prepareForScan: $e');

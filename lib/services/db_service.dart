@@ -943,6 +943,18 @@ class DbService {
     return maps.map((m) => BulkItem.fromMap(m)).toList();
   }
 
+  Future<List<BulkItem>> getLabelledBulkItemsPaged(int limit, int offset) async {
+    final db = await database;
+    final maps = await db.query(
+      'bulk_items',
+      columns: _labelledTransferColumns,
+      where: "TRIM(itemCode) != ''",
+      limit: limit,
+      offset: offset,
+    );
+    return maps.map((m) => BulkItem.fromMap(m)).toList();
+  }
+
   Future<List<BulkItem>> getLabelledBulkItemsFiltered({
     required String fromType,
     required String fromValue,

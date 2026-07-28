@@ -475,6 +475,7 @@ class QuotationViewModel extends ChangeNotifier {
   // ---- Quotation history list + edit state ---------------------------------
   List<dynamic> _quotationsHistory = [];
   List<dynamic> get quotationsHistory => _quotationsHistory;
+  DateTime? _lastQuotationsFetchAt;
 
   bool _isHistoryLoading = false;
   bool get isHistoryLoading => _isHistoryLoading;
@@ -485,7 +486,7 @@ class QuotationViewModel extends ChangeNotifier {
   int _editingQuotationId = 0;
   String _editingQuotationNo = '';
 
-  Future<void> fetchQuotationsHistory({int? branchId}) async {
+  Future<void> fetchQuotationsHistory({int? branchId, bool forceNetwork = false}) async {
     final employee = _prefService.getEmployee();
     final clientCode = employee?.clientCode ?? '';
     final resolvedBranchId = _resolveBranchId(branchId, employee);
@@ -506,6 +507,14 @@ class QuotationViewModel extends ChangeNotifier {
       }
     }
 
+    if (!forceNetwork &&
+        _quotationsHistory.isNotEmpty &&
+        _lastQuotationsFetchAt != null &&
+        DateTime.now().difference(_lastQuotationsFetchAt!) <
+            const Duration(minutes: 2)) {
+      return;
+    }
+
     final hasCached = _quotationsHistory.isNotEmpty;
     if (!hasCached) {
       _isHistoryLoading = true;
@@ -516,6 +525,7 @@ class QuotationViewModel extends ChangeNotifier {
     try {
       final raw = await _apiService.getAllQuotations(clientCode, resolvedBranchId);
       _quotationsHistory = raw;
+      _lastQuotationsFetchAt = DateTime.now();
       await ListJsonCache.instance.save(cacheKey, raw);
     } catch (e) {
       if (!hasCached) {

@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:rfid_flutter/utils/app_fonts.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:provider/provider.dart';
 import '../l10n/app_strings.dart';
@@ -127,12 +127,12 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: Text(s.selectLanguage, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+          title: Text(s.selectLanguage, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: AppStrings.supported.map((code) {
               return RadioListTile<String>(
-                title: Text(s.languageLabel(code), style: GoogleFonts.poppins()),
+                title: Text(s.languageLabel(code), style: AppFonts.poppins()),
                 value: code,
                 groupValue: selected,
                 onChanged: (v) => setState(() => selected = v ?? selected),
@@ -158,14 +158,14 @@ class SettingsScreen extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(s.account, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        title: Text(s.account, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('${s.usernameLabel}: ${pref.getSavedUsername()}', style: GoogleFonts.poppins()),
+            Text('${s.usernameLabel}: ${pref.getSavedUsername()}', style: AppFonts.poppins()),
             const SizedBox(height: 8),
-            Text('${s.password}: ${pref.getSavedPassword().isEmpty ? '—' : '••••••••'}', style: GoogleFonts.poppins()),
+            Text('${s.password}: ${pref.getSavedPassword().isEmpty ? '—' : '••••••••'}', style: AppFonts.poppins()),
           ],
         ),
         actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s.ok))],
@@ -177,8 +177,8 @@ class SettingsScreen extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(title, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: Text(message, style: GoogleFonts.poppins()),
+        title: Text(title, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
+        content: Text(message, style: AppFonts.poppins()),
         actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s.ok))],
       ),
     );
@@ -188,8 +188,8 @@ class SettingsScreen extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(s.backupOptions, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: Text(s.backupChoose, style: GoogleFonts.poppins()),
+        title: Text(s.backupOptions, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
+        content: Text(s.backupChoose, style: AppFonts.poppins()),
         actions: [
           TextButton(
             onPressed: () async {
@@ -241,7 +241,7 @@ class SettingsScreen extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(s.enterEmailAddress, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        title: Text(s.enterEmailAddress, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
         content: TextField(
           controller: ctrl,
           decoration: InputDecoration(hintText: s.email, border: const OutlineInputBorder()),
@@ -279,13 +279,13 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: Text(s.autoSyncSettings, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+          title: Text(s.autoSyncSettings, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Row(
                 children: [
-                  Expanded(child: Text(s.autoSync, style: GoogleFonts.poppins(fontWeight: FontWeight.bold))),
+                  Expanded(child: Text(s.autoSync, style: AppFonts.poppins(fontWeight: FontWeight.bold))),
                   Switch(
                     value: enabled,
                     onChanged: (v) => setState(() => enabled = v),
@@ -296,7 +296,7 @@ class SettingsScreen extends StatelessWidget {
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    Expanded(child: Text(s.syncInterval, style: GoogleFonts.poppins())),
+                    Expanded(child: Text(s.syncInterval, style: AppFonts.poppins())),
                     DropdownButton<int>(
                       value: interval,
                       menuMaxHeight: kDropdownMenuMaxHeight,
@@ -334,9 +334,9 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: Text(s.notifications, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+          title: Text(s.notifications, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
           content: SwitchListTile(
-            title: Text(s.enableNotifications, style: GoogleFonts.poppins()),
+            title: Text(s.enableNotifications, style: AppFonts.poppins()),
             value: enabled,
             onChanged: (v) => setState(() => enabled = v),
           ),
@@ -360,8 +360,8 @@ class SettingsScreen extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(s.branches, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: Text('${s.selectedBranchIds}: ${ids.join(', ')}', style: GoogleFonts.poppins()),
+        title: Text(s.branches, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
+        content: Text('${s.selectedBranchIds}: ${ids.join(', ')}', style: AppFonts.poppins()),
         actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s.ok))],
       ),
     );
@@ -396,7 +396,7 @@ class SettingsScreen extends StatelessWidget {
                       Expanded(
                         child: Text(
                           s.configureCustomApi,
-                          style: GoogleFonts.poppins(
+                          style: AppFonts.poppins(
                             color: Colors.white,
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
@@ -417,7 +417,7 @@ class SettingsScreen extends StatelessWidget {
                     children: [
                       Text(
                         s.apiUrlAuthorizedMessage,
-                        style: GoogleFonts.poppins(
+                        style: AppFonts.poppins(
                           color: const Color(0xFF666666),
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
@@ -426,7 +426,7 @@ class SettingsScreen extends StatelessWidget {
                       const SizedBox(height: 14),
                       Text(
                         s.enterApiUrl,
-                        style: GoogleFonts.poppins(
+                        style: AppFonts.poppins(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
                           color: const Color(0xFF222222),
@@ -436,10 +436,10 @@ class SettingsScreen extends StatelessWidget {
                       TextField(
                         controller: ctrl,
                         keyboardType: TextInputType.url,
-                        style: GoogleFonts.poppins(fontSize: 14),
+                        style: AppFonts.poppins(fontSize: 14),
                         decoration: InputDecoration(
                           hintText: s.customApiUrlHint,
-                          hintStyle: GoogleFonts.poppins(fontSize: 13, color: Colors.grey),
+                          hintStyle: AppFonts.poppins(fontSize: 13, color: Colors.grey),
                           isDense: true,
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                           focusedBorder: OutlineInputBorder(
@@ -465,7 +465,7 @@ class SettingsScreen extends StatelessWidget {
                           ),
                           child: Text(
                             s.cancel,
-                            style: GoogleFonts.poppins(
+                            style: AppFonts.poppins(
                               color: const Color(0xFF666666),
                               fontWeight: FontWeight.w600,
                             ),
@@ -494,7 +494,7 @@ class SettingsScreen extends StatelessWidget {
                             ),
                             child: Text(
                               s.save,
-                              style: GoogleFonts.poppins(
+                              style: AppFonts.poppins(
                                 color: Colors.white,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -518,7 +518,7 @@ class SettingsScreen extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(s.sheetUrl, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        title: Text(s.sheetUrl, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
         content: TextField(
           controller: ctrl,
           decoration: InputDecoration(hintText: s.setGoogleSheetUrl, border: const OutlineInputBorder()),
@@ -542,7 +542,7 @@ class SettingsScreen extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(s.stockTransferUrl, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        title: Text(s.stockTransferUrl, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
         content: TextField(
           controller: ctrl,
           decoration: InputDecoration(hintText: s.stockTransferApiUrl, border: const OutlineInputBorder()),
@@ -565,8 +565,8 @@ class SettingsScreen extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(s.confirmClearData, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: Text(s.clearDataMessage, style: GoogleFonts.poppins()),
+        title: Text(s.confirmClearData, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
+        content: Text(s.clearDataMessage, style: AppFonts.poppins()),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s.cancel)),
           TextButton(
@@ -586,7 +586,7 @@ class SettingsScreen extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(s.verifyPassword, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        title: Text(s.verifyPassword, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
         content: TextField(
           controller: ctrl,
           obscureText: true,
@@ -716,7 +716,7 @@ class _ActionRow extends StatelessWidget {
 }
 
 class _SettingsStyles {
-  static TextStyle get title => GoogleFonts.poppins(
+  static TextStyle get title => AppFonts.poppins(
         fontSize: 14,
         fontWeight: FontWeight.w500,
         color: Colors.black87,
@@ -724,7 +724,7 @@ class _SettingsStyles {
         letterSpacing: 0,
       );
 
-  static TextStyle get trailing => GoogleFonts.poppins(
+  static TextStyle get trailing => AppFonts.poppins(
         fontSize: 11,
         fontWeight: FontWeight.w400,
         color: const Color(0xFF757575),
@@ -732,14 +732,14 @@ class _SettingsStyles {
         letterSpacing: 0,
       );
 
-  static TextStyle get counter => GoogleFonts.poppins(
+  static TextStyle get counter => AppFonts.poppins(
         fontSize: 13,
         fontWeight: FontWeight.w700,
         color: Colors.black87,
         height: 1.0,
       );
 
-  static TextStyle get menuItem => GoogleFonts.poppins(fontSize: 13, height: 1.0);
+  static TextStyle get menuItem => AppFonts.poppins(fontSize: 13, height: 1.0);
 }
 
 class _SettingsTile extends StatelessWidget {
@@ -972,7 +972,7 @@ class _TrayModeRowState extends State<_TrayModeRow> {
             children: [
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: Text(widget.s.selectTrayDevice, style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+                child: Text(widget.s.selectTrayDevice, style: AppFonts.poppins(fontWeight: FontWeight.w600)),
               ),
               Flexible(
                 child: ListView.builder(
@@ -1114,7 +1114,7 @@ class _R6ModeRowState extends State<_R6ModeRow> {
             children: [
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: Text(widget.s.selectR6Device, style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+                child: Text(widget.s.selectR6Device, style: AppFonts.poppins(fontWeight: FontWeight.w600)),
               ),
               Flexible(
                 child: ListView.builder(

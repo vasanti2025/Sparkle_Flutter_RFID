@@ -26,6 +26,7 @@ class DeliveryChallanViewModel extends ChangeNotifier {
   // Master Data States
   List<DeliveryChallanModel> _challans = [];
   List<DeliveryChallanModel> get challans => _challans;
+  DateTime? _lastChallanListFetchAt;
 
   List<CustomerModel> _customers = [];
   List<CustomerModel> get customers => _customers;
@@ -143,7 +144,7 @@ class DeliveryChallanViewModel extends ChangeNotifier {
     }
   }
 
-  Future<void> loadChallanList() async {
+  Future<void> loadChallanList({bool forceNetwork = false}) async {
     final code = _prefService.getEmployee()?.clientCode ?? '';
     final branchId = _prefService.getEmployee()?.branchNo ??
         _prefService.getEmployee()?.defaultBranchId ??
@@ -171,6 +172,14 @@ class DeliveryChallanViewModel extends ChangeNotifier {
       }
     }
 
+    if (!forceNetwork &&
+        _challans.isNotEmpty &&
+        _lastChallanListFetchAt != null &&
+        DateTime.now().difference(_lastChallanListFetchAt!) <
+            const Duration(minutes: 2)) {
+      return;
+    }
+
     final hasCached = _challans.isNotEmpty;
     if (!hasCached) {
       _isListLoading = true;
@@ -179,6 +188,7 @@ class DeliveryChallanViewModel extends ChangeNotifier {
 
     try {
       await fetchAllChallans(cacheKey: cacheKey);
+      _lastChallanListFetchAt = DateTime.now();
     } finally {
       _isListLoading = false;
       notifyListeners();

@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:rfid_flutter/utils/app_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
 import '../services/pref_service.dart';
+import '../utils/nav_perf.dart';
 import '../viewmodels/quotation_view_model.dart';
 import 'widgets/list_action_icon.dart';
 import 'widgets/quotation_pdf.dart';
@@ -22,12 +23,15 @@ class _QuotationListScreenState extends State<QuotationListScreen> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final employee = context.read<PrefService>().getEmployee();
-      context.read<QuotationViewModel>().fetchQuotationsHistory(
-            branchId: employee?.defaultBranchId,
-          );
+      runAfterRouteSettled(context, () {
+        if (!mounted) return;
+        final employee = context.read<PrefService>().getEmployee();
+        context.read<QuotationViewModel>().fetchQuotationsHistory(
+              branchId: employee?.defaultBranchId,
+            );
+      });
     });
   }
 
@@ -90,7 +94,7 @@ class _QuotationListScreenState extends State<QuotationListScreen> {
         ),
         title: Text(
           s.quotationList,
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white),
+          style: AppFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white),
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
@@ -117,10 +121,10 @@ class _QuotationListScreenState extends State<QuotationListScreen> {
                   child: TextField(
                     controller: _searchController,
                     onChanged: (val) => setState(() {}),
-                    style: GoogleFonts.poppins(fontSize: 13),
+                    style: AppFonts.poppins(fontSize: 13),
                     decoration: InputDecoration(
                       hintText: s.searchQuotationHint,
-                      hintStyle: GoogleFonts.poppins(fontSize: 13, color: Colors.grey[400]),
+                      hintStyle: AppFonts.poppins(fontSize: 13, color: Colors.grey[400]),
                       prefixIcon: const Icon(Icons.search, size: 20),
                       isDense: true,
                       contentPadding: const EdgeInsets.symmetric(vertical: 10),
@@ -171,7 +175,7 @@ class _QuotationListScreenState extends State<QuotationListScreen> {
           const SizedBox(height: 16),
           Text(
             s.noQuotationsFound,
-            style: GoogleFonts.poppins(fontSize: 16, color: Colors.grey[600], fontWeight: FontWeight.w500),
+            style: AppFonts.poppins(fontSize: 16, color: Colors.grey[600], fontWeight: FontWeight.w500),
           ),
         ],
       ),
