@@ -45,6 +45,11 @@ class ApiService {
       final response = await _dio.post(
         'api/ClientOnboarding/ClientOnboardingLogin',
         data: request.toJson(),
+        options: Options(
+          connectTimeout: const Duration(seconds: 25),
+          receiveTimeout: const Duration(seconds: 25),
+          sendTimeout: const Duration(seconds: 25),
+        ),
       );
 
       if (response.statusCode == 200) {
@@ -71,6 +76,11 @@ class ApiService {
         }
       } else {
         errMsg = e.message ?? 'Unknown network error';
+      }
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.sendTimeout) {
+        errMsg = 'Connection timed out. Check network or API URL in settings.';
       }
       throw Exception(errMsg);
     }
@@ -1203,6 +1213,11 @@ class ApiService {
       final response = await _dio.post(
         'api/RoleManagement/GetAllUserPermissions-Optimized',
         data: {'ClientCode': clientCode},
+        options: Options(
+          connectTimeout: const Duration(seconds: 20),
+          receiveTimeout: const Duration(seconds: 20),
+          sendTimeout: const Duration(seconds: 20),
+        ),
       );
       if (response.statusCode == 200 && response.data is List) {
         return (response.data as List)

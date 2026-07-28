@@ -89,6 +89,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   final Map<String, int> _epcToMasterIndex = {};
   final Set<String> _matchedEpcSet = {};
   Set<String> _filteredDbEpcSet = {};
+  bool _lookupMapsReady = false;
   int _lastScanUiUpdateMs = 0;
   int _lastTriggerMs = 0;
   Timer? _scanUiFlushTimer;
@@ -180,6 +181,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     setState(() {
       _scannedItems = scanned;
       _isLoadingItems = false;
+      _lookupMapsReady = false;
     });
 
     scheduleMicrotask(() async {
@@ -187,6 +189,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       await _buildLookupMapsChunked();
       if (!mounted) return;
       await _setFilteredItemsForScanChunked();
+      if (!mounted) return;
+      // Warm UART while user reviews the list — first Scan tap starts faster.
+      unawaited(_rfidService.prepareForScan());
     });
   }
 
@@ -207,9 +212,13 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   }
 
   void _registerMatchForItem(ScannedBulkItem item, String scannedTag) {
+    final wasMatched = item.currentScannedStatus == 'Matched';
     _matchedEpcSet.add(scannedTag.trim().toUpperCase());
     for (final key in _matchKeysForItem(item)) {
       _matchedEpcSet.add(key);
+    }
+    if (!wasMatched) {
+      unawaited(_rfidService.playBeep());
     }
   }
 
@@ -225,6 +234,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       _indexTagKey(_epcToMasterIndex, _scannedItems[i].epc, i);
       _indexTagKey(_epcToMasterIndex, _scannedItems[i].rfid, i);
     }
+    _lookupMapsReady = true;
   }
 
   Future<void> _buildLookupMapsChunked() async {
@@ -238,6 +248,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         if (!mounted) return;
       }
     }
+    _lookupMapsReady = true;
   }
 
   /// Same as Kotlin setFilteredItems(displayItems) — scope tag keys for matching.
@@ -444,7 +455,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       return;
     }
 
-    _buildLookupMaps();
+    if (!_lookupMapsReady) {
+      _buildLookupMaps();
+    }
     // Kotlin: setFilteredItems(displayItems) — use full nav scope, not tab-filtered.
     if (_selectedMenu == 'UNLABELLED') {
       _filteredDbEpcSet = {};
@@ -472,13 +485,14 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
     // Kotlin sets isScanning=true BEFORE hardware start.
     setState(() => _isScanning = true);
+    unawaited(_rfidService.startInventorySound());
 
-    await _rfidService.stopScanning();
+    if (_rfidService.isScanning) {
+      await _rfidService.stopScanning();
+    }
     await _rfidService.clearSearchTags();
     await _rfidService.setInventoryScanMode(true);
-    await _rfidService.prepareForScan();
     await _rfidService.setInventoryScopeEpcsBatched(_filteredDbEpcSet.toList());
-    await _rfidService.setPower(_selectedPower);
 
     final started = await _rfidService.startScanning(
       power: _selectedPower,
@@ -489,6 +503,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     if (!mounted) return;
     if (!started) {
       setState(() => _isScanning = false);
+      await _rfidService.stopInventorySound();
       await _rfidService.haltScan();
       _showToast(context.sRead.failedToStartRfidScanner);
     }

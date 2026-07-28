@@ -286,10 +286,16 @@ class _LoginScreenState extends State<LoginScreen> {
                       await viewModel.confirmExpiryAndLogin();
                       if (context.mounted) {
                         final productVm = context.read<ProductViewModel>();
-                        context.read<StockTransferViewModel>().resetSession();
-                        context.read<DashboardViewModel>().loadUser();
-                        unawaited(productVm.syncProducts(force: true));
+                        final stockVm = context.read<StockTransferViewModel>();
+                        final dashVm = context.read<DashboardViewModel>();
                         Navigator.pushReplacementNamed(context, '/dashboard');
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          stockVm.resetSession();
+                          dashVm.loadUser();
+                          Future<void>.delayed(const Duration(seconds: 1), () {
+                            unawaited(productVm.syncProducts(force: true));
+                          });
+                        });
                       }
                     },
                     style: ElevatedButton.styleFrom(
@@ -535,12 +541,17 @@ class _LoginScreenState extends State<LoginScreen> {
                                 if (viewModel.selectedLoginMode == 'password') {
                                   final success = await viewModel.login(context);
                                   if (success && context.mounted) {
-                                    // Reset sticky sync state and start fresh sync for this account.
                                     final productVm = context.read<ProductViewModel>();
-                                    context.read<StockTransferViewModel>().resetSession();
-                                    context.read<DashboardViewModel>().loadUser();
-                                    unawaited(productVm.syncProducts(force: true));
+                                    final stockVm = context.read<StockTransferViewModel>();
+                                    final dashVm = context.read<DashboardViewModel>();
                                     Navigator.pushReplacementNamed(context, '/dashboard');
+                                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                                      stockVm.resetSession();
+                                      dashVm.loadUser();
+                                      Future<void>.delayed(const Duration(seconds: 1), () {
+                                        unawaited(productVm.syncProducts(force: true));
+                                      });
+                                    });
                                   }
                                 } else {
                                   // Navigate to Face detection placeholder

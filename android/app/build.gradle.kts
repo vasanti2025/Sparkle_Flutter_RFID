@@ -36,8 +36,7 @@ android {
 
     buildTypes {
         debug {
-            // Debug/JIT is 5–20x slower to open than release. Use release for real devices.
-            isDebuggable = false
+            isDebuggable = true
         }
         release {
             // AOT (fast open). Minify off — R8 fights Flutter Play Core stubs;
@@ -65,5 +64,23 @@ dependencies {
     implementation(files("libs/DeviceAPI_ver20250209_release.aar"))
     // Xprinter POSConnect Bluetooth thermal printer (Delivery Challan) — same as Sparkle Kotlin
     implementation(files("libs/printer-lib-3.2.0.aar"))
+}
+
+// Flutter CLI looks in outputs/flutter-apk/; AGP writes to outputs/apk/<variant>/.
+val copyApksToFlutterOutputs = tasks.register("copyApksToFlutterOutputs") {
+    doLast {
+        val buildDir = layout.buildDirectory.get().asFile
+        val flutterApkDir = File(buildDir, "outputs/flutter-apk")
+        flutterApkDir.mkdirs()
+        File(buildDir, "outputs/apk").walkTopDown()
+            .filter { it.isFile && it.extension == "apk" }
+            .forEach { apk ->
+                apk.copyTo(File(flutterApkDir, apk.name), overwrite = true)
+            }
+    }
+}
+
+tasks.matching { it.name == "assembleDebug" || it.name == "assembleRelease" }.configureEach {
+    finalizedBy(copyApksToFlutterOutputs)
 }
 

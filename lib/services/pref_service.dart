@@ -54,7 +54,14 @@ class PrefService {
     return _initFuture ??= _initOnce();
   }
 
+  /// After a timed-out init attempt, allow a fresh [SharedPreferences] load.
+  static void resetInitForRetry() {
+    _initFuture = null;
+  }
+
   static Future<PrefService> _initOnce() async {
+    // Yield so the bootstrap white frame can paint before native I/O (Android 13 handheld).
+    await Future<void>.delayed(Duration.zero);
     final prefs = await SharedPreferences.getInstance();
     final service = PrefService(prefs);
     // Defaults are optional; do not block first paint.

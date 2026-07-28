@@ -20,6 +20,8 @@ class AppWarmupService {
   }
 
   Future<void> _warmDatabase(GlobalKey<NavigatorState> navigatorKey) async {
+    // Avoid competing with first dashboard paint (handheld ANR if DB opens too early).
+    await Future<void>.delayed(const Duration(seconds: 2));
     final ctx = navigatorKey.currentContext;
     if (ctx == null) return;
     try {

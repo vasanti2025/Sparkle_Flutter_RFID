@@ -177,10 +177,7 @@ class LoginViewModel extends ChangeNotifier {
     final employee = response.employee!;
     final client = employee.clients;
 
-    // Save token
     await _prefService.saveToken(response.token ?? '');
-
-    // Save profile and credentials
     await _prefService.saveEmployee(employee);
     await _prefService.setUserId(employee.id);
     await _prefService.setLoggedIn(true);
@@ -189,8 +186,8 @@ class LoginViewModel extends ChangeNotifier {
       await _prefService.saveClient(client);
     }
 
-    // Save all permitted branch IDs (same as Sparkle Home) so product sync covers them.
-    await _saveBranchIdsForEmployee(employee);
+    // Fallback branches immediately — do not block login on permissions API.
+    await _prefService.saveBranchIds(_fallbackBranchIds(employee));
 
     await _prefService.saveLoginCredentials(
       username: _username.trim(),
@@ -202,17 +199,27 @@ class LoginViewModel extends ChangeNotifier {
       organisationName: client?.organisationName ?? '',
     );
 
-    // Start 15-min location upload after login (deferred so navigation stays smooth).
-    if (_prefService.isLocationSyncEnabled()) {
-      unawaited(LocationSyncService.applySettings(true));
-      Future<void>.delayed(const Duration(seconds: 5), () {
-        unawaited(LocationSyncService.syncNow().then((_) {}));
-      });
-    }
-
     _isLoading = false;
     _errorMessage = null;
     notifyListeners();
+
+    // Permissions + location sync run after UI navigates (handheld was freezing here).
+    unawaited(_saveBranchIdsForEmployee(employee));
+
+    if (_prefService.isLocationSyncEnabled()) {
+      unawaited(LocationSyncService.applySettings(true));
+      Future<void>.delayed(const Duration(seconds: 8), () {
+        unawaited(LocationSyncService.syncNow().then((_) {}));
+      });
+    }
+  }
+
+  List<int> _fallbackBranchIds(Employee employee) {
+    final ids = <int>[
+      if (employee.defaultBranchId > 0) employee.defaultBranchId,
+      if ((employee.branchNo ?? 0) > 0) employee.branchNo!,
+    ].toSet().toList();
+    return ids.isEmpty ? [employee.defaultBranchId] : ids;
   }
 
   Future<void> _saveBranchIdsForEmployee(Employee employee) async {

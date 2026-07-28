@@ -601,6 +601,25 @@ class RfidService {
     }
   }
 
+  /// Scan Display: loop sound as soon as user taps Scan (before hardware is ready).
+  Future<void> startInventorySound() async {
+    if (!_isSupported) return;
+    try {
+      await _methodChannel.invokeMethod('startInventorySound');
+    } catch (e) {
+      debugPrint('Error starting inventory sound: $e');
+    }
+  }
+
+  Future<void> stopInventorySound() async {
+    if (!_isSupported) return;
+    try {
+      await _methodChannel.invokeMethod('stopInventorySound');
+    } catch (e) {
+      debugPrint('Error stopping inventory sound: $e');
+    }
+  }
+
   Future<bool> clearMatchEpcs() async {
     if (_isSupported) {
       try {
@@ -614,7 +633,14 @@ class RfidService {
   }
 
   Future<void> preWarmReader() async {
-    // No-op on startup path. UART init is deferred to first scan (prepareForScan).
+    if (!_isSupported) return;
+    try {
+      await _methodChannel
+          .invokeMethod('initReader')
+          .timeout(const Duration(seconds: 8), onTimeout: () => false);
+    } catch (e) {
+      debugPrint('preWarmReader: $e');
+    }
   }
 
   Future<bool> clearSearchTags() async {
@@ -658,11 +684,43 @@ class RfidService {
   }
 
   Future<void> setInventoryScopeEpcsBatched(List<String> epcs) async {
-    await clearInventoryScope();
-    const batchSize = 5000;
-    for (var i = 0; i < epcs.length; i += batchSize) {
-      final end = (i + batchSize < epcs.length) ? i + batchSize : epcs.length;
-      await addInventoryScopeEpcs(epcs.sublist(i, end));
+    await ensureReady();
+    final prefs = await PrefService.init();
+    // BLE readers filter in Dart; skip slow native scope upload.
+    if (prefs.isTrayModeEnabled() || prefs.isR6ModeEnabled()) {
+      await clearInventoryScope();
+      return;
+    }
+    if (epcs.isEmpty) {
+      await clearInventoryScope();
+      return;
+    }
+    if (!_isSupported) return;
+
+    const batchSize = 10000;
+    try {
+      if (epcs.length <= batchSize) {
+        await _methodChannel.invokeMethod<bool>(
+          'setInventoryScopeEpcs',
+          {'epcs': epcs},
+        );
+        return;
+      }
+      await clearInventoryScope();
+      for (var i = 0; i < epcs.length; i += batchSize) {
+        final end = (i + batchSize < epcs.length) ? i + batchSize : epcs.length;
+        final batch = epcs.sublist(i, end);
+        if (i == 0) {
+          await _methodChannel.invokeMethod<bool>(
+            'setInventoryScopeEpcs',
+            {'epcs': batch},
+          );
+        } else {
+          await addInventoryScopeEpcs(batch);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error setting inventory scope epcs: $e');
     }
   }
 

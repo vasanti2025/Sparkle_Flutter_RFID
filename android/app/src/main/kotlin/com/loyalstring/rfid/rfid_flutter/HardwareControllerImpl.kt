@@ -181,6 +181,15 @@ class HardwareControllerImpl(
                 playDeepBeepSound()
                 result.success(true)
             }
+            "startInventorySound" -> {
+                ensureSoundPool()
+                startInventoryLoopSound()
+                result.success(true)
+            }
+            "stopInventorySound" -> {
+                stopInventoryLoopSound()
+                result.success(true)
+            }
             "clearMatchEpcs" -> {
                 matchEpcs.clear()
                 result.success(true)
@@ -196,6 +205,17 @@ class HardwareControllerImpl(
             }
             "clearInventoryScope" -> {
                 inventoryScopeEpcs.clear()
+                result.success(true)
+            }
+            "setInventoryScopeEpcs" -> {
+                val epcs = call.argument<List<String>>("epcs") ?: emptyList()
+                inventoryScopeEpcs.clear()
+                for (epc in epcs) {
+                    val key = epc.trim().uppercase()
+                    if (key.isNotEmpty()) {
+                        inventoryScopeEpcs.add(key)
+                    }
+                }
                 result.success(true)
             }
             "addInventoryScopeEpcs" -> {
@@ -292,7 +312,8 @@ class HardwareControllerImpl(
                 onTagRead = { epc, rssi ->
                     if (isScanning) {
                         handleTagRead(epc, rssi, activeInventorySession)
-                        if (r6ModeEnabled) {
+                        // Inventory scan (Scan Display) beeps on match in Flutter — not per tag.
+                        if (r6ModeEnabled && !activeInventorySession) {
                             try {
                                 trayManager.triggerBeep(40)
                             } catch (_: Throwable) {
