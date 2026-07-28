@@ -29,6 +29,7 @@ import java.util.concurrent.Executors
  */
 class MainActivity : FlutterActivity() {
     private val METHOD_CHANNEL = "com.loyalstring.rfid/uhf"
+    private val BOOTSTRAP_CHANNEL = "com.loyalstring.rfid/bootstrap"
     private val EVENT_CHANNEL = "com.loyalstring.rfid/tags"
     private val PDF_CHANNEL = "com.loyalstring.rfid/pdf"
     private val PRINTER_CHANNEL = "com.loyalstring.rfid/printer"
@@ -43,6 +44,15 @@ class MainActivity : FlutterActivity() {
         // Native LaunchTheme stays until Flutter's first frame (Login/Home).
         // Never load DeviceAPI / POSConnect here.
         super.onCreate(savedInstanceState)
+        // Warm Flutter SharedPreferences on a background thread so Dart getInstance() is faster.
+        Executors.newSingleThreadExecutor().execute {
+            try {
+                applicationContext
+                    .getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+                    .all
+            } catch (_: Throwable) {
+            }
+        }
     }
 
     /**
@@ -53,9 +63,59 @@ class MainActivity : FlutterActivity() {
         return try {
             val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
             val loggedIn = prefs.getBoolean("flutter.logged_in", false)
-            mutableListOf(if (loggedIn) "dashboard" else "login")
+            val rememberMe = prefs.getBoolean("flutter.remember_me", false)
+            val username = if (rememberMe) prefs.getString("flutter.remember_username", "") ?: "" else ""
+            val password = if (rememberMe) prefs.getString("flutter.remember_password", "") ?: "" else ""
+            mutableListOf(
+                if (loggedIn) "dashboard" else "login",
+                username,
+                password,
+            )
         } catch (_: Throwable) {
-            mutableListOf("login")
+            mutableListOf("login", "", "")
+        }
+    }
+
+    /** Fast synchronous read for Dart instant boot — keys match PrefService (no flutter. prefix). */
+    private fun readBootstrapSnapshot(): Map<String, Any?> {
+        return try {
+            val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+            fun s(key: String): String? = prefs.getString("flutter.$key", null)
+            fun b(key: String, default: Boolean = false): Boolean =
+                prefs.getBoolean("flutter.$key", default)
+            fun iOpt(key: String): Int? {
+                val full = "flutter.$key"
+                return if (prefs.contains(full)) prefs.getInt(full, 0) else null
+            }
+            val snap = hashMapOf<String, Any?>(
+                "logged_in" to b("logged_in"),
+                "remember_me" to b("remember_me"),
+                "remember_username" to (s("remember_username") ?: ""),
+                "remember_password" to (s("remember_password") ?: ""),
+                "remember_rfidType" to (s("remember_rfidType") ?: "webreusable"),
+                "app_language" to (s("app_language") ?: "en"),
+                "token" to s("token"),
+                "employee" to s("employee"),
+                "client" to s("client"),
+                "branch_id" to iOpt("branch_id"),
+                "user_id" to iOpt("user_id"),
+                "organisation_name" to (s("organisation_name") ?: ""),
+                "custom_api_url" to s("custom_api_url"),
+                "branch_ids" to s("branch_ids"),
+                "tray_mode_enabled" to b("tray_mode_enabled"),
+                "tray_device_address" to (s("tray_device_address") ?: ""),
+                "r6_mode_enabled" to b("r6_mode_enabled"),
+                "r6_device_address" to (s("r6_device_address") ?: ""),
+            )
+            for (key in listOf(
+                    "product_count", "inventory_count", "search_count",
+                    "orders_count", "stock_transfer_count",
+                )) {
+                iOpt(key)?.let { snap[key] = it }
+            }
+            snap
+        } catch (_: Throwable) {
+            hashMapOf("logged_in" to false)
         }
     }
 
@@ -93,6 +153,13 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, BOOTSTRAP_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getSnapshot" -> result.success(readBootstrapSnapshot())
+                else -> result.notImplemented()
+            }
+        }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL).setMethodCallHandler { call, result ->
             // Optimistic support check — never touch DeviceAPI at splash / dashboard.

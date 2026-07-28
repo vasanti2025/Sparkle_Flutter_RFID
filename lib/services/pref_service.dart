@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/employee.dart';
 import '../models/clients.dart';
+import 'pref_store.dart';
 
 class PrefService {
   static const String _keyToken = 'token';
@@ -43,48 +44,97 @@ class PrefService {
     keyStockTransferCount: 10,
   };
 
-  final SharedPreferences _prefs;
+  PrefStore _store;
 
-  PrefService(this._prefs);
+  PrefService._(this._store);
+
+  PrefStore get store => _store;
 
   static Future<PrefService>? _initFuture;
+  static PrefService? _cached;
+
+  /// Instant boot from Android entrypoint args — no SharedPreferences wait.
+  static PrefService bootstrapQuick({
+    required bool loggedIn,
+    String username = '',
+    String password = '',
+  }) {
+    if (_cached != null) return _cached!;
+    final seed = <String, Object?>{
+      _keyLoggedIn: loggedIn,
+      keyAppLanguage: 'en',
+    };
+    if (username.isNotEmpty) {
+      seed[_keyRememberMe] = true;
+      seed[_keyUsername] = username;
+      if (password.isNotEmpty) seed[_keyPassword] = password;
+    }
+    final service = PrefService._(MemoryPrefStore(seed));
+    _cached = service;
+    return service;
+  }
+
+  void applyNativeSnapshot(Map<String, dynamic> snapshot) {
+    final mem = _store;
+    if (mem is MemoryPrefStore) {
+      mem.applySnapshot(snapshot);
+    }
+  }
+
+  Future<void> upgradeToSharedPreferences(SharedPreferences prefs) async {
+    if (_store is MemoryPrefStore) {
+      await (_store as MemoryPrefStore).mergeInto(prefs);
+    }
+    _store = SharedPrefStore(prefs);
+    _initFuture = Future.value(this);
+    unawaited(ensureDefaultCounters());
+  }
 
   /// Cached — cold start and later callers share one load.
   static Future<PrefService> init() {
     return _initFuture ??= _initOnce();
   }
 
+  /// Available after [init] or [bootstrapQuick] completes.
+  static PrefService? get instanceOrNull => _cached;
+
   /// After a timed-out init attempt, allow a fresh [SharedPreferences] load.
   static void resetInitForRetry() {
     _initFuture = null;
+    _cached = null;
   }
 
   static Future<PrefService> _initOnce() async {
-    // Yield so the bootstrap white frame can paint before native I/O (Android 13 handheld).
-    await Future<void>.delayed(Duration.zero);
+    if (_cached != null && _cached!._store is SharedPrefStore) {
+      return _cached!;
+    }
     final prefs = await SharedPreferences.getInstance();
-    final service = PrefService(prefs);
-    // Defaults are optional; do not block first paint.
+    if (_cached != null) {
+      await _cached!.upgradeToSharedPreferences(prefs);
+      return _cached!;
+    }
+    final service = PrefService._(SharedPrefStore(prefs));
+    _cached = service;
     unawaited(service.ensureDefaultCounters());
     return service;
   }
 
   Future<void> ensureDefaultCounters() async {
     for (final entry in powerDefaults.entries) {
-      if (!_prefs.containsKey(entry.key)) {
-        await _prefs.setInt(entry.key, entry.value);
+      if (!_store.containsKey(entry.key)) {
+        await _store.setInt(entry.key, entry.value);
       }
     }
-    if (!_prefs.containsKey(keyAutosyncIntervalMin)) {
-      await _prefs.setInt(keyAutosyncIntervalMin, 15);
+    if (!_store.containsKey(keyAutosyncIntervalMin)) {
+      await _store.setInt(keyAutosyncIntervalMin, 15);
     }
-    if (!_prefs.containsKey(keyAutosyncEnabled)) {
-      await _prefs.setBool(keyAutosyncEnabled, false);
+    if (!_store.containsKey(keyAutosyncEnabled)) {
+      await _store.setBool(keyAutosyncEnabled, false);
     }
   }
 
   int getPower(String key) {
-    return _prefs.getInt(key) ?? powerDefaults[key] ?? 5;
+    return _store.getInt(key) ?? powerDefaults[key] ?? 5;
   }
 
   int get productPower => getPower(keyProductCount);
@@ -94,28 +144,28 @@ class PrefService {
   int get stockTransferPower => getPower(keyStockTransferCount);
 
   Future<void> savePower(String key, int value) async {
-    await _prefs.setInt(key, value.clamp(1, 30));
+    await _store.setInt(key, value.clamp(1, 30));
   }
 
-  Future<void> saveToken(String token) async => _prefs.setString(_keyToken, token);
-  String? getToken() => _prefs.getString(_keyToken);
+  Future<void> saveToken(String token) async => _store.setString(_keyToken, token);
+  String? getToken() => _store.getString(_keyToken);
 
   Future<void> saveEmployee(Employee employee) async {
-    await _prefs.setString(_keyEmployee, jsonEncode(employee.toJson()));
+    await _store.setString(_keyEmployee, jsonEncode(employee.toJson()));
   }
 
-  String getEmployeeRawJson() => _prefs.getString(_keyEmployee) ?? '';
+  String getEmployeeRawJson() => _store.getString(_keyEmployee) ?? '';
 
   static const String keyFaceEmbedding = 'registered_face_embedding';
-  Future<void> saveRegisteredFaceEmbedding(String val) async => _prefs.setString(keyFaceEmbedding, val);
-  String getRegisteredFaceEmbedding() => _prefs.getString(keyFaceEmbedding) ?? '';
+  Future<void> saveRegisteredFaceEmbedding(String val) async => _store.setString(keyFaceEmbedding, val);
+  String getRegisteredFaceEmbedding() => _store.getString(keyFaceEmbedding) ?? '';
 
   static const String keyFaceUsername = 'registered_face_username';
-  Future<void> saveRegisteredFaceUsername(String val) async => _prefs.setString(keyFaceUsername, val);
-  String getRegisteredFaceUsername() => _prefs.getString(keyFaceUsername) ?? '';
+  Future<void> saveRegisteredFaceUsername(String val) async => _store.setString(keyFaceUsername, val);
+  String getRegisteredFaceUsername() => _store.getString(keyFaceUsername) ?? '';
 
   Employee? getEmployee() {
-    final jsonStr = _prefs.getString(_keyEmployee);
+    final jsonStr = _store.getString(_keyEmployee);
     if (jsonStr == null) return null;
     try {
       return Employee.fromJson(jsonDecode(jsonStr) as Map<String, dynamic>);
@@ -133,36 +183,36 @@ class PrefService {
     required int branchId,
     required String organisationName,
   }) async {
-    await _prefs.setBool(_keyRememberMe, rememberMe);
+    await _store.setBool(_keyRememberMe, rememberMe);
     if (rememberMe) {
-      await _prefs.setString(_keyUsername, username);
-      await _prefs.setString(_keyPassword, password);
-      await _prefs.setString(_keyRfidType, rfidType);
-      await _prefs.setInt(_keyUserId, userId);
-      await _prefs.setInt(_keyBranchId, branchId);
-      await _prefs.setString(_keyOrg, organisationName);
+      await _store.setString(_keyUsername, username);
+      await _store.setString(_keyPassword, password);
+      await _store.setString(_keyRfidType, rfidType);
+      await _store.setInt(_keyUserId, userId);
+      await _store.setInt(_keyBranchId, branchId);
+      await _store.setString(_keyOrg, organisationName);
     } else {
-      await _prefs.remove(_keyUsername);
-      await _prefs.remove(_keyPassword);
-      await _prefs.remove(_keyRfidType);
-      await _prefs.remove(_keyUserId);
-      await _prefs.remove(_keyBranchId);
-      await _prefs.remove(_keyOrg);
+      await _store.remove(_keyUsername);
+      await _store.remove(_keyPassword);
+      await _store.remove(_keyRfidType);
+      await _store.remove(_keyUserId);
+      await _store.remove(_keyBranchId);
+      await _store.remove(_keyOrg);
     }
   }
 
-  bool isRememberMe() => _prefs.getBool(_keyRememberMe) ?? false;
-  String getSavedUsername() => _prefs.getString(_keyUsername) ?? '';
-  String getSavedPassword() => _prefs.getString(_keyPassword) ?? '';
+  bool isRememberMe() => _store.getBool(_keyRememberMe) ?? false;
+  String getSavedUsername() => _store.getString(_keyUsername) ?? '';
+  String getSavedPassword() => _store.getString(_keyPassword) ?? '';
 
-  Future<void> setLoggedIn(bool loggedIn) async => _prefs.setBool(_keyLoggedIn, loggedIn);
-  bool isLoggedIn() => _prefs.getBool(_keyLoggedIn) ?? false;
+  Future<void> setLoggedIn(bool loggedIn) async => _store.setBool(_keyLoggedIn, loggedIn);
+  bool isLoggedIn() => _store.getBool(_keyLoggedIn) ?? false;
 
   Future<void> saveCustomApi(String url) async {
     final trimmed = url.trim();
     if (trimmed.isEmpty) {
       // No custom URL → use default rrgold server (same as Sparkle)
-      await _prefs.remove(_keyCustomApiUrl);
+      await _store.remove(_keyCustomApiUrl);
       return;
     }
     var finalUrl = trimmed;
@@ -172,12 +222,12 @@ class PrefService {
     if (!finalUrl.endsWith('/')) {
       finalUrl = '$finalUrl/';
     }
-    await _prefs.setString(_keyCustomApiUrl, finalUrl);
+    await _store.setString(_keyCustomApiUrl, finalUrl);
   }
 
   /// Raw saved custom API (null/empty means use default rrgold).
   String? getCustomApi() {
-    final v = _prefs.getString(_keyCustomApiUrl)?.trim();
+    final v = _store.getString(_keyCustomApiUrl)?.trim();
     if (v == null || v.isEmpty) return null;
     return v;
   }
@@ -199,18 +249,18 @@ class PrefService {
     return url;
   }
 
-  Future<void> setUserId(int userId) async => _prefs.setInt(_keyUserId, userId);
-  Future<void> saveBranchId(int branchId) async => _prefs.setInt(_keyBranchId, branchId);
+  Future<void> setUserId(int userId) async => _store.setInt(_keyUserId, userId);
+  Future<void> saveBranchId(int branchId) async => _store.setInt(_keyBranchId, branchId);
 
   /// Login-time / selected branch (same as Sparkle `getBranchID()`).
-  int getBranchId() => _prefs.getInt(_keyBranchId) ?? 0;
+  int getBranchId() => _store.getInt(_keyBranchId) ?? 0;
 
   Future<void> saveClient(Clients client) async {
-    await _prefs.setString('client', jsonEncode(client.toJson()));
+    await _store.setString('client', jsonEncode(client.toJson()));
   }
 
   Clients? getClient() {
-    final jsonStr = _prefs.getString('client');
+    final jsonStr = _store.getString('client');
     if (jsonStr == null) return null;
     try {
       return Clients.fromJson(jsonDecode(jsonStr) as Map<String, dynamic>);
@@ -221,7 +271,7 @@ class PrefService {
 
   /// Organisation / company name for PDFs and Bluetooth print headers.
   String? getOrganisationName() {
-    final saved = _prefs.getString(_keyOrg);
+    final saved = _store.getString(_keyOrg);
     if (saved != null && saved.trim().isNotEmpty) return saved.trim();
     final fromClient = getClient()?.organisationName?.trim();
     if (fromClient != null && fromClient.isNotEmpty) return fromClient;
@@ -233,7 +283,7 @@ class PrefService {
     if (clientType != null && clientType.trim().isNotEmpty) {
       return clientType.trim().toLowerCase();
     }
-    return (_prefs.getString(_keyRfidType) ?? 'webreusable').trim().toLowerCase();
+    return (_store.getString(_keyRfidType) ?? 'webreusable').trim().toLowerCase();
   }
 
   static const String keyLocalWifiMode = 'local_wifi_mode';
@@ -244,46 +294,46 @@ class PrefService {
   static const String keyR6DeviceAddress = 'r6_device_address';
   static const String keyR6DeviceName = 'r6_device_name';
 
-  bool isWebReusableTagEnabled() => _prefs.getBool(keyWebReusableTag) ?? true;
-  Future<void> setWebReusableTagEnabled(bool value) async => _prefs.setBool(keyWebReusableTag, value);
+  bool isWebReusableTagEnabled() => _store.getBool(keyWebReusableTag) ?? true;
+  Future<void> setWebReusableTagEnabled(bool value) async => _store.setBool(keyWebReusableTag, value);
 
-  bool isLocalWifiModeEnabled() => _prefs.getBool(keyLocalWifiMode) ?? false;
-  Future<void> setLocalWifiModeEnabled(bool value) async => _prefs.setBool(keyLocalWifiMode, value);
+  bool isLocalWifiModeEnabled() => _store.getBool(keyLocalWifiMode) ?? false;
+  Future<void> setLocalWifiModeEnabled(bool value) async => _store.setBool(keyLocalWifiMode, value);
 
-  bool isTrayModeEnabled() => _prefs.getBool(keyTrayModeEnabled) ?? false;
+  bool isTrayModeEnabled() => _store.getBool(keyTrayModeEnabled) ?? false;
   Future<void> setTrayModeEnabled(bool value) async {
-    await _prefs.setBool(keyTrayModeEnabled, value);
-    if (value) await _prefs.setBool(keyR6ModeEnabled, false);
+    await _store.setBool(keyTrayModeEnabled, value);
+    if (value) await _store.setBool(keyR6ModeEnabled, false);
   }
 
-  String getTrayDeviceAddress() => _prefs.getString(keyTrayDeviceAddress) ?? '';
-  String getTrayDeviceName() => _prefs.getString(keyTrayDeviceName) ?? '';
+  String getTrayDeviceAddress() => _store.getString(keyTrayDeviceAddress) ?? '';
+  String getTrayDeviceName() => _store.getString(keyTrayDeviceName) ?? '';
 
   Future<void> saveTrayDevice({required String name, required String address}) async {
-    await _prefs.setString(keyTrayDeviceName, name);
-    await _prefs.setString(keyTrayDeviceAddress, address);
+    await _store.setString(keyTrayDeviceName, name);
+    await _store.setString(keyTrayDeviceAddress, address);
   }
 
-  bool isR6ModeEnabled() => _prefs.getBool(keyR6ModeEnabled) ?? false;
+  bool isR6ModeEnabled() => _store.getBool(keyR6ModeEnabled) ?? false;
   Future<void> setR6ModeEnabled(bool value) async {
-    await _prefs.setBool(keyR6ModeEnabled, value);
-    if (value) await _prefs.setBool(keyTrayModeEnabled, false);
+    await _store.setBool(keyR6ModeEnabled, value);
+    if (value) await _store.setBool(keyTrayModeEnabled, false);
   }
 
-  String getR6DeviceAddress() => _prefs.getString(keyR6DeviceAddress) ?? '';
-  String getR6DeviceName() => _prefs.getString(keyR6DeviceName) ?? '';
+  String getR6DeviceAddress() => _store.getString(keyR6DeviceAddress) ?? '';
+  String getR6DeviceName() => _store.getString(keyR6DeviceName) ?? '';
 
   Future<void> saveR6Device({required String name, required String address}) async {
-    await _prefs.setString(keyR6DeviceName, name);
-    await _prefs.setString(keyR6DeviceAddress, address);
+    await _store.setString(keyR6DeviceName, name);
+    await _store.setString(keyR6DeviceAddress, address);
   }
 
   Future<void> saveBranchIds(List<int> branchIds) async {
-    await _prefs.setString(keyBranchIds, jsonEncode(branchIds));
+    await _store.setString(keyBranchIds, jsonEncode(branchIds));
   }
 
   List<int> getBranchIds() {
-    final jsonStr = _prefs.getString(keyBranchIds);
+    final jsonStr = _store.getString(keyBranchIds);
     if (jsonStr == null) {
       final emp = getEmployee();
       if (emp != null) return [emp.defaultBranchId];
@@ -296,53 +346,53 @@ class PrefService {
     }
   }
 
-  String getSheetUrl() => _prefs.getString(keySheetUrl) ?? '';
-  Future<void> saveSheetUrl(String url) async => _prefs.setString(keySheetUrl, url);
+  String getSheetUrl() => _store.getString(keySheetUrl) ?? '';
+  Future<void> saveSheetUrl(String url) async => _store.setString(keySheetUrl, url);
 
-  String getStockTransferUrl() => _prefs.getString(keyStockTransferUrl) ?? '';
-  Future<void> saveStockTransferUrl(String url) async => _prefs.setString(keyStockTransferUrl, url);
+  String getStockTransferUrl() => _store.getString(keyStockTransferUrl) ?? '';
+  Future<void> saveStockTransferUrl(String url) async => _store.setString(keyStockTransferUrl, url);
 
-  String getBackupEmail() => _prefs.getString(keyBackupEmail) ?? '';
-  Future<void> saveBackupEmail(String email) async => _prefs.setString(keyBackupEmail, email);
+  String getBackupEmail() => _store.getString(keyBackupEmail) ?? '';
+  Future<void> saveBackupEmail(String email) async => _store.setString(keyBackupEmail, email);
 
-  bool isAutosyncEnabled() => _prefs.getBool(keyAutosyncEnabled) ?? false;
-  Future<void> setAutosyncEnabled(bool value) async => _prefs.setBool(keyAutosyncEnabled, value);
+  bool isAutosyncEnabled() => _store.getBool(keyAutosyncEnabled) ?? false;
+  Future<void> setAutosyncEnabled(bool value) async => _store.setBool(keyAutosyncEnabled, value);
 
-  int getAutosyncIntervalMin() => _prefs.getInt(keyAutosyncIntervalMin) ?? 15;
-  Future<void> setAutosyncIntervalMin(int minutes) async => _prefs.setInt(keyAutosyncIntervalMin, minutes);
+  int getAutosyncIntervalMin() => _store.getInt(keyAutosyncIntervalMin) ?? 15;
+  Future<void> setAutosyncIntervalMin(int minutes) async => _store.setInt(keyAutosyncIntervalMin, minutes);
 
-  bool areNotificationsEnabled() => _prefs.getBool(keyNotificationsEnabled) ?? true;
-  Future<void> setNotificationsEnabled(bool value) async => _prefs.setBool(keyNotificationsEnabled, value);
+  bool areNotificationsEnabled() => _store.getBool(keyNotificationsEnabled) ?? true;
+  Future<void> setNotificationsEnabled(bool value) async => _store.setBool(keyNotificationsEnabled, value);
 
-  String getAppLanguage() => _prefs.getString(keyAppLanguage) ?? 'en';
-  Future<void> saveAppLanguage(String code) async => _prefs.setString(keyAppLanguage, code);
+  String getAppLanguage() => _store.getString(keyAppLanguage) ?? 'en';
+  Future<void> saveAppLanguage(String code) async => _store.setString(keyAppLanguage, code);
 
-  bool isLocationSyncEnabled() => _prefs.getBool(keyLocationSync) ?? true;
-  Future<void> setLocationSyncEnabled(bool value) async => _prefs.setBool(keyLocationSync, value);
+  bool isLocationSyncEnabled() => _store.getBool(keyLocationSync) ?? true;
+  Future<void> setLocationSyncEnabled(bool value) async => _store.setBool(keyLocationSync, value);
 
   static const String keyDeviceId = 'stable_device_id';
-  Future<void> saveDeviceId(String val) async => _prefs.setString(keyDeviceId, val);
-  String getDeviceId() => _prefs.getString(keyDeviceId) ?? '';
+  Future<void> saveDeviceId(String val) async => _store.setString(keyDeviceId, val);
+  String getDeviceId() => _store.getString(keyDeviceId) ?? '';
 
   Future<void> logout() async {
-    await _prefs.remove(_keyUserId);
+    await _store.remove(_keyUserId);
     if (!isRememberMe()) {
-      await _prefs.remove(_keyUsername);
-      await _prefs.remove(_keyPassword);
-      await _prefs.remove(_keyRfidType);
-      await _prefs.remove(_keyOrg);
+      await _store.remove(_keyUsername);
+      await _store.remove(_keyPassword);
+      await _store.remove(_keyRfidType);
+      await _store.remove(_keyOrg);
     }
     // Custom API URL is a persistent setting and should not be removed on logout
-    await _prefs.remove(_keyLoggedIn);
-    await _prefs.remove(_keyToken);
-    await _prefs.remove(_keyEmployee);
-    await _prefs.remove('client');
-    await _prefs.remove(_keyBranchId);
-    await _prefs.remove(keyBranchIds);
+    await _store.remove(_keyLoggedIn);
+    await _store.remove(_keyToken);
+    await _store.remove(_keyEmployee);
+    await _store.remove('client');
+    await _store.remove(_keyBranchId);
+    await _store.remove(keyBranchIds);
   }
 
   Future<void> clearAll() async {
-    await _prefs.clear();
+    await _store.clear();
     await ensureDefaultCounters();
   }
 }

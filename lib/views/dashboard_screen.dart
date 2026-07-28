@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../app_routes.dart';
+import '../app_navigator.dart';
 import '../l10n/l10n_extension.dart';
 import '../services/app_warmup_service.dart';
 import '../viewmodels/dashboard_view_model.dart';

@@ -82,6 +82,16 @@ class LoginViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Called after native prefs snapshot hydrates memory store at startup.
+  void reloadRememberMe() {
+    _rememberMe = _prefService.isRememberMe();
+    if (_rememberMe) {
+      _username = _prefService.getSavedUsername();
+      _password = _prefService.getSavedPassword();
+    }
+    notifyListeners();
+  }
+
   // Custom API configuration
   String getCustomApiUrl() {
     return _prefService.getCustomApi() ?? '';

@@ -1,136 +1,139 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 
 import 'app_bootstrap.dart';
 import 'app_routes.dart';
+import 'services/bootstrap_channel.dart';
 import 'services/db_service.dart';
 import 'services/pref_service.dart';
 import 'utils/app_dropdown.dart';
+import 'viewmodels/dashboard_view_model.dart';
+import 'viewmodels/login_view_model.dart';
 
-/// Opens like a normal app / Sparkle:
-/// native splash → instant white frame → Login or Home (single runApp, no plugin re-init).
-void main() {
+/// Native MainActivity passes `login` or `dashboard` from Android SharedPreferences
+/// synchronously — first frame can be Login/Home without waiting for Dart prefs.
+void main(List<String> args) {
   WidgetsFlutterBinding.ensureInitialized();
   GoogleFonts.config.allowRuntimeFetching = false;
-  runApp(const _BootstrapApp());
+  final initialLoggedIn = args.isNotEmpty && args.first == 'dashboard';
+  final savedUsername = args.length > 1 ? args[1] : '';
+  final savedPassword = args.length > 2 ? args[2] : '';
+  runApp(_BootstrapApp(
+    initialLoggedIn: initialLoggedIn,
+    savedUsername: savedUsername,
+    savedPassword: savedPassword,
+  ));
 }
 
 /// One [runApp] for the process — avoids Geolocator/other plugins attaching twice.
 class _BootstrapApp extends StatefulWidget {
-  const _BootstrapApp();
+  final bool initialLoggedIn;
+  final String savedUsername;
+  final String savedPassword;
+
+  const _BootstrapApp({
+    required this.initialLoggedIn,
+    this.savedUsername = '',
+    this.savedPassword = '',
+  });
 
   @override
   State<_BootstrapApp> createState() => _BootstrapAppState();
 }
 
 class _BootstrapAppState extends State<_BootstrapApp> {
-  Widget? _root;
+  late final PrefService _prefService;
+  late final Widget _root;
+  DbService? _dbService;
+  bool _warmScheduled = false;
   String? _bootError;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_boot());
+    _prefService = PrefService.bootstrapQuick(
+      loggedIn: widget.initialLoggedIn,
+      username: widget.savedUsername,
+      password: widget.savedPassword,
+    );
+    _root = buildAppProviders(
+      prefService: _prefService,
+      onDbReady: (db) => _dbService = db,
+      child: MyApp(loggedIn: widget.initialLoggedIn),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_hydrateInBackground());
+    });
   }
 
-  Future<PrefService> _loadPrefs() async {
-    const timeout = Duration(seconds: 45);
-    for (var attempt = 0; attempt < 2; attempt++) {
-      try {
-        return await PrefService.init().timeout(timeout);
-      } on TimeoutException catch (e) {
-        debugPrint('STARTUP prefs attempt ${attempt + 1} timed out: $e');
-        PrefService.resetInitForRetry();
-        if (attempt == 1) rethrow;
-        await Future<void>.delayed(const Duration(milliseconds: 400));
-      }
-    }
-    throw StateError('unreachable');
-  }
-
-  Future<void> _boot() async {
+  Future<void> _hydrateInBackground() async {
     try {
-      // Paint white bootstrap frame before SharedPreferences native I/O.
-      await SchedulerBinding.instance.endOfFrame;
+      final snapshot = await BootstrapChannel.getSnapshot();
+      if (snapshot != null && snapshot.isNotEmpty) {
+        _prefService.applyNativeSnapshot(snapshot);
+        _refreshViewModelsAfterHydrate();
+        if (mounted) setState(() {});
+      }
 
-      final prefService = await _loadPrefs();
-      if (!mounted) return;
+      await PrefService.init();
+      _refreshViewModelsAfterHydrate();
 
-      final loggedIn = prefService.isLoggedIn();
-      DbService? dbService;
-
-      setState(() {
-        _bootError = null;
-        _root = buildAppProviders(
-          prefService: prefService,
-          onDbReady: (db) => dbService = db,
-          child: MyApp(loggedIn: loggedIn),
-        );
-      });
-
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_warmScheduled) {
+        _warmScheduled = true;
         Future<void>.delayed(const Duration(seconds: 2), () {
-          unawaited(warmAfterFirstFrame(prefService, dbService));
+          unawaited(warmAfterFirstFrame(_prefService, _dbService));
         });
-      });
+      }
     } catch (e, st) {
-      debugPrint('STARTUP boot failed: $e\n$st');
+      debugPrint('STARTUP hydrate failed: $e\n$st');
       if (!mounted) return;
-      setState(() {
-        _bootError = e.toString();
-        _root = null;
-      });
+      setState(() => _bootError = e.toString());
     }
+  }
+
+  void _refreshViewModelsAfterHydrate() {
+    final ctx = appNavigatorKey.currentContext;
+    if (ctx == null) return;
+    try {
+      ctx.read<LoginViewModel>().reloadRememberMe();
+    } catch (_) {}
+    try {
+      ctx.read<DashboardViewModel>().loadUser();
+    } catch (_) {}
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_root != null) return _root!;
-
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: Scaffold(
-        backgroundColor: Colors.white,
-        body: Center(
-          child: _bootError == null
-              ? const Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text('Loading…', style: TextStyle(color: Colors.black54)),
-                  ],
-                )
-              : Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.error_outline, color: Colors.red, size: 48),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Startup failed.\n$_bootError',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.black87),
-                      ),
-                      const SizedBox(height: 16),
-                      FilledButton(
-                        onPressed: () {
-                          setState(() => _bootError = null);
-                          unawaited(_boot());
-                        },
-                        child: const Text('Retry'),
-                      ),
-                    ],
+    if (_bootError != null) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(
+          backgroundColor: Colors.white,
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.red, size: 48),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Startup failed.\n$_bootError',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.black87),
                   ),
-                ),
+                ],
+              ),
+            ),
+          ),
         ),
-      ),
-    );
+      );
+    }
+    return _root;
   }
 }
 

@@ -49,6 +49,10 @@ class _LoginScreenState extends State<LoginScreen> {
   void _onLoginVmChanged() {
     if (!mounted || _loginVm == null) return;
     final viewModel = _loginVm!;
+    if (viewModel.rememberMe) {
+      _usernameController.text = viewModel.username;
+      _passwordController.text = viewModel.password;
+    }
     if (viewModel.showExpiryWarning && !_expiryDialogQueued) {
       _expiryDialogQueued = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
