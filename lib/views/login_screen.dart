@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
+import '../services/pref_service.dart';
 import '../viewmodels/dashboard_view_model.dart';
 import '../viewmodels/login_view_model.dart';
 import '../viewmodels/product_view_model.dart';
@@ -22,19 +23,26 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _apiController = TextEditingController();
   bool _expiryDialogQueued = false;
   String? _lastShownError;
+  bool _fieldsInitialized = false;
   LoginViewModel? _loginVm;
 
   @override
-  void initState() {
-    super.initState();
-    // Pre-populate username and password if they were remembered
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final viewModel = Provider.of<LoginViewModel>(context, listen: false);
-      _loginVm = viewModel;
-      viewModel.addListener(_onLoginVmChanged);
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_fieldsInitialized) return;
+    _fieldsInitialized = true;
+    final pref = context.read<PrefService>();
+    if (pref.getSavedUsername().isNotEmpty) {
+      _usernameController.text = pref.getSavedUsername();
+      _passwordController.text = pref.getSavedPassword();
+    }
+    final viewModel = context.read<LoginViewModel>();
+    _loginVm = viewModel;
+    viewModel.addListener(_onLoginVmChanged);
+    if (_usernameController.text.isEmpty && viewModel.username.isNotEmpty) {
       _usernameController.text = viewModel.username;
       _passwordController.text = viewModel.password;
-    });
+    }
   }
 
   @override

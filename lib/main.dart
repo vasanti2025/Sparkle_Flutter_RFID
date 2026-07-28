@@ -2,23 +2,23 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
-import 'app_bootstrap.dart';
-import 'app_routes.dart';
+import 'app_bootstrap_extended.dart' deferred as extended;
+import 'app_navigator.dart';
+import 'app_warmup.dart';
 import 'services/bootstrap_channel.dart';
 import 'services/db_service.dart';
 import 'services/pref_service.dart';
-import 'utils/app_dropdown.dart';
+import 'startup_bootstrap.dart';
 import 'viewmodels/dashboard_view_model.dart';
 import 'viewmodels/login_view_model.dart';
+import 'views/dashboard_screen.dart';
+import 'views/login_screen.dart';
 
-/// Native MainActivity passes `login` or `dashboard` from Android SharedPreferences
-/// synchronously — first frame can be Login/Home without waiting for Dart prefs.
+/// Native MainActivity passes route + saved credentials before Dart prefs load.
 void main(List<String> args) {
   WidgetsFlutterBinding.ensureInitialized();
-  GoogleFonts.config.allowRuntimeFetching = false;
   final initialLoggedIn = args.isNotEmpty && args.first == 'dashboard';
   final savedUsername = args.length > 1 ? args[1] : '';
   final savedPassword = args.length > 2 ? args[2] : '';
@@ -29,7 +29,6 @@ void main(List<String> args) {
   ));
 }
 
-/// One [runApp] for the process — avoids Geolocator/other plugins attaching twice.
 class _BootstrapApp extends StatefulWidget {
   final bool initialLoggedIn;
   final String savedUsername;
@@ -50,7 +49,6 @@ class _BootstrapAppState extends State<_BootstrapApp> {
   late final Widget _root;
   DbService? _dbService;
   bool _warmScheduled = false;
-  String? _bootError;
 
   @override
   void initState() {
@@ -60,10 +58,12 @@ class _BootstrapAppState extends State<_BootstrapApp> {
       username: widget.savedUsername,
       password: widget.savedPassword,
     );
-    _root = buildAppProviders(
+    _root = buildStartupProviders(
       prefService: _prefService,
       onDbReady: (db) => _dbService = db,
-      child: MyApp(loggedIn: widget.initialLoggedIn),
+      child: _ExtendedProvidersLoader(
+        loggedIn: widget.initialLoggedIn,
+      ),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_hydrateInBackground());
@@ -76,11 +76,9 @@ class _BootstrapAppState extends State<_BootstrapApp> {
       if (snapshot != null && snapshot.isNotEmpty) {
         _prefService.applyNativeSnapshot(snapshot);
         _refreshViewModelsAfterHydrate();
-        if (mounted) setState(() {});
       }
 
-      await PrefService.init();
-      _refreshViewModelsAfterHydrate();
+      unawaited(PrefService.init().then((_) => _refreshViewModelsAfterHydrate()));
 
       if (!_warmScheduled) {
         _warmScheduled = true;
@@ -90,8 +88,6 @@ class _BootstrapAppState extends State<_BootstrapApp> {
       }
     } catch (e, st) {
       debugPrint('STARTUP hydrate failed: $e\n$st');
-      if (!mounted) return;
-      setState(() => _bootError = e.toString());
     }
   }
 
@@ -107,40 +103,63 @@ class _BootstrapAppState extends State<_BootstrapApp> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    if (_bootError != null) {
-      return MaterialApp(
-        debugShowCheckedModeBanner: false,
-        home: Scaffold(
-          backgroundColor: Colors.white,
-          body: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.error_outline, color: Colors.red, size: 48),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Startup failed.\n$_bootError',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.black87),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
+  Widget build(BuildContext context) => _root;
+}
+
+/// Loads heavy ViewModels + routes after Login/Dashboard first frame.
+class _ExtendedProvidersLoader extends StatefulWidget {
+  final bool loggedIn;
+
+  const _ExtendedProvidersLoader({required this.loggedIn});
+
+  @override
+  State<_ExtendedProvidersLoader> createState() => _ExtendedProvidersLoaderState();
+}
+
+class _ExtendedProvidersLoaderState extends State<_ExtendedProvidersLoader> {
+  bool _extendedReady = false;
+  Route<dynamic>? Function(RouteSettings settings)? _routeGenerator;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_loadExtended());
+    });
+  }
+
+  Future<void> _loadExtended() async {
+    try {
+      await extended.loadLibrary();
+      if (!mounted) return;
+      setState(() {
+        _extendedReady = true;
+        _routeGenerator = extended.routeGenerator;
+      });
+    } catch (e, st) {
+      debugPrint('Extended load failed: $e\n$st');
     }
-    return _root;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = _StartupApp(
+      loggedIn: widget.loggedIn,
+      routeGenerator: _routeGenerator,
+    );
+    if (!_extendedReady) return app;
+    return extended.ExtendedProvidersScope(child: app);
   }
 }
 
-class MyApp extends StatelessWidget {
+class _StartupApp extends StatelessWidget {
   final bool loggedIn;
+  final Route<dynamic>? Function(RouteSettings settings)? routeGenerator;
 
-  const MyApp({super.key, required this.loggedIn});
+  const _StartupApp({
+    required this.loggedIn,
+    this.routeGenerator,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -164,14 +183,6 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         primarySwatch: Colors.blue,
-        textTheme: ThemeData.light().textTheme,
-        dropdownMenuTheme: DropdownMenuThemeData(
-          menuStyle: MenuStyle(
-            maximumSize: WidgetStatePropertyAll(
-              Size(double.infinity, kDropdownMenuMaxHeight),
-            ),
-          ),
-        ),
       ),
       builder: (context, child) {
         return Directionality(
@@ -179,8 +190,20 @@ class MyApp extends StatelessWidget {
           child: child ?? const SizedBox.shrink(),
         );
       },
-      initialRoute: loggedIn ? '/dashboard' : '/login',
-      onGenerateRoute: generateAppRoute,
+      home: loggedIn ? const DashboardScreen() : const LoginScreen(),
+      onGenerateRoute: routeGenerator ??
+          (_) => MaterialPageRoute<void>(
+                builder: (_) => const Scaffold(
+                  backgroundColor: Colors.white,
+                  body: Center(
+                    child: SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                ),
+              ),
     );
   }
 }
