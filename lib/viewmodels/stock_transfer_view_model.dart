@@ -226,7 +226,8 @@ class StockTransferViewModel extends ChangeNotifier {
   }
 
   List<UserPermission> employeesForDestinationBranch(int? branchId) {
-    if (branchId == null || branchId <= 0) return allEmployees;
+    // Sparkle: if destination branch unknown, filtered list is empty (not all employees).
+    if (branchId == null || branchId <= 0) return const [];
     return allEmployees.where((emp) {
       return parseBranchSelectionJson(emp.branchSelectionJson).any((b) => b.id == branchId);
     }).toList();
@@ -279,6 +280,10 @@ class StockTransferViewModel extends ChangeNotifier {
     if (value == toPlaceholder) return;
     selectedTo = value;
     if (isBranchToBranch && _fromType == 'branch') {
+      sourceBranchId = await _dbService.getEntityIdByName('branch', selectedFrom);
+      destinationBranchId = await _dbService.getEntityIdByName('branch', selectedTo);
+    } else if (isBranchToBranch) {
+      // Type 15 always resolves From/To as branches even if name parse differs.
       sourceBranchId = await _dbService.getEntityIdByName('branch', selectedFrom);
       destinationBranchId = await _dbService.getEntityIdByName('branch', selectedTo);
     }
@@ -418,67 +423,143 @@ class StockTransferViewModel extends ChangeNotifier {
     return await _dbService.getEntityIdByName(type, name) ?? 0;
   }
 
+  /// Sparkle submit: `UserPreferences.getBranchID()` (login-saved defaultBranchId).
+  int sparkleSubmitBranchId() {
+    final prefsBranch = _prefService.getBranchId();
+    if (prefsBranch > 0) return prefsBranch;
+    return _prefService.getEmployee()?.defaultBranchId ?? 0;
+  }
+
+  /// Sparkle StockInScreen list: `employee?.branchNo ?: 0` — keep 0 when BranchNo is null.
+  /// Do NOT substitute defaultBranchId here (that was returning empty for LS000419).
+  int sparkleListBranchId() {
+    return _prefService.getEmployee()?.branchNo ?? 0;
+  }
+
+  /// Same payload rules as Sparkle [StockTransferPreviewScreen] OK handler.
   Future<bool> submitTransfer({
-    required String transferByEmployee,
     required String transferToEmployee,
-    required String transferedToBranch,
-    required String receivedByEmployee,
     required String remarks,
   }) async {
     final employee = _prefService.getEmployee();
     final clientCode = employee?.clientCode ?? '';
-    if (clientCode.isEmpty || selectedTransferType == null) return false;
+    if (clientCode.isEmpty || selectedTransferType == null) {
+      transferStatusMessage = 'Missing client or transfer type';
+      return false;
+    }
 
-    final fromType = _fromType ?? '';
-    final toType = _toType ?? '';
-    final sourceId = isBranchToBranch && sourceBranchId != null
-        ? sourceBranchId!
-        : await resolveEntityId(fromType, selectedFrom);
-    final destId = isBranchToBranch && destinationBranchId != null
-        ? destinationBranchId!
-        : await resolveEntityId(toType, selectedTo);
+    await ensureTransferTypesLoaded();
+    final typeId = transferTypeId;
+    if (typeId <= 0) {
+      transferStatusMessage = 'Invalid transfer type';
+      return false;
+    }
 
-    final transferBy = employee?.employeeId?.toString() ?? transferByEmployee;
-    final transferTo = isBranchToBranch ? transferToEmployee : transferBy;
-    final destBranch = isBranchToBranch ? transferedToBranch : (employee?.defaultBranchId.toString() ?? '');
+    // Exact Sparkle: sourceBranch = UserPreferences.getBranchID()
+    final sourceBranch = sparkleSubmitBranchId();
+    if (sourceBranch <= 0) {
+      transferStatusMessage = 'Missing branch id';
+      return false;
+    }
 
+    final transferByEmployee = employee?.employeeId?.toString() ?? '';
+    if (transferByEmployee.isEmpty) {
+      transferStatusMessage = 'Missing employee id';
+      return false;
+    }
+
+    // Default: same user / same branch (counter↔box, etc.)
+    var transferTo = transferByEmployee;
+    var transferToBranch = sourceBranch.toString();
+    var destinationBranch = sourceBranch;
+
+    if (isBranchToBranch) {
+      final other = transferToEmployee.trim();
+      if (other.isEmpty) {
+        transferStatusMessage = 'Please select an employee';
+        return false;
+      }
+      transferTo = other;
+      destinationBranch = destinationBranchId ?? sourceBranch;
+      transferToBranch = destinationBranch.toString();
+    }
+
+    final fromType = _fromType;
+    final toType = _toType;
+    final fromName =
+        selectedFrom != fromPlaceholder && selectedFrom.trim().isNotEmpty ? selectedFrom.trim() : '';
+    final toName =
+        selectedTo != toPlaceholder && selectedTo.trim().isNotEmpty ? selectedTo.trim() : '';
+
+    final sourceId = isBranchToBranch
+        ? sourceBranch
+        : (fromName.isNotEmpty && fromType != null && fromType.isNotEmpty
+            ? await resolveEntityId(fromType, fromName)
+            : sourceBranch);
+
+    final destinationId = isBranchToBranch
+        ? destinationBranch
+        : (toName.isNotEmpty && toType != null && toType.isNotEmpty
+            ? await resolveEntityId(toType, toName)
+            : sourceBranch);
+
+    final transferredKeys = previewItems.map(itemKey).where((k) => k.isNotEmpty).toSet();
     final stockItems = previewItems
         .map((e) {
+          // Sparkle: bulkItemId ?: itemCode.toInt — keep positive ids only.
           final stockId = e.bulkItemId > 0 ? e.bulkItemId : (int.tryParse(e.itemCode) ?? 0);
           return stockId > 0 ? StockTransferItemPayload(stockId: stockId) : null;
         })
         .whereType<StockTransferItemPayload>()
         .toList();
-    if (stockItems.isEmpty) return false;
+    if (stockItems.isEmpty) {
+      transferStatusMessage = 'No valid stock items to transfer';
+      return false;
+    }
 
-    final branchId = employee?.branchNo ?? employee?.defaultBranchId ?? 0;
     final request = StockTransferRequest(
       clientCode: clientCode,
       stockTransferItems: stockItems,
       stockType: 'labelled',
       stockTransferTypeName: selectedTransferType!,
-      transferTypeId: transferTypeId,
-      transferByEmployee: transferBy,
-      transferedToBranch: destBranch,
+      transferTypeId: typeId,
+      transferByEmployee: transferByEmployee,
+      transferedToBranch: transferToBranch,
       transferToEmployee: transferTo,
-      transferedBranch: branchId.toString(),
+      transferedBranch: sourceBranch.toString(),
       source: sourceId,
-      destination: destId,
+      destination: destinationId,
       remarks: remarks,
       stockTransferDate: DateFormat('dd-MM-yyyy').format(DateTime.now()),
-      receivedByEmployee: receivedByEmployee,
+      receivedByEmployee: '',
+    );
+
+    debugPrint(
+      'submitTransfer Sparkle-parity: '
+      'TransferedBranch=$sourceBranch listBranch=${sparkleListBranchId()} '
+      'userId=${employee?.id} employeeId=${employee?.employeeId} '
+      'typeId=$typeId source=$sourceId dest=$destinationId items=${stockItems.length}',
     );
 
     isLoading = true;
+    transferStatusMessage = null;
     notifyListeners();
     try {
       final ok = await _apiService.addStockTransfer(request);
       transferStatusMessage = ok ? 'Transfer successful' : 'Transfer failed';
       if (ok) {
         previewItems = [];
-        await initialize();
+        if (transferredKeys.isNotEmpty) {
+          filteredItems =
+              filteredItems.where((i) => !transferredKeys.contains(itemKey(i))).toList();
+          allLabelledItems =
+              allLabelledItems.where((i) => !transferredKeys.contains(itemKey(i))).toList();
+        }
       }
       return ok;
+    } catch (e) {
+      transferStatusMessage = e.toString();
+      return false;
     } finally {
       isLoading = false;
       notifyListeners();
@@ -492,16 +573,64 @@ class StockTransferViewModel extends ChangeNotifier {
     final employee = _prefService.getEmployee();
     if (employee == null) return [];
     await ensureTransferTypesLoaded();
-    final branchId = employee.branchNo ?? employee.defaultBranchId;
-    return _apiService.getAllStockTransfers(
-      StockInOutRequest(
-        clientCode: employee.clientCode ?? '',
-        transferType: transferTypeFilterId,
-        branchId: branchId,
-        userId: employee.id,
-        requestType: requestType,
-      ),
-    );
+
+    final clientCode = employee.clientCode ?? '';
+    if (clientCode.isEmpty) return [];
+
+    // Exact Sparkle StockInScreen.fetchStockTransfers:
+    //   BranchId = employee?.branchNo ?: 0
+    //   UserID   = employee?.id ?: 0
+    // When BranchNo is null (this account), Sparkle queries BranchId=0 — NOT defaultBranchId.
+    final listBranchId = sparkleListBranchId(); // 0 when branchNo null
+    final userId = employee.id;
+    final submitBranch = sparkleSubmitBranchId();
+
+    Future<List<StockTransferInOutItem>> fetch(int branchId, int uid) {
+      debugPrint(
+        'GetAllStockTransfers Sparkle-parity: '
+        'RequestType=$requestType BranchId=$branchId UserID=$uid '
+        'branchNo=${employee.branchNo} prefs=$submitBranch '
+        'default=${employee.defaultBranchId} TransferType=$transferTypeFilterId',
+      );
+      return _apiService.getAllStockTransfers(
+        StockInOutRequest(
+          clientCode: clientCode,
+          transferType: transferTypeFilterId,
+          branchId: branchId,
+          userId: uid,
+          requestType: requestType,
+        ),
+      );
+    }
+
+    final byId = <int, StockTransferInOutItem>{};
+
+    void merge(List<StockTransferInOutItem> list) {
+      for (final item in list) {
+        if (item.id > 0) byId[item.id] = item;
+      }
+    }
+
+    // 1) Exact Sparkle query first (BranchId=0 when branchNo null).
+    merge(await fetch(listBranchId, userId));
+
+    // 2) Also try submit branch (defaultBranchId) — covers TransferedBranch from AddStockTransfer.
+    if (submitBranch > 0 && submitBranch != listBranchId) {
+      merge(await fetch(submitBranch, userId));
+    }
+
+    // 3) If still empty, try EmployeeId as UserID (some backends key Off EmpId).
+    final empId = employee.employeeId ?? 0;
+    if (byId.isEmpty && empId > 0 && empId != userId) {
+      debugPrint('GetAllStockTransfers retry UserID=employeeId=$empId');
+      merge(await fetch(listBranchId, empId));
+      if (submitBranch > 0 && submitBranch != listBranchId) {
+        merge(await fetch(submitBranch, empId));
+      }
+    }
+
+    debugPrint('GetAllStockTransfers merged count=${byId.length}');
+    return byId.values.toList();
   }
 
   Future<String?> cancelTransfer(int id) async {
@@ -560,10 +689,13 @@ class StockTransferViewModel extends ChangeNotifier {
   }
 
   BulkItem? findExactItemCode(String query) {
-    final q = query.trim().toLowerCase();
+    final q = query.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
     if (q.isEmpty) return null;
-    for (final i in displayItems) {
-      if (i.itemCode.trim().toLowerCase() == q) return i;
+    for (final i in filteredItems) {
+      final code = i.itemCode.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
+      final epc = i.epc.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
+      final rfid = i.rfid.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
+      if (code == q || epc == q || rfid == q) return i;
     }
     return null;
   }

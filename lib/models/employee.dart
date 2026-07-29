@@ -109,10 +109,14 @@ class Employee {
     return Employee(
       id: (json['Id'] as num?)?.toInt() ?? int.tryParse('${json['Id']}') ?? 0,
       deviceId: json['DeviceId'] as String?,
-      employeeId: json['EmployeeId'] as int?,
+      employeeId: (json['EmployeeId'] as num?)?.toInt() ??
+          int.tryParse('${json['EmployeeId'] ?? ''}'),
       clientCode: json['ClientCode'] as String?,
       companyNo: json['CompanyNo'] as String?,
-      branchNo: json['BranchNo'] as int?,
+      branchNo: (json['BranchNo'] as num?)?.toInt() ??
+          int.tryParse('${json['BranchNo'] ?? ''}') ??
+          (json['branchNo'] as num?)?.toInt() ??
+          int.tryParse('${json['branchNo'] ?? ''}'),
       compCode: json['CompCode'] as String?,
       branchCode: json['BranchCode'] as String?,
       employeeCode: json['EmployeeCode'] as String?,

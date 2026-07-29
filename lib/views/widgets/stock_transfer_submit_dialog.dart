@@ -62,7 +62,7 @@ class _StockTransferSubmitDialogState extends State<_StockTransferSubmitDialog> 
   Future<void> _pickEmployee() async {
     if (widget.employees.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.s.tr('selectEmployee'))),
+        SnackBar(content: Text(context.s.tr('selectEmployeeError'))),
       );
       return;
     }
@@ -156,7 +156,7 @@ class _StockTransferSubmitDialogState extends State<_StockTransferSubmitDialog> 
             const SizedBox(height: 14),
             Row(
               children: [
-                Expanded(child: _gradientButton(s.tr('cancel'), () => Navigator.pop(context, false))),
+                Expanded(child: _gradientButton(s.tr('cancel'), () => Navigator.pop(context))),
                 const SizedBox(width: 12),
                 Expanded(
                   child: _gradientButton(

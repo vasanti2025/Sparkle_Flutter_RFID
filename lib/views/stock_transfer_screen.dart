@@ -28,12 +28,17 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
 
   final Set<String> _checkedKeys = {};
   bool _isBulkScanning = false;
+  bool _isSingleScan = false;
   int _power = 10;
   final Map<String, String> _rfidToItemKey = {};
   String? _rfidIndexToken;
   Timer? _tagUiTimer;
   final Set<String> _pendingTagKeys = {};
   StockTransferViewModel? _vm;
+
+  /// Sparkle: trim + uppercase + strip spaces before EPC/RFID match.
+  static String _norm(String value) =>
+      value.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
 
   @override
   void initState() {
@@ -43,6 +48,11 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
     _vm!.addListener(_onVmChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
+      // Refresh power in case Settings changed it while this route was under the stack.
+      final savedPower = context.read<PrefService>().stockTransferPower.clamp(1, 30);
+      if (savedPower != _power) {
+        setState(() => _power = savedPower);
+      }
       // Let the route fade finish before heavy stock load.
       await Future<void>.delayed(const Duration(milliseconds: 120));
       if (!mounted) return;
@@ -52,10 +62,12 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
       _syncRfidIndex(_vm!);
       _tagSub = _rfid.tagsStream.listen(_onTag);
       _triggerSub = _rfid.triggerStream.listen((_) {
+        if (!mounted) return;
+        // Hardware trigger = Gscan toggle (same as Sparkle onRfidKeyPressed).
         if (_rfid.isScanning) {
-          _stopGscan();
+          unawaited(_stopScanning());
         } else {
-          _startGscan();
+          unawaited(_startGscan());
         }
       });
     });
@@ -79,61 +91,108 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
   }
 
   void _syncRfidIndex(StockTransferViewModel vm) {
-    final token = '${vm.selectedFrom}|${vm.filteredItems.length}|${vm.appliedCategory}|${vm.appliedProduct}|${vm.appliedDesign}';
+    // Match against From-filtered stock (Sparkle filteredStockItems), not only
+    // category-narrowed displayItems — so Scan/Gscan can check the right rows.
+    final token =
+        '${vm.selectedFrom}|${vm.filteredItems.length}|${vm.appliedCategory}|${vm.appliedProduct}|${vm.appliedDesign}';
     if (_rfidIndexToken == token) return;
     _rfidIndexToken = token;
     _rfidToItemKey.clear();
-    for (final item in vm.displayItems) {
+    for (final item in vm.filteredItems) {
       final itemKey = vm.itemKey(item);
-      final rfid = item.rfid.trim().toLowerCase();
-      final code = item.itemCode.trim().toLowerCase();
-      if (rfid.isNotEmpty) _rfidToItemKey[rfid] = itemKey;
-      if (code.isNotEmpty) _rfidToItemKey[code] = itemKey;
+      if (itemKey.isEmpty) continue;
+      void map(String raw) {
+        final n = _norm(raw);
+        if (n.isNotEmpty) _rfidToItemKey[n] = itemKey;
+      }
+
+      map(item.epc);
+      map(item.rfid);
+      map(item.itemCode);
     }
   }
 
   void _onTag(String epc) {
+    // Only auto-check while an RFID session is active (Scan or Gscan).
+    if (!_rfid.isScanning) return;
     final vm = context.read<StockTransferViewModel>();
     _syncRfidIndex(vm);
-    final key = _rfidToItemKey[epc.trim().toLowerCase()];
-    if (key == null || _checkedKeys.contains(key)) return;
+    final key = _rfidToItemKey[_norm(epc)];
+    if (key == null || key.isEmpty || _checkedKeys.contains(key)) return;
     _pendingTagKeys.add(key);
     _tagUiTimer?.cancel();
-    _tagUiTimer = Timer(const Duration(milliseconds: 100), () {
+    _tagUiTimer = Timer(const Duration(milliseconds: 80), () {
       if (!mounted || _pendingTagKeys.isEmpty) return;
       setState(() {
         _checkedKeys.addAll(_pendingTagKeys);
         _pendingTagKeys.clear();
       });
+      // Single Scan: stop after first matched tag (Sparkle startSingleScan).
+      if (_isSingleScan) {
+        unawaited(_stopScanning());
+      }
     });
   }
 
+  Future<void> _stopScanning() async {
+    await _rfid.stopScanning();
+    if (mounted) {
+      setState(() {
+        _isBulkScanning = false;
+        _isSingleScan = false;
+      });
+    }
+  }
+
+  /// Center Scan button — short inventory window @ power 20 (Sparkle).
   Future<void> _startSingleScan() async {
-    if (_isBulkScanning) await _stopGscan();
-    await _rfid.startScanning(power: 20);
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) _rfid.stopScanning();
-    });
-  }
-
-  Future<void> _startGscan() async {
-    if (_isBulkScanning) {
-      await _stopGscan();
+    if (_rfid.isScanning && !_isSingleScan) {
+      await _stopScanning();
+    }
+    if (_rfid.isScanning && _isSingleScan) {
+      await _stopScanning();
       return;
     }
-    await _rfid.stopScanning();
-    final started = await _rfid.startScanning(power: _power);
-    if (mounted) setState(() => _isBulkScanning = started);
+    _isSingleScan = true;
+    _isBulkScanning = false;
+    final started = await _rfid.startScanning(power: 20);
+    if (!mounted) return;
+    setState(() {});
+    if (!started) {
+      setState(() => _isSingleScan = false);
+      return;
+    }
+    Future.delayed(const Duration(seconds: 2), () async {
+      if (!mounted || !_isSingleScan) return;
+      await _stopScanning();
+    });
   }
 
-  Future<void> _stopGscan() async {
+  /// Gscan — continuous inventory @ stock-transfer power (Sparkle).
+  Future<void> _startGscan() async {
+    if (_rfid.isScanning && _isSingleScan) {
+      await _stopScanning();
+    }
+    if (_isBulkScanning || (_rfid.isScanning && !_isSingleScan)) {
+      await _stopScanning();
+      return;
+    }
+    _isSingleScan = false;
     await _rfid.stopScanning();
-    if (mounted) setState(() => _isBulkScanning = false);
+    final started = await _rfid.startScanning(power: _power);
+    if (mounted) {
+      setState(() => _isBulkScanning = started);
+    }
   }
 
   void _resetScan() {
-    _rfid.stopScanning();
-    setState(() => _isBulkScanning = false);
+    unawaited(_rfid.stopScanning());
+    setState(() {
+      _isBulkScanning = false;
+      _isSingleScan = false;
+      _checkedKeys.clear();
+      _pendingTagKeys.clear();
+    });
   }
 
   void _toggleCheck(String key) {
@@ -142,6 +201,18 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
         _checkedKeys.remove(key);
       } else {
         _checkedKeys.add(key);
+      }
+    });
+  }
+
+  void _setSelectAll(List<BulkItem> rows, StockTransferViewModel vm, bool checked) {
+    setState(() {
+      _checkedKeys.clear();
+      if (checked) {
+        for (final item in rows) {
+          final key = vm.itemKey(item);
+          if (key.isNotEmpty) _checkedKeys.add(key);
+        }
       }
     });
   }
@@ -287,7 +358,17 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
 
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: productGradientAppBar(context: context, title: s.stockTransfer),
+      appBar: productGradientAppBar(
+        context: context,
+        title: s.stockTransfer,
+        showCounter: true,
+        selectedCount: _power,
+        onCountSelected: (v) {
+          setState(() => _power = v.clamp(1, 30));
+          context.read<PrefService>().savePower(PrefService.keyStockTransferCount, v);
+          unawaited(_rfid.setPower(v));
+        },
+      ),
       body: Column(
         children: [
           if (vm.isBootstrapping)
@@ -420,7 +501,12 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                     ],
                   ),
                 ),
-                _tableHeader(s),
+                _tableHeader(
+                  s,
+                  selectAllChecked: rows.isNotEmpty &&
+                      rows.every((i) => _checkedKeys.contains(vm.itemKey(i))),
+                  onSelectAllChange: (checked) => _setSelectAll(rows, vm, checked),
+                ),
                 Expanded(
                   child: ListView.separated(
                     itemCount: rows.length,
@@ -433,10 +519,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                       final code = item.itemCode.trim().isNotEmpty ? item.itemCode : item.rfid;
                       return RepaintBoundary(
                         child: InkWell(
-                        onTap: () {
-                          _toggleCheck(key);
-                          setState(() {});
-                        },
+                        onTap: () => _toggleCheck(key),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                           child: Row(
@@ -446,7 +529,11 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                               Expanded(flex: 2, child: Text(code, style: _cell(), maxLines: 1, overflow: TextOverflow.ellipsis)),
                               Expanded(child: Text(item.grossWeight, style: _cell(), textAlign: TextAlign.center)),
                               Expanded(child: Text(item.netWeight, style: _cell(), textAlign: TextAlign.center)),
-                              Checkbox(value: checked, onChanged: (_) => _toggleCheck(key)),
+                              Checkbox(
+                                value: checked,
+                                activeColor: const Color(0xFF5231A7),
+                                onChanged: (_) => _toggleCheck(key),
+                              ),
                             ],
                           ),
                         ),
@@ -470,15 +557,38 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                 ),
                 ScanBottomBar(
                   isScreen: true,
-                  isScanning: false,
-                  isBulkScanning: _isBulkScanning,
+                  isScanning: _rfid.isScanning && _isSingleScan,
+                  isBulkScanning: _isBulkScanning || (_rfid.isScanning && !_isSingleScan),
                   onSave: () {
+                    if ((vm.selectedFrom == StockTransferViewModel.fromPlaceholder) ||
+                        vm.selectedFrom.trim().isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(s.tr('selectFromError'))),
+                      );
+                      return;
+                    }
+                    if ((vm.selectedTo == StockTransferViewModel.toPlaceholder) ||
+                        vm.selectedTo.trim().isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(s.tr('selectToError'))),
+                      );
+                      return;
+                    }
                     if (selected.isEmpty) {
                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s.tr('selectItemsToTransfer'))));
                       return;
                     }
                     vm.setPreviewItems(selected);
-                    Navigator.pushNamed(context, '/stock_transfer_preview');
+                    // Keep From/To names for submit entity resolution (Sparkle setPendingLocationNames).
+                    Navigator.pushNamed(context, '/stock_transfer_preview').then((result) {
+                      if (!mounted) return;
+                      if (result == true) {
+                        setState(() {
+                          _checkedKeys.clear();
+                          _pendingTagKeys.clear();
+                        });
+                      }
+                    });
                   },
                   onList: () async {
                     final nav = Navigator.of(context);
@@ -515,10 +625,14 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
     );
   }
 
-  Widget _tableHeader(dynamic s) {
+  Widget _tableHeader(
+    dynamic s, {
+    required bool selectAllChecked,
+    required ValueChanged<bool> onSelectAllChange,
+  }) {
     return Container(
       color: Colors.black,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Row(
         children: [
           SizedBox(width: 28, child: Text(s.headerSr, style: _header())),
@@ -526,7 +640,18 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
           Expanded(flex: 2, child: Text(s.tr('itemCodeLabel'), style: _header())),
           Expanded(child: Text(s.tr('grossWt'), style: _header(), textAlign: TextAlign.center)),
           Expanded(child: Text(s.tr('netWt'), style: _header(), textAlign: TextAlign.center)),
-          const SizedBox(width: 42),
+          SizedBox(
+            width: 42,
+            child: Checkbox(
+              value: selectAllChecked,
+              onChanged: (v) => onSelectAllChange(v ?? false),
+              activeColor: Colors.white,
+              checkColor: Colors.black,
+              side: const BorderSide(color: Colors.white),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+            ),
+          ),
         ],
       ),
     );

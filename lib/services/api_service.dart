@@ -1062,14 +1062,22 @@ class ApiService {
 
   Future<bool> addStockTransfer(StockTransferRequest request) async {
     try {
+      debugPrint('AddStockTransfer request: ${request.toJson()}');
       final response = await _dio.post(
         'api/ProductMaster/AddStockTransfer',
         data: request.toJson(),
       );
-      if (response.statusCode != 200) return false;
-      final data = response.data;
-      if (data is Map && data['success'] == false) return false;
-      return true;
+      debugPrint('AddStockTransfer status=${response.statusCode} body=${response.data}');
+      // Match Sparkle: HTTP success = success (isSuccessful).
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = response.data;
+        if (data is Map) {
+          final success = data['success'] ?? data['Success'];
+          if (success == false || success == 'false') return false;
+        }
+        return true;
+      }
+      return false;
     } catch (e) {
       debugPrint('Error addStockTransfer: $e');
       return false;
@@ -1078,9 +1086,15 @@ class ApiService {
 
   Future<List<StockTransferInOutItem>> getAllStockTransfers(StockInOutRequest request) async {
     try {
+      debugPrint('GetAllStockTransfers request: ${request.toJson()}');
       final response = await _dio.post(
         'api/ProductMaster/GetAllStockTransfers',
         data: request.toJson(),
+      );
+      debugPrint(
+        'GetAllStockTransfers status=${response.statusCode} '
+        'type=${response.data.runtimeType} '
+        'raw=${response.data is List ? (response.data as List).length : response.data}',
       );
       if (response.statusCode == 200) {
         final dynamic body = response.data;
@@ -1088,7 +1102,7 @@ class ApiService {
         if (body is List) {
           rawList = body;
         } else if (body is Map) {
-          for (final key in ['data', 'Data', 'result', 'Result']) {
+          for (final key in ['data', 'Data', 'result', 'Result', 'StockTransfers', 'stockTransfers']) {
             if (body[key] is List) {
               rawList = body[key] as List;
               break;
@@ -1096,12 +1110,19 @@ class ApiService {
           }
         }
         if (rawList != null) {
-          return rawList
-              .whereType<Map<String, dynamic>>()
-              .map(StockTransferInOutItem.fromJson)
-              .toList();
+          final parsed = <StockTransferInOutItem>[];
+          for (final e in rawList) {
+            if (e is Map<String, dynamic>) {
+              parsed.add(StockTransferInOutItem.fromJson(e));
+            } else if (e is Map) {
+              parsed.add(StockTransferInOutItem.fromJson(Map<String, dynamic>.from(e)));
+            }
+          }
+          debugPrint('GetAllStockTransfers parsed=${parsed.length}');
+          return parsed;
         }
       }
+      debugPrint('GetAllStockTransfers empty/unparsed status=${response.statusCode}');
       return [];
     } catch (e) {
       debugPrint('Error getAllStockTransfers: $e');

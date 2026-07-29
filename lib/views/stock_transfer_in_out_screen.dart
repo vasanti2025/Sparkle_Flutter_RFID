@@ -18,7 +18,8 @@ class StockTransferInOutScreen extends StatefulWidget {
   State<StockTransferInOutScreen> createState() => _StockTransferInOutScreenState();
 }
 
-class _StockTransferInOutScreenState extends State<StockTransferInOutScreen> {
+class _StockTransferInOutScreenState extends State<StockTransferInOutScreen>
+    with WidgetsBindingObserver {
   /// Null / "Transfer Type" = no API type filter (same as Sparkle).
   String _selectedTransferTypeName = 'Transfer Type';
   String _selectedStatus = 'all';
@@ -36,7 +37,21 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _initialize());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadTransfers(showLoader: false);
+    }
   }
 
   Future<void> _initialize() async {
@@ -90,11 +105,15 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen> {
   }
 
   List<StockTransferInOutItem> get _filteredTransfers {
+    // Sparkle: when status is "All", show raw mapped list (no status filter).
+    // Type filter still applied client-side when a specific type is selected.
     return _transfers.where((item) {
       if (!_isOutRequest && item.isSelfApproval) return false;
 
       final matchesType = _selectedTransferTypeName == 'Transfer Type' ||
           item.stockTransferTypeName.toLowerCase() == _selectedTransferTypeName.toLowerCase();
+      if (_selectedStatus == 'all') return matchesType;
+
       final matchesStatus = switch (_selectedStatus) {
         'pending' => item.pending > 0,
         'approved' => item.approved > 0,
@@ -269,7 +288,6 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen> {
   Widget _dataRow(int index, StockTransferInOutItem item, String grossWt, String netWt) {
     return InkWell(
       onTap: () {
-        if (item.labelledStockItems.isEmpty) return;
         Navigator.pushNamed(
           context,
           '/stock_transfer_detail',
@@ -364,42 +382,47 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen> {
             )
           else
             Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: SizedBox(
-                  width: _tableW,
-                  child: Column(
-                    children: [
-                      _headerRow(s),
-                      Expanded(
-                        child: rows.isEmpty
-                            ? Center(
-                                child: Text(
-                                  s.tr('noItemsInCurrentScope'),
-                                  style: GoogleFonts.poppins(),
-                                ),
-                              )
-                            : ListView.separated(
-                                itemCount: rows.length,
-                                separatorBuilder: (_, _) => const Divider(height: 1),
-                                itemBuilder: (context, index) {
-                                  final item = rows[index];
-                                  final first = item.labelledStockItems.isNotEmpty
-                                      ? item.labelledStockItems.first
-                                      : null;
-                                  final grossWt = first?.grossWeight?.isNotEmpty == true
-                                      ? first!.grossWeight!
-                                      : item.totalGrossWt.toStringAsFixed(2);
-                                  final netWt = first?.netWeight?.isNotEmpty == true
-                                      ? first!.netWeight!
-                                      : item.totalNetWt.toStringAsFixed(2);
-                                  return _dataRow(index, item, grossWt, netWt);
-                                },
-                              ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SizedBox(
+                      width: _tableW < constraints.maxWidth ? constraints.maxWidth : _tableW,
+                      height: constraints.maxHeight,
+                      child: Column(
+                        children: [
+                          _headerRow(s),
+                          Expanded(
+                            child: rows.isEmpty
+                                ? Center(
+                                    child: Text(
+                                      s.tr('noItemsInCurrentScope'),
+                                      style: GoogleFonts.poppins(),
+                                    ),
+                                  )
+                                : ListView.separated(
+                                    itemCount: rows.length,
+                                    separatorBuilder: (_, _) => const Divider(height: 1),
+                                    itemBuilder: (context, index) {
+                                      final item = rows[index];
+                                      final first = item.labelledStockItems.isNotEmpty
+                                          ? item.labelledStockItems.first
+                                          : null;
+                                      final grossWt = first?.grossWeight?.isNotEmpty == true
+                                          ? first!.grossWeight!
+                                          : item.totalGrossWt.toStringAsFixed(2);
+                                      final netWt = first?.netWeight?.isNotEmpty == true
+                                          ? first!.netWeight!
+                                          : item.totalNetWt.toStringAsFixed(2);
+                                      return _dataRow(index, item, grossWt, netWt);
+                                    },
+                                  ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
+                    ),
+                  );
+                },
               ),
             ),
         ],

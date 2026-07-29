@@ -6,6 +6,8 @@ import '../models/stock_transfer_models.dart';
 import '../viewmodels/stock_transfer_view_model.dart';
 import 'widgets/product_form_widgets.dart';
 
+/// Same as Sparkle [StockTransferDetailScreen]: item list with checkboxes,
+/// select-all, Approve / Reject / Lost (In Request, or Out Request self-approval).
 class StockTransferDetailScreen extends StatefulWidget {
   final String requestType;
   final int transferId;
@@ -31,22 +33,43 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
   final Set<int> _selectedIds = {};
   late List<LabelledStockItem> _items;
   bool _busy = false;
+  bool _loadingItems = false;
 
-  /// In Request always; Out Request only for self-approval (same as Sparkle).
+  /// Sparkle allowApprovalActions.
   bool get _canApprove =>
       widget.requestType == 'In Request' ||
       (widget.requestType == 'Out Request' && widget.isSelfApproval);
+
+  /// Sparkle showAllDetailItems — Out Request self-approval shows every line.
+  bool get _showAllItems =>
+      widget.requestType == 'Out Request' && widget.isSelfApproval;
 
   @override
   void initState() {
     super.initState();
     _items = List.from(widget.items);
-    if (widget.requestType == 'Out Request' && widget.isSelfApproval) {
+    if (_showAllItems) {
       _selectedStatus = 'all';
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _ensureItemsLoaded());
+  }
+
+  Future<void> _ensureItemsLoaded() async {
+    if (_items.isNotEmpty || widget.transferId <= 0) return;
+    setState(() => _loadingItems = true);
+    final vm = context.read<StockTransferViewModel>();
+    final list = await vm.fetchInOutRequests(requestType: widget.requestType);
+    if (!mounted) return;
+    final match = list.where((t) => t.id == widget.transferId).toList();
+    final resolved = match.isNotEmpty ? match.first.labelledStockItems : <LabelledStockItem>[];
+    setState(() {
+      _items = List.from(resolved);
+      _loadingItems = false;
+    });
   }
 
   List<LabelledStockItem> get _filteredItems {
+    if (_showAllItems) return _items;
     return _items.where((item) {
       final status = item.requestStatus;
       return switch (_selectedStatus) {
@@ -59,8 +82,28 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
     }).toList();
   }
 
+  int _selectionId(LabelledStockItem item) => item.approveId;
+
+  bool get _allFilteredSelected {
+    final rows = _filteredItems.where((e) => e.approveId > 0).toList();
+    if (rows.isEmpty) return false;
+    return rows.every((e) => _selectedIds.contains(e.approveId));
+  }
+
+  void _toggleSelectAll(bool? checked) {
+    final rows = _filteredItems.where((e) => e.approveId > 0);
+    setState(() {
+      _selectedIds.clear();
+      if (checked == true) {
+        for (final item in rows) {
+          _selectedIds.add(item.approveId);
+        }
+      }
+    });
+  }
+
   void _showStatusFilter() {
-    final s = context.s;
+    final s = context.sRead;
     final options = <MapEntry<String, String>>[
       MapEntry('all', s.all),
       MapEntry('pending', s.tr('pending')),
@@ -77,8 +120,12 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
           children: options.map((entry) {
             return ListTile(
               title: Text(entry.value, style: GoogleFonts.poppins()),
+              selected: _selectedStatus == entry.key,
               onTap: () {
-                setState(() => _selectedStatus = entry.key);
+                setState(() {
+                  _selectedStatus = entry.key;
+                  _selectedIds.clear();
+                });
                 Navigator.pop(ctx);
               },
             );
@@ -89,7 +136,7 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
   }
 
   Future<void> _processSelected(int statusType, String actionLabel) async {
-    final s = context.s;
+    final s = context.sRead;
     if (_selectedIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(s.tr('selectAtLeastOneItem'))),
@@ -97,6 +144,13 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
       return;
     }
     final selectedItems = _items.where((i) => _selectedIds.contains(i.approveId)).toList();
+    if (selectedItems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(s.tr('selectAtLeastOneItem'))),
+      );
+      return;
+    }
+
     setState(() => _busy = true);
     final vm = context.read<StockTransferViewModel>();
     final msg = await vm.approveRejectTransfer(
@@ -105,9 +159,11 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
       statusType: statusType,
     );
     if (!mounted) return;
+
+    final ok = msg != null && !msg.toLowerCase().contains('fail');
     setState(() {
       _busy = false;
-      if (msg != null) {
+      if (ok) {
         _items = _items.map((item) {
           if (!_selectedIds.contains(item.approveId)) return item;
           return LabelledStockItem(
@@ -117,6 +173,8 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
             rfidCode: item.rfidCode,
             requestStatus: statusType,
             productName: item.productName,
+            categoryName: item.categoryName,
+            branchName: item.branchName,
             grossWeight: item.grossWeight,
             netWeight: item.netWeight,
           );
@@ -124,9 +182,15 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
         _selectedIds.clear();
       }
     });
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg ?? actionLabel)),
     );
+
+    // Sparkle: after Out Request approve, leave detail so list refreshes.
+    if (ok && widget.requestType == 'Out Request' && statusType == 1) {
+      Navigator.of(context).pop(true);
+    }
   }
 
   @override
@@ -151,7 +215,7 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
-                      widget.transferTypeName,
+                      widget.transferTypeName.isEmpty ? s.tr('transferType') : widget.transferTypeName,
                       style: GoogleFonts.poppins(fontSize: 13),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -165,111 +229,166 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
             ),
           ),
           Container(
-            color: Colors.black,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            color: const Color(0xFF3C3C3C),
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
             child: Row(
               children: [
-                if (_canApprove) const SizedBox(width: 42),
-                SizedBox(width: 28, child: Text(s.headerSr, style: _header())),
-                Expanded(flex: 3, child: Text(s.tr('productName'), style: _header())),
-                Expanded(flex: 2, child: Text(s.tr('itemCodeLabel'), style: _header())),
+                SizedBox(width: 36, child: Text(s.headerSr, style: _header(), textAlign: TextAlign.center)),
+                Expanded(flex: 2, child: Text(s.tr('category'), style: _header(), textAlign: TextAlign.center)),
+                Expanded(flex: 2, child: Text(s.tr('itemCodeLabel'), style: _header(), textAlign: TextAlign.center)),
+                Expanded(flex: 2, child: Text(s.branch, style: _header(), textAlign: TextAlign.center)),
                 Expanded(child: Text(s.tr('grossWt'), style: _header(), textAlign: TextAlign.center)),
                 Expanded(child: Text(s.tr('netWt'), style: _header(), textAlign: TextAlign.center)),
-                Expanded(child: Text(s.tr('status'), style: _header(), textAlign: TextAlign.center)),
+                if (_canApprove)
+                  SizedBox(
+                    width: 48,
+                    child: Checkbox(
+                      value: _allFilteredSelected,
+                      onChanged: _busy || rows.isEmpty ? null : _toggleSelectAll,
+                      side: const BorderSide(color: Colors.white),
+                      checkColor: const Color(0xFF3C3C3C),
+                      fillColor: WidgetStateProperty.resolveWith((states) {
+                        if (states.contains(WidgetState.selected)) return Colors.white;
+                        return Colors.transparent;
+                      }),
+                    ),
+                  ),
               ],
             ),
           ),
           Expanded(
-            child: rows.isEmpty
-                ? Center(child: Text(s.tr('noItemsInCurrentScope'), style: GoogleFonts.poppins()))
-                : ListView.separated(
-                    itemCount: rows.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final item = rows[index];
-                      final id = item.approveId > 0 ? item.approveId : index;
-                      final checked = _selectedIds.contains(id);
-                      final code = (item.itemCode?.trim().isNotEmpty ?? false)
-                          ? item.itemCode!
-                          : (item.rfidCode ?? '-');
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                        child: Row(
-                          children: [
-                            if (_canApprove)
-                              Checkbox(
-                                value: checked,
-                                onChanged: _busy
-                                    ? null
-                                    : (_) {
-                                        setState(() {
-                                          if (checked) {
-                                            _selectedIds.remove(id);
-                                          } else {
-                                            _selectedIds.add(id);
-                                          }
-                                        });
-                                      },
-                              ),
-                            SizedBox(width: 28, child: Text('${index + 1}', style: _cell())),
-                            Expanded(
-                              flex: 3,
-                              child: Text(
-                                item.productName ?? '-',
-                                style: _cell(),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            Expanded(
-                              flex: 2,
-                              child: Text(code, style: _cell(), maxLines: 1, overflow: TextOverflow.ellipsis),
-                            ),
-                            Expanded(
-                              child: Text(item.grossWeight ?? '-', style: _cell(), textAlign: TextAlign.center),
-                            ),
-                            Expanded(
-                              child: Text(item.netWeight ?? '-', style: _cell(), textAlign: TextAlign.center),
-                            ),
-                            Expanded(
-                              child: Text(
-                                transferStatusLabel(item.requestStatus, pending: s.tr('pending')),
-                                style: _cell(),
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                          ],
+            child: _loadingItems
+                ? const Center(child: CircularProgressIndicator(color: Color(0xFF5231A7)))
+                : rows.isEmpty
+                    ? Center(
+                        child: Text(
+                          _items.isEmpty ? s.loading : s.tr('noItemsInCurrentScope'),
+                          style: GoogleFonts.poppins(color: Colors.grey),
                         ),
-                      );
-                    },
-                  ),
+                      )
+                    : ListView.separated(
+                        itemCount: rows.length,
+                        separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFE0E0E0)),
+                        itemBuilder: (context, index) {
+                          final item = rows[index];
+                          final id = _selectionId(item);
+                          final canSelect = _canApprove && id > 0;
+                          final checked = _selectedIds.contains(id);
+                          final code = (item.itemCode?.trim().isNotEmpty ?? false)
+                              ? item.itemCode!
+                              : (item.rfidCode ?? '-');
+                          final category = (item.categoryName?.trim().isNotEmpty ?? false)
+                              ? item.categoryName!
+                              : (item.productName ?? '-');
+                          return Container(
+                            color: index.isEven ? Colors.white : const Color(0xFFF7F7F7),
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                            child: Row(
+                              children: [
+                                SizedBox(
+                                  width: 36,
+                                  child: Text('${index + 1}', style: _cell(), textAlign: TextAlign.center),
+                                ),
+                                Expanded(
+                                  flex: 2,
+                                  child: Text(
+                                    category,
+                                    style: _cell(),
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 2,
+                                  child: Text(
+                                    code,
+                                    style: _cell(),
+                                    textAlign: TextAlign.center,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 2,
+                                  child: Text(
+                                    item.branchName?.isNotEmpty == true ? item.branchName! : '-',
+                                    style: _cell(),
+                                    textAlign: TextAlign.center,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Text(
+                                    item.grossWeight ?? '-',
+                                    style: _cell(),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Text(
+                                    item.netWeight ?? '-',
+                                    style: _cell(),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                                if (_canApprove)
+                                  SizedBox(
+                                    width: 48,
+                                    child: Checkbox(
+                                      value: checked,
+                                      activeColor: const Color(0xFF5231A7),
+                                      onChanged: (_busy || !canSelect)
+                                          ? null
+                                          : (v) {
+                                              setState(() {
+                                                if (v == true) {
+                                                  _selectedIds.add(id);
+                                                } else {
+                                                  _selectedIds.remove(id);
+                                                }
+                                              });
+                                            },
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
           ),
           if (_canApprove)
-            Padding(
-              padding: const EdgeInsets.all(8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _gradientBtn(
-                      s.tr('approve'),
-                      _busy ? null : () => _processSelected(1, s.tr('approve')),
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _gradientBtn(
+                        s.tr('approve'),
+                        Icons.check_circle_outline,
+                        _busy ? null : () => _processSelected(1, s.tr('approve')),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _gradientBtn(
-                      s.tr('reject'),
-                      _busy ? null : () => _processSelected(2, s.tr('reject')),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: _gradientBtn(
+                        s.tr('reject'),
+                        Icons.cancel_outlined,
+                        _busy ? null : () => _processSelected(2, s.tr('reject')),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _gradientBtn(
-                      s.tr('lost'),
-                      _busy ? null : () => _processSelected(3, s.tr('lost')),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: _gradientBtn(
+                        s.tr('lost'),
+                        Icons.report_gmailerrorred_outlined,
+                        _busy ? null : () => _processSelected(3, s.tr('lost')),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
         ],
@@ -277,21 +396,35 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
     );
   }
 
-  Widget _gradientBtn(String label, VoidCallback? onTap) {
+  Widget _gradientBtn(String label, IconData icon, VoidCallback? onTap) {
     return InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
       child: Opacity(
         opacity: onTap == null ? 0.5 : 1,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Ink(
+          height: 40,
           decoration: BoxDecoration(
             gradient: const LinearGradient(colors: [Color(0xFF5231A7), Color(0xFFD32940)]),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Text(
-            label,
-            style: GoogleFonts.poppins(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
-            textAlign: TextAlign.center,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: Colors.white, size: 14),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  label,
+                  style: GoogleFonts.poppins(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
           ),
         ),
       ),

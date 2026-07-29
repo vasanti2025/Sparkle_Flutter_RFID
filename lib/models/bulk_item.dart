@@ -187,7 +187,7 @@ class BulkItem {
   factory BulkItem.fromMap(Map<String, dynamic> map) {
     return BulkItem(
       id: map['id'] as int?,
-      bulkItemId: map['bulkItemId'] as int? ?? 0,
+      bulkItemId: (map['bulkItemId'] as num?)?.toInt() ?? 0,
       productName: map['productName'] as String? ?? '',
       itemCode: map['itemCode'] as String? ?? '',
       rfid: map['rfid'] as String? ?? '',

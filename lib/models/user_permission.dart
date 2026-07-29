@@ -52,7 +52,7 @@ class UserPermission {
 
   String get displayName {
     final name = firstName.trim();
-    if (name.isNotEmpty) return '$name ($employeeId)';
+    if (name.isNotEmpty) return name;
     return employeeId.toString();
   }
 

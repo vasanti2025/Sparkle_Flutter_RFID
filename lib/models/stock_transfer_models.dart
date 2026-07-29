@@ -21,6 +21,7 @@ class StockTransferItemPayload {
 
   StockTransferItemPayload({required this.stockId});
 
+  // Exact Sparkle Gson field name.
   Map<String, dynamic> toJson() => {'stockId': stockId};
 }
 
@@ -92,14 +93,21 @@ class StockInOutRequest {
     required this.requestType,
   });
 
-  Map<String, dynamic> toJson() => {
-        'ClientCode': clientCode,
-        'StockType': stockType,
-        'TransferType': transferType,
-        'BranchId': branchId,
-        'UserID': userId,
-        'RequestType': requestType,
-      };
+  Map<String, dynamic> toJson() {
+    // Match Sparkle Gson: omit null TransferType entirely (do NOT send "TransferType":null).
+    // ASP.NET often binds null as 0 and returns an empty Out/In list.
+    final map = <String, dynamic>{
+      'ClientCode': clientCode,
+      'StockType': stockType,
+      'BranchId': branchId,
+      'UserID': userId,
+      'RequestType': requestType,
+    };
+    if (transferType != null) {
+      map['TransferType'] = transferType;
+    }
+    return map;
+  }
 }
 
 /// RequestStatus: 0 pending, 1 approved, 2 rejected, 3 lost (same as Sparkle).
@@ -133,6 +141,8 @@ class LabelledStockItem {
   final String? rfidCode;
   final int? requestStatus;
   final String? productName;
+  final String? categoryName;
+  final String? branchName;
   final String? grossWeight;
   final String? netWeight;
 
@@ -143,24 +153,41 @@ class LabelledStockItem {
     this.rfidCode,
     this.requestStatus,
     this.productName,
+    this.categoryName,
+    this.branchName,
     this.grossWeight,
     this.netWeight,
   });
 
-  factory LabelledStockItem.fromJson(Map<String, dynamic> json) => LabelledStockItem(
-        id: (json['Id'] as num?)?.toInt() ?? (json['LabelledStockId'] as num?)?.toInt(),
-        transferItemId: (json['TransferItemId'] as num?)?.toInt() ??
-            (json['Id'] as num?)?.toInt(),
-        itemCode: json['ItemCode']?.toString(),
-        rfidCode: json['RFIDCode']?.toString() ?? json['RFID']?.toString(),
-        requestStatus: parseTransferRequestStatus(
-          json['RequestStatus'] ?? json['Status'],
-        ),
-        productName: json['ProductTitle']?.toString() ??
-            json['ProductName']?.toString(),
-        grossWeight: json['GrossWeight']?.toString() ?? json['GrossWt']?.toString(),
-        netWeight: json['NetWeight']?.toString() ?? json['NetWt']?.toString(),
-      );
+  factory LabelledStockItem.fromJson(Map<String, dynamic> json) {
+    // Sparkle lineItemToLabelledStock:
+    //   Id = LabelledStockId/StockId
+    //   TransferItemId = TransferItemId ?: line.Id
+    final lineId = (json['Id'] as num?)?.toInt() ?? int.tryParse('${json['Id'] ?? ''}');
+    final transferItemId = (json['TransferItemId'] as num?)?.toInt() ??
+        int.tryParse('${json['TransferItemId'] ?? ''}') ??
+        lineId;
+    final stockId = (json['LabelledStockId'] as num?)?.toInt() ??
+        (json['StockId'] as num?)?.toInt() ??
+        int.tryParse('${json['LabelledStockId'] ?? json['StockId'] ?? ''}') ??
+        lineId;
+
+    return LabelledStockItem(
+      id: stockId,
+      transferItemId: transferItemId,
+      itemCode: json['ItemCode']?.toString(),
+      rfidCode: json['RFIDCode']?.toString() ?? json['RFID']?.toString(),
+      requestStatus: parseTransferRequestStatus(
+        json['RequestStatus'] ?? json['Status'],
+      ),
+      productName: json['ProductTitle']?.toString() ??
+          json['ProductName']?.toString(),
+      categoryName: json['CategoryName']?.toString() ?? json['Category']?.toString(),
+      branchName: json['BranchName']?.toString() ?? json['Branch']?.toString(),
+      grossWeight: json['GrossWeight']?.toString() ?? json['GrossWt']?.toString(),
+      netWeight: json['NetWeight']?.toString() ?? json['NetWt']?.toString(),
+    );
+  }
 
   /// Approve API needs TransferItemId (or line Id), not ItemCode/RFID.
   int get approveId =>
