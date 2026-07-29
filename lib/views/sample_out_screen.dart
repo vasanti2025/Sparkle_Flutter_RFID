@@ -182,7 +182,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
   }
 
   void _showFieldsDialog(SampleOutViewModel vm) {
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) => SampleOutFieldsDialog(
         initialDate: vm.selectedDate,
@@ -200,7 +200,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
   }
 
   void _showItemEditDialog(int index, ChallanDetailsModel item, SampleOutViewModel vm) {
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) => ChallanDetailsDialog(
         item: item,
@@ -213,7 +213,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
 
   void _showAddCustomerDialog() {
     final s = context.sRead;
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) {
         return AddCustomerDialog(
@@ -277,7 +277,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
 
   void _confirmDeleteItem(SampleOutViewModel vm, int idx) {
     final s = context.sRead;
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: Colors.white,

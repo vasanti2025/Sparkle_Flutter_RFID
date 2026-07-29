@@ -9,9 +9,11 @@ import '../viewmodels/import_excel_view_model.dart';
 
 import 'import_excel_screen.dart';
 
-import 'widgets/excel_field_mapping_dialog.dart';
+import '../utils/app_dialogs.dart';
+import '../utils/fast_page_route.dart';
 
 import 'widgets/excel_file_picker_dialog.dart';
+import 'widgets/excel_field_mapping_dialog.dart';
 
 
 
@@ -31,7 +33,7 @@ class ImportExcelFlow {
 
 
 
-    final pickConfirmed = await showDialog<bool>(
+    final pickConfirmed = await showAppDialog<bool>(
 
       context: context,
 
@@ -105,7 +107,7 @@ class ImportExcelFlow {
 
 
 
-    final mapping = await showDialog<Map<String, String>>(
+    final mapping = await showAppDialog<Map<String, String>>(
 
       context: context,
 
@@ -128,19 +130,11 @@ class ImportExcelFlow {
 
 
     await Navigator.push<void>(
-
       context,
-
-      PageRouteBuilder<void>(
-
-        pageBuilder: (_, __, ___) => ImportExcelScreen(initialMapping: mapping),
-
-        transitionDuration: Duration.zero,
-
-        reverseTransitionDuration: const Duration(milliseconds: 200),
-
+      FastPageRoute<void>(
+        settings: const RouteSettings(name: '/import_excel'),
+        child: ImportExcelScreen(initialMapping: mapping),
       ),
-
     );
 
   }

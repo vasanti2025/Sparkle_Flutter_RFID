@@ -88,7 +88,7 @@ class _StockVerificationBatchDetailsScreenState extends State<StockVerificationB
     var progress = 0;
     StateSetter? dialogSetState;
 
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) {

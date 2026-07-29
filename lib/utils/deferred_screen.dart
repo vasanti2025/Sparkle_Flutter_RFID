@@ -17,6 +17,7 @@ class DeferredScreen extends StatefulWidget {
 
 class _DeferredScreenState extends State<DeferredScreen> {
   late final Future<void> _loadFuture = widget.loadLibrary();
+  Widget? _built;
 
   @override
   Widget build(BuildContext context) {
@@ -24,15 +25,10 @@ class _DeferredScreenState extends State<DeferredScreen> {
       future: _loadFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
+          // Full-screen white — avoids tiny spinner → full page "zoom" jump.
           return const Scaffold(
             backgroundColor: Colors.white,
-            body: Center(
-              child: SizedBox(
-                width: 28,
-                height: 28,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
+            body: SizedBox.expand(),
           );
         }
         if (snapshot.hasError) {
@@ -43,7 +39,16 @@ class _DeferredScreenState extends State<DeferredScreen> {
             ),
           );
         }
-        return widget.builder();
+        _built ??= widget.builder();
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 100),
+          switchInCurve: Curves.easeOut,
+          switchOutCurve: Curves.easeIn,
+          child: KeyedSubtree(
+            key: const ValueKey('deferred-loaded'),
+            child: _built!,
+          ),
+        );
       },
     );
   }

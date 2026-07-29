@@ -111,7 +111,7 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
       MapEntry('rejected', s.tr('rejected')),
       MapEntry('lost', s.tr('lost')),
     ];
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(s.tr('statusFilter'), style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),

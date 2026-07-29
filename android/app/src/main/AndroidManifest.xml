@@ -17,7 +17,7 @@
 
     <application
         android:label="Sparkle RFID"
-        android:name="${applicationName}"
+        android:name=".SparkleApplication"
         android:icon="@mipmap/logo_sparkle"
         android:roundIcon="@mipmap/logo_sparkle_round"
         android:extractNativeLibs="true"

@@ -78,7 +78,7 @@ class _StockVerificationReportScreenState extends State<StockVerificationReportS
 
   void _openBatchFilter() {
     final vm = context.read<StockVerificationViewModel>();
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (ctx) => _BatchFilterDialog(
         branches: vm.branches,
@@ -123,7 +123,7 @@ class _StockVerificationReportScreenState extends State<StockVerificationReportS
     if (vm.consolidatedReport == null) return;
 
     final sRead = context.sRead;
-    showDialog(
+    showAppDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(

@@ -230,7 +230,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
     String displayCat(String v) => v == StockTransferViewModel.categoryPlaceholder ? s.tr('category') : v;
     String displayProd(String v) => v == StockTransferViewModel.productPlaceholder ? s.tr('product') : v;
     String displayDes(String v) => v == StockTransferViewModel.designPlaceholder ? s.tr('design') : v;
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setLocal) => AlertDialog(

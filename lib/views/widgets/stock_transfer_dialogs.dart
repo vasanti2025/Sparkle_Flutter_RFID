@@ -7,7 +7,7 @@ import '../../l10n/l10n_extension.dart';
 /// Returns `'In Request'` or `'Out Request'`, or null if dismissed.
 Future<String?> showStockRequestPopup(BuildContext context) {
   final s = context.sRead;
-  return showDialog<String>(
+  return showAppDialog<String>(
     context: context,
     useRootNavigator: true,
     barrierDismissible: true,
@@ -95,7 +95,7 @@ Future<String?> showStockStatusFilterPopup(
     (key: 'lost', label: s.tr('lost'), icon: Icons.report_gmailerrorred_outlined),
   ];
 
-  return showDialog<String>(
+  return showAppDialog<String>(
     context: context,
     useRootNavigator: true,
     builder: (ctx) {

@@ -82,11 +82,30 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  void _navigateAfterLogin(BuildContext context) {
+    Navigator.pushReplacementNamed(context, '/dashboard');
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!context.mounted) return;
+      try {
+        context.read<StockTransferViewModel>().resetSession();
+      } catch (_) {}
+      try {
+        context.read<DashboardViewModel>().loadUser();
+      } catch (_) {}
+      try {
+        final productVm = context.read<ProductViewModel>();
+        Future<void>.delayed(const Duration(seconds: 1), () {
+          unawaited(productVm.syncProducts(force: true));
+        });
+      } catch (_) {}
+    });
+  }
+
   void _showCustomApiDialog(BuildContext context, LoginViewModel viewModel) {
     final s = context.sRead;
     _apiController.text = viewModel.getCustomApiUrl();
 
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       builder: (dialogContext) {
         return Dialog(
@@ -235,7 +254,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _showExpiryWarningDialog(BuildContext context, LoginViewModel viewModel) {
     final s = context.sRead;
-    showDialog(
+    showAppDialog(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {
@@ -297,17 +316,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       Navigator.pop(context);
                       await viewModel.confirmExpiryAndLogin();
                       if (context.mounted) {
-                        final productVm = context.read<ProductViewModel>();
-                        final stockVm = context.read<StockTransferViewModel>();
-                        final dashVm = context.read<DashboardViewModel>();
-                        Navigator.pushReplacementNamed(context, '/dashboard');
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          stockVm.resetSession();
-                          dashVm.loadUser();
-                          Future<void>.delayed(const Duration(seconds: 1), () {
-                            unawaited(productVm.syncProducts(force: true));
-                          });
-                        });
+                        _navigateAfterLogin(context);
                       }
                     },
                     style: ElevatedButton.styleFrom(
@@ -553,17 +562,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 if (viewModel.selectedLoginMode == 'password') {
                                   final success = await viewModel.login(context);
                                   if (success && context.mounted) {
-                                    final productVm = context.read<ProductViewModel>();
-                                    final stockVm = context.read<StockTransferViewModel>();
-                                    final dashVm = context.read<DashboardViewModel>();
-                                    Navigator.pushReplacementNamed(context, '/dashboard');
-                                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                                      stockVm.resetSession();
-                                      dashVm.loadUser();
-                                      Future<void>.delayed(const Duration(seconds: 1), () {
-                                        unawaited(productVm.syncProducts(force: true));
-                                      });
-                                    });
+                                    _navigateAfterLogin(context);
                                   }
                                 } else {
                                   // Navigate to Face detection placeholder

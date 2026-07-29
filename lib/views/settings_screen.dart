@@ -123,7 +123,7 @@ class SettingsScreen extends StatelessWidget {
   static void _showLanguageDialog(BuildContext context, LocaleService locale) {
     final s = locale.strings;
     var selected = locale.languageCode;
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
@@ -155,7 +155,7 @@ class SettingsScreen extends StatelessWidget {
   }
 
   static void _showAccountDialog(BuildContext context, PrefService pref, AppStrings s) {
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(s.account, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
@@ -174,7 +174,7 @@ class SettingsScreen extends StatelessWidget {
   }
 
   static void _showInfoDialog(BuildContext context, String title, String message, AppStrings s) {
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(title, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
@@ -185,7 +185,7 @@ class SettingsScreen extends StatelessWidget {
   }
 
   static void _showBackupDialog(BuildContext context, SettingsViewModel vm, AppStrings s) {
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(s.backupOptions, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
@@ -238,7 +238,7 @@ class SettingsScreen extends StatelessWidget {
 
   static void _showBackupEmailDialog(BuildContext context, SettingsViewModel vm, AppStrings s) {
     final ctrl = TextEditingController(text: vm.pref.getBackupEmail());
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(s.enterEmailAddress, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
@@ -275,7 +275,7 @@ class SettingsScreen extends StatelessWidget {
   static void _showAutoSyncDialog(BuildContext context, SettingsViewModel vm, PrefService pref, AppStrings s) {
     var enabled = pref.isAutosyncEnabled();
     var interval = pref.getAutosyncIntervalMin();
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
@@ -330,7 +330,7 @@ class SettingsScreen extends StatelessWidget {
 
   static void _showNotificationsDialog(BuildContext context, SettingsViewModel vm, PrefService pref, AppStrings s) {
     var enabled = pref.areNotificationsEnabled();
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
@@ -357,7 +357,7 @@ class SettingsScreen extends StatelessWidget {
 
   static void _showBranchesDialog(BuildContext context, PrefService pref, AppStrings s) {
     final ids = pref.getBranchIds();
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(s.branches, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
@@ -369,7 +369,7 @@ class SettingsScreen extends StatelessWidget {
 
   static void _showCustomApiDialog(BuildContext context, SettingsViewModel vm, PrefService pref, AppStrings s) {
     final ctrl = TextEditingController(text: pref.getCustomApi() ?? '');
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       builder: (dialogContext) {
         return Dialog(
@@ -515,7 +515,7 @@ class SettingsScreen extends StatelessWidget {
 
   static void _showSheetUrlDialog(BuildContext context, SettingsViewModel vm, PrefService pref, AppStrings s) {
     final ctrl = TextEditingController(text: pref.getSheetUrl());
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(s.sheetUrl, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
@@ -539,7 +539,7 @@ class SettingsScreen extends StatelessWidget {
 
   static void _showStockTransferUrlDialog(BuildContext context, SettingsViewModel vm, PrefService pref, AppStrings s) {
     final ctrl = TextEditingController(text: pref.getStockTransferUrl());
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(s.stockTransferUrl, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
@@ -562,7 +562,7 @@ class SettingsScreen extends StatelessWidget {
   }
 
   static void _showClearDataDialog(BuildContext context, SettingsViewModel vm, AppStrings s) {
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(s.confirmClearData, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
@@ -583,7 +583,7 @@ class SettingsScreen extends StatelessWidget {
 
   static void _showPasswordDialog(BuildContext context, SettingsViewModel vm, AppStrings s) {
     final ctrl = TextEditingController();
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(s.verifyPassword, style: AppFonts.poppins(fontWeight: FontWeight.bold)),

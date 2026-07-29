@@ -399,7 +399,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
     bool isExpanded = false;
     final s = context.sRead;
     
-    showDialog(
+    showAppDialog(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {

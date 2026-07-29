@@ -58,7 +58,7 @@ class _OrderListScreenState extends State<OrderListScreen> {
       displayId = orderId.toString();
     }
     final s = context.sRead;
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
@@ -140,7 +140,7 @@ class _OrderListScreenState extends State<OrderListScreen> {
             ? 'Synced $count; $remaining still pending'
             : 'Sync failed — check internet / customer');
 
-    await showDialog<void>(
+    await showAppDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(

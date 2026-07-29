@@ -854,7 +854,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     // Kick off decode before dialog builds (inventory list has no row thumbs).
     ProductImage.warmUrls([item.imageUrl]);
     final s = context.sRead;
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
@@ -1064,7 +1064,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     bool isSending = false;
     final s = context.sRead;
     
-    showDialog(
+    showAppDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) {
@@ -1645,7 +1645,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         ? s.fieldCategory
         : (filterType == 'Product' ? s.fieldProduct : s.fieldDesign);
 
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) {
         return StatefulBuilder(

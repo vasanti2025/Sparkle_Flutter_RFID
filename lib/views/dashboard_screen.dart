@@ -6,6 +6,7 @@ import '../app_navigator.dart';
 import '../l10n/l10n_extension.dart';
 import '../services/app_warmup_service.dart';
 import '../viewmodels/dashboard_view_model.dart';
+import '../viewmodels/login_view_model.dart';
 import '../viewmodels/product_view_model.dart';
 import '../viewmodels/stock_transfer_view_model.dart';
 import 'widgets/gradient_icon.dart';
@@ -237,15 +238,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     onTap: () async {
                       if (item['isLogout'] == true) {
-                        // Capture providers BEFORE closing drawer / navigating.
                         final dashVm = context.read<DashboardViewModel>();
-                        final productVm = context.read<ProductViewModel>();
-                        final stockVm = context.read<StockTransferViewModel>();
+                        final loginVm = context.read<LoginViewModel>();
+                        ProductViewModel? productVm;
+                        StockTransferViewModel? stockVm;
+                        try {
+                          productVm = context.read<ProductViewModel>();
+                        } catch (_) {}
+                        try {
+                          stockVm = context.read<StockTransferViewModel>();
+                        } catch (_) {}
                         final nav = Navigator.of(context, rootNavigator: true);
-                        Navigator.pop(context); // close drawer
-                        await productVm.resetForLogout();
-                        stockVm.resetSession();
+                        Navigator.pop(context);
+                        try {
+                          await productVm?.resetForLogout();
+                        } catch (_) {}
+                        try {
+                          stockVm?.resetSession();
+                        } catch (_) {}
                         await dashVm.logout();
+                        loginVm.reloadRememberMe();
                         nav.pushNamedAndRemoveUntil('/login', (_) => false);
                       } else if (item['isHome'] == true) {
                         Navigator.pop(context);

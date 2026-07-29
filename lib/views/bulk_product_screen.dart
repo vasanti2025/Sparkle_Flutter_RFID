@@ -58,7 +58,7 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
     final s = context.sRead;
     final typeLabel = _typeLabel(context, type);
     final ctrl = TextEditingController();
-    final ok = await showDialog<bool>(
+    final ok = await showAppDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(s.tr('addType', args: {'type': typeLabel}), style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),

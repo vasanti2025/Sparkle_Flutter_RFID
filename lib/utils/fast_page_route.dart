@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Short fade so the tap feels instant while the next screen prepares.
-/// Zero-duration routes made heavy first frames feel like freezes/hangs.
+/// Instant route — no zoom/fade that feels like a scale animation on Android.
 class FastPageRoute<T> extends PageRouteBuilder<T> {
   FastPageRoute({
     required RouteSettings settings,
@@ -9,15 +8,18 @@ class FastPageRoute<T> extends PageRouteBuilder<T> {
   }) : super(
           settings: settings,
           pageBuilder: (context, animation, secondaryAnimation) => child,
-          transitionDuration: const Duration(milliseconds: 100),
-          reverseTransitionDuration: const Duration(milliseconds: 80),
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
           opaque: true,
           barrierDismissible: false,
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return FadeTransition(
-              opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
-              child: child,
-            );
-          },
+          transitionsBuilder: (context, animation, secondaryAnimation, child) => child,
         );
+}
+
+/// Same as [FastPageRoute] for push calls that build the page inline.
+PageRoute<T> instantRoute<T>({
+  required RouteSettings settings,
+  required Widget child,
+}) {
+  return FastPageRoute<T>(settings: settings, child: child);
 }

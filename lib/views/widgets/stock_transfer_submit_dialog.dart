@@ -11,7 +11,7 @@ Future<bool?> showStockTransferSubmitDialog({
   required List<UserPermission> employees,
   required Future<bool> Function(String transferToEmployeeId, String remarks) onSubmit,
 }) {
-  return showDialog<bool>(
+  return showAppDialog<bool>(
     context: context,
     barrierDismissible: false,
     builder: (ctx) => _StockTransferSubmitDialog(

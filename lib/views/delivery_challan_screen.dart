@@ -186,7 +186,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
   }
 
   void _showInvoiceFieldsDialog(DeliveryChallanViewModel vm) {
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) {
         return DeliveryChallanFieldsDialog(
@@ -211,7 +211,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
 
   // Rich per-item editor matching the Kotlin Delivery Challan dialog.
   void _showItemEditDialog(int index, ChallanDetailsModel item, DeliveryChallanViewModel vm) {
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) => ChallanDetailsDialog(
         item: item,
@@ -225,7 +225,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
   // Add a customer profile, mirroring the Order screen flow.
   void _showAddCustomerDialog() {
     final s = context.sRead;
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) {
         return AddCustomerDialog(
@@ -289,7 +289,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
 
   void _confirmDeleteChallanItem(DeliveryChallanViewModel vm, int idx) {
     final s = context.sRead;
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) {
         return AlertDialog(

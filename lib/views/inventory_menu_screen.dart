@@ -19,8 +19,9 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
     required List<String> items,
     required Function(String) onSelect,
   }) {
-    showDialog(
+    showAppDialog(
       context: context,
+      barrierDismissible: true,
       builder: (context) {
         return _SelectionDialog(
           title: title,
@@ -254,108 +255,126 @@ class _SelectionDialogState extends State<_SelectionDialog> {
   @override
   Widget build(BuildContext context) {
     final s = context.s;
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      backgroundColor: Colors.white,
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Close Button Row
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.close, color: Colors.grey, size: 24),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
+    return Material(
+      color: Colors.transparent,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
             ),
-            const SizedBox(height: 4),
-            // Header Row (Select + plus)
-            Container(
-              decoration: BoxDecoration(
-                color: const Color(0xFFF5F3F3),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    s.selectLabel(widget.title),
-                    style: AppFonts.poppins(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 15,
-                      color: const Color(0xFF3B363E),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.grey, size: 24),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5F3F3),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            s.selectLabel(widget.title),
+                            style: AppFonts.poppins(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                              color: const Color(0xFF3B363E),
+                            ),
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => setState(() => _expanded = !_expanded),
+                          child: Container(
+                            width: 22,
+                            height: 22,
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: LinearGradient(
+                                colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                              ),
+                            ),
+                            alignment: Alignment.center,
+                            child: Icon(
+                              _expanded ? Icons.remove : Icons.add,
+                              color: Colors.white,
+                              size: 14,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _expanded = !_expanded;
-                      });
-                    },
-                    child: Container(
-                      width: 22,
-                      height: 22,
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: LinearGradient(
-                          colors: [Color(0xFF5231A7), Color(0xFFD32940)],
-                        ),
-                      ),
-                      alignment: Alignment.center,
-                      child: Icon(
-                        _expanded ? Icons.remove : Icons.add,
-                        color: Colors.white,
-                        size: 14,
-                      ),
-                    ),
+                  AnimatedSize(
+                    duration: Duration.zero,
+                    clipBehavior: Clip.hardEdge,
+                    child: _expanded
+                        ? Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const SizedBox(height: 8),
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF5F3F3),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                constraints: const BoxConstraints(maxHeight: 250),
+                                child: ListView.builder(
+                                  shrinkWrap: true,
+                                  padding: EdgeInsets.zero,
+                                  itemCount: widget.items.length,
+                                  itemBuilder: (context, index) {
+                                    final item = widget.items[index];
+                                    return InkWell(
+                                      onTap: () {
+                                        Navigator.pop(context);
+                                        widget.onSelect(item);
+                                      },
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 12,
+                                          horizontal: 16,
+                                        ),
+                                        child: Text(
+                                          item,
+                                          style: AppFonts.poppins(
+                                            fontSize: 14,
+                                            color: const Color(0xFF3B363E),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+                          )
+                        : const SizedBox.shrink(),
                   ),
                 ],
               ),
             ),
-            // Expandable items list
-            if (_expanded) ...[
-              const SizedBox(height: 8),
-              Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF5F3F3),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                constraints: const BoxConstraints(maxHeight: 250),
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  padding: EdgeInsets.zero,
-                  itemCount: widget.items.length,
-                  itemBuilder: (context, index) {
-                    final item = widget.items[index];
-                    return InkWell(
-                      onTap: () {
-                        Navigator.pop(context);
-                        widget.onSelect(item);
-                      },
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                        child: Text(
-                          item,
-                          style: AppFonts.poppins(
-                            fontSize: 14,
-                            color: const Color(0xFF3B363E),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ],
+          ),
         ),
       ),
     );

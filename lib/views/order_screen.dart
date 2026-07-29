@@ -175,7 +175,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
   // Dialog to Add a Customer Profile
   void _showAddCustomerDialog() {
     final s = context.sRead;
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) {
         return AddCustomerDialog(
@@ -245,7 +245,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
   // Dialog to Edit single item properties and trigger amount recalculations
   void _showItemEditDialog(OrderItem item, int index) {
     final vm = context.read<OrderViewModel>();
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) => OrderDetailsDialog(
         item: item,
@@ -267,7 +267,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
       return;
     }
 
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) {
         return OrderBulkDetailsDialog(
@@ -860,7 +860,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
 
   void _confirmDelete(OrderViewModel vm, int idx) {
     final s = context.sRead;
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) {
         return AlertDialog(

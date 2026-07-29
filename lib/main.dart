@@ -5,8 +5,10 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
 import 'app_bootstrap_extended.dart' deferred as extended;
-import 'app_navigator.dart';
+import 'app_routes.dart';
 import 'app_warmup.dart';
+import 'instant/instant_dashboard_shell.dart';
+import 'instant/instant_login_shell.dart';
 import 'services/bootstrap_channel.dart';
 import 'services/db_service.dart';
 import 'services/pref_service.dart';
@@ -15,8 +17,9 @@ import 'viewmodels/dashboard_view_model.dart';
 import 'viewmodels/login_view_model.dart';
 import 'views/dashboard_screen.dart';
 import 'views/login_screen.dart';
+import 'utils/app_dialogs.dart';
 
-/// Native MainActivity passes route + saved credentials before Dart prefs load.
+@pragma('vm:entry-point')
 void main(List<String> args) {
   WidgetsFlutterBinding.ensureInitialized();
   final initialLoggedIn = args.isNotEmpty && args.first == 'dashboard';
@@ -46,8 +49,8 @@ class _BootstrapApp extends StatefulWidget {
 
 class _BootstrapAppState extends State<_BootstrapApp> {
   late final PrefService _prefService;
-  late final Widget _root;
   DbService? _dbService;
+  bool _fullReady = false;
   bool _warmScheduled = false;
 
   @override
@@ -58,14 +61,9 @@ class _BootstrapAppState extends State<_BootstrapApp> {
       username: widget.savedUsername,
       password: widget.savedPassword,
     );
-    _root = buildStartupProviders(
-      prefService: _prefService,
-      onDbReady: (db) => _dbService = db,
-      child: _ExtendedProvidersLoader(
-        loggedIn: widget.initialLoggedIn,
-      ),
-    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() => _fullReady = true);
       unawaited(_hydrateInBackground());
     });
   }
@@ -103,7 +101,28 @@ class _BootstrapAppState extends State<_BootstrapApp> {
   }
 
   @override
-  Widget build(BuildContext context) => _root;
+  Widget build(BuildContext context) {
+    if (!_fullReady) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(useMaterial3: true),
+        home: widget.initialLoggedIn
+            ? const InstantDashboardShell()
+            : InstantLoginShell(
+                username: widget.savedUsername,
+                password: widget.savedPassword,
+              ),
+      );
+    }
+
+    return buildStartupProviders(
+      prefService: _prefService,
+      onDbReady: (db) => _dbService = db,
+      child: _ExtendedProvidersLoader(
+        loggedIn: widget.initialLoggedIn,
+      ),
+    );
+  }
 }
 
 /// Loads heavy ViewModels + routes after Login/Dashboard first frame.
@@ -183,6 +202,16 @@ class _StartupApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         primarySwatch: Colors.blue,
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: NoZoomPageTransitionsBuilder(),
+            TargetPlatform.iOS: NoZoomPageTransitionsBuilder(),
+            TargetPlatform.linux: NoZoomPageTransitionsBuilder(),
+            TargetPlatform.macOS: NoZoomPageTransitionsBuilder(),
+            TargetPlatform.windows: NoZoomPageTransitionsBuilder(),
+            TargetPlatform.fuchsia: NoZoomPageTransitionsBuilder(),
+          },
+        ),
       ),
       builder: (context, child) {
         return Directionality(
@@ -191,19 +220,10 @@ class _StartupApp extends StatelessWidget {
         );
       },
       home: loggedIn ? const DashboardScreen() : const LoginScreen(),
-      onGenerateRoute: routeGenerator ??
-          (_) => MaterialPageRoute<void>(
-                builder: (_) => const Scaffold(
-                  backgroundColor: Colors.white,
-                  body: Center(
-                    child: SizedBox(
-                      width: 28,
-                      height: 28,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-                ),
-              ),
+      onGenerateRoute: (settings) {
+        final generator = routeGenerator ?? generateAppRoute;
+        return generator(settings);
+      },
     );
   }
 }

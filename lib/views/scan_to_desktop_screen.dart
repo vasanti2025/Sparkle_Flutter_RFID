@@ -394,7 +394,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
   }
 
   void _showClearConfirmationDialog() {
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: Colors.white,
@@ -473,7 +473,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     final s = context.sRead;
     final controller = TextEditingController(text: tag.rfidCode == s.scanHere ? '' : tag.rfidCode);
     
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) {
         return AlertDialog(

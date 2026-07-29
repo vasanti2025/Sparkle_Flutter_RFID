@@ -6,27 +6,28 @@ import 'utils/fast_page_route.dart';
 import 'views/dashboard_screen.dart';
 import 'views/login_screen.dart';
 
+import 'views/add_product_screen.dart';
+import 'views/bulk_product_screen.dart';
+import 'views/inventory_menu_screen.dart';
+import 'views/product_list_screen.dart';
+import 'views/product_management_screen.dart';
+import 'views/scan_display_screen.dart';
+
 import 'views/add_face_screen.dart' deferred as add_face;
-import 'views/add_product_screen.dart' deferred as add_product;
-import 'views/bulk_product_screen.dart' deferred as bulk_product;
 import 'views/delivery_challan_list_screen.dart' deferred as delivery_challan_list;
 import 'views/delivery_challan_screen.dart' deferred as delivery_challan;
 import 'views/edit_product_screen.dart' deferred as edit_product;
 import 'views/face_login_screen.dart' deferred as face_login;
-import 'views/inventory_menu_screen.dart' deferred as inventory_menu;
 import 'views/location_list_screen.dart' deferred as location_list;
 import 'views/order_list_screen.dart' deferred as order_list;
 import 'views/order_screen.dart' deferred as order;
 import 'views/privacy_policy_screen.dart' deferred as privacy_policy;
-import 'views/product_list_screen.dart' deferred as product_list;
-import 'views/product_management_screen.dart' deferred as product_management;
 import 'views/quotation_list_screen.dart' deferred as quotation_list;
 import 'views/quotation_screen.dart' deferred as quotation;
 import 'views/sample_in_list_screen.dart' deferred as sample_in_list;
 import 'views/sample_in_screen.dart' deferred as sample_in;
 import 'views/sample_out_list_screen.dart' deferred as sample_out_list;
 import 'views/sample_out_screen.dart' deferred as sample_out;
-import 'views/scan_display_screen.dart' deferred as scan_display;
 import 'views/scan_to_desktop_screen.dart' deferred as scan_desktop;
 import 'views/search_screen.dart' deferred as search;
 import 'views/settings_screen.dart' deferred as settings_screen;
@@ -64,23 +65,23 @@ Widget? _buildRoutePage(RouteSettings settings) {
     case '/privacy_policy':
       return _defer(privacy_policy.loadLibrary, () => privacy_policy.PrivacyPolicyScreen());
     case '/product_management':
-      return _defer(product_management.loadLibrary, () => product_management.ProductManagementScreen());
+      return const ProductManagementScreen();
     case '/add_product':
-      return _defer(add_product.loadLibrary, () => add_product.AddProductScreen());
+      return const AddProductScreen();
     case '/bulk_product':
-      return _defer(bulk_product.loadLibrary, () => bulk_product.BulkProductScreen());
+      return const BulkProductScreen();
     case '/settings':
       return _defer(settings_screen.loadLibrary, () => settings_screen.SettingsScreen());
     case '/location_list':
       return _defer(location_list.loadLibrary, () => location_list.LocationListScreen());
     case '/product_list':
-      return _defer(product_list.loadLibrary, () => product_list.ProductListScreen());
+      return const ProductListScreen();
     case '/edit_product':
       return _defer(edit_product.loadLibrary, () => edit_product.EditProductScreen());
     case '/inventory':
-      return _defer(inventory_menu.loadLibrary, () => inventory_menu.InventoryMenuScreen());
+      return const InventoryMenuScreen();
     case '/scan_display':
-      return _defer(scan_display.loadLibrary, () => scan_display.ScanDisplayScreen());
+      return const ScanDisplayScreen();
     case '/scan_desktop':
       return _defer(scan_desktop.loadLibrary, () => scan_desktop.ScanToDesktopScreen());
     case '/search':

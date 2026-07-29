@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../services/locale_service.dart';
 import 'app_strings.dart';
 
+export '../utils/app_dialogs.dart';
+
 extension L10nBuildContext on BuildContext {
   AppStrings get s => watch<LocaleService>().strings;
 

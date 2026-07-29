@@ -144,7 +144,7 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen>
 
   Future<void> _confirmDelete(StockTransferInOutItem item) async {
     final s = context.sRead;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppDialog<bool>(
       context: context,
       useRootNavigator: true,
       builder: (ctx) => AlertDialog(

@@ -39,20 +39,30 @@ class MainActivity : FlutterActivity() {
     private var printerManager: PrinterManager? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var posConnectInited = false
+    private var launchLoggedIn: Boolean? = null
+    private var launchUsername: String = ""
+    private var launchPassword: String = ""
+
+    private fun ensureLaunchPrefsRead() {
+        if (launchLoggedIn != null) return
+        try {
+            val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+            launchLoggedIn = prefs.getBoolean("flutter.logged_in", false)
+            val rememberMe = prefs.getBoolean("flutter.remember_me", false)
+            launchUsername = if (rememberMe) prefs.getString("flutter.remember_username", "") ?: "" else ""
+            launchPassword = if (rememberMe) prefs.getString("flutter.remember_password", "") ?: "" else ""
+        } catch (_: Throwable) {
+            launchLoggedIn = false
+            launchUsername = ""
+            launchPassword = ""
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        ensureLaunchPrefsRead()
         // Native LaunchTheme stays until Flutter's first frame (Login/Home).
         // Never load DeviceAPI / POSConnect here.
         super.onCreate(savedInstanceState)
-        // Warm Flutter SharedPreferences on a background thread so Dart getInstance() is faster.
-        Executors.newSingleThreadExecutor().execute {
-            try {
-                applicationContext
-                    .getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
-                    .all
-            } catch (_: Throwable) {
-            }
-        }
     }
 
     /**
@@ -60,20 +70,12 @@ class MainActivity : FlutterActivity() {
      * Flutter SharedPreferences keys are stored as "flutter.<key>".
      */
     override fun getDartEntrypointArgs(): MutableList<String> {
-        return try {
-            val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
-            val loggedIn = prefs.getBoolean("flutter.logged_in", false)
-            val rememberMe = prefs.getBoolean("flutter.remember_me", false)
-            val username = if (rememberMe) prefs.getString("flutter.remember_username", "") ?: "" else ""
-            val password = if (rememberMe) prefs.getString("flutter.remember_password", "") ?: "" else ""
-            mutableListOf(
-                if (loggedIn) "dashboard" else "login",
-                username,
-                password,
-            )
-        } catch (_: Throwable) {
-            mutableListOf("login", "", "")
-        }
+        ensureLaunchPrefsRead()
+        return mutableListOf(
+            if (launchLoggedIn == true) "dashboard" else "login",
+            launchUsername,
+            launchPassword,
+        )
     }
 
     /** Fast synchronous read for Dart instant boot — keys match PrefService (no flutter. prefix). */

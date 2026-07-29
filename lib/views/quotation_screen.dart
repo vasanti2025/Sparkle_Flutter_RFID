@@ -146,7 +146,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
 
   void _showAddCustomerDialog() {
     final s = context.sRead;
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) {
         return AddCustomerDialog(
@@ -210,7 +210,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
 
   void _showItemEditDialog(OrderItem item, int index) {
     final vm = context.read<QuotationViewModel>();
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) => OrderDetailsDialog(
         item: item,
@@ -229,7 +229,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
           .showSnackBar(SnackBar(content: Text(s.addAtLeastOneQuotationItem)));
       return;
     }
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) {
         return OrderBulkDetailsDialog(
@@ -771,7 +771,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
 
   void _confirmDelete(QuotationViewModel vm, int idx) {
     final s = context.sRead;
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) {
         return AlertDialog(

@@ -134,7 +134,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
 
   void _confirmDeleteProduct(BulkItem item) {
     final s = context.sRead;
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
@@ -180,7 +180,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
 
   void _showFilterDialog(ProductViewModel viewModel) async {
     final s = context.sRead;
-    showDialog(
+    showAppDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => const Center(child: CircularProgressIndicator()),
@@ -196,7 +196,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
 
     if (!mounted) return;
 
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) {
         return StatefulBuilder(
@@ -815,7 +815,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
     // Same thumb cache key as grid/list warm — shows instantly if already loaded.
     ProductImage.warmUrls([item.imageUrl]);
     final s = context.sRead;
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) {
         return AlertDialog(

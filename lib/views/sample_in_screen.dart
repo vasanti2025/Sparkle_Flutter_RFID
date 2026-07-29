@@ -168,7 +168,7 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
   }
 
   void _showFieldsDialog(SampleInViewModel vm) {
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) => SampleOutFieldsDialog(
         initialDate: vm.selectedDate,
@@ -187,7 +187,7 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
 
   void _showAddCustomerDialog() {
     final s = context.sRead;
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) => AddCustomerDialog(
         title: s.customerProfile,
@@ -249,7 +249,7 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
 
   void _showItemEditDialog(int index, SampleInViewModel vm) {
     final issue = vm.issueItems[index];
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (context) => ChallanDetailsDialog(
         item: vm.issueToDetails(issue),
@@ -272,7 +272,7 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
 
   void _showMatchDialog(SampleInViewModel vm) {
     final s = context.sRead;
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Row(
@@ -304,7 +304,7 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
 
   void _showRemoveDialog(SampleInViewModel vm) {
     final s = context.sRead;
-    showDialog(
+    showAppDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Row(

@@ -26,7 +26,7 @@ Future<void> showDeliveryChallanPrintOptions({
   }
   if (!context.mounted) return;
 
-  await showDialog<void>(
+  await showAppDialog<void>(
     context: context,
     builder: (ctx) => _DeliveryChallanPrintDialog(
       challan: challan,
