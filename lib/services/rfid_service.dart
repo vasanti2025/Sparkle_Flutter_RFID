@@ -404,6 +404,7 @@ class RfidService {
     int power = 5,
     List<String> simulatedScopeTags = const [],
     bool inventory = false,
+    bool playStartSound = true,
   }) async {
     if (_isScanning) {
       await stopScanning();
@@ -450,6 +451,7 @@ class RfidService {
         final started = await _methodChannel.invokeMethod<bool>('startScanning', {
               'power': power,
               'inventory': inventory,
+              'playStartSound': playStartSound,
             }) ??
             false;
         if (started) {
@@ -598,6 +600,25 @@ class RfidService {
       } catch (e) {
         debugPrint('Error playing beep: $e');
       }
+    }
+  }
+
+  /// Sparkle RFIDReaderManager.playSound(id) — search RSSI buckets use 1–5.
+  Future<void> playSound(int id, {int loop = 0}) async {
+    if (!_isSupported) return;
+    try {
+      await _methodChannel.invokeMethod('playSound', {'id': id, 'loop': loop});
+    } catch (e) {
+      debugPrint('Error playSound: $e');
+    }
+  }
+
+  Future<void> stopSound([int? id]) async {
+    if (!_isSupported) return;
+    try {
+      await _methodChannel.invokeMethod('stopSound', id == null ? <String, dynamic>{} : {'id': id});
+    } catch (e) {
+      debugPrint('Error stopSound: $e');
     }
   }
 

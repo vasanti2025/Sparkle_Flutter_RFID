@@ -110,13 +110,23 @@ class BulkProductViewModel extends ChangeNotifier {
         _scannedTags[idx] = ScannedTagRow(epc: epc, tid: epc);
       }
       stopScanning();
+      // Sparkle startSingleScan: playSound(1) when tag found.
+      unawaited(_rfidService.playBeep());
     }
     _scheduleNotify();
   }
 
-  Future<bool> startScanning({required int power, List<String> simulatedScopeTags = const []}) async {
+  Future<bool> startScanning({
+    required int power,
+    List<String> simulatedScopeTags = const [],
+    bool playStartSound = true,
+  }) async {
     listenToTags();
-    final started = await _rfidService.startScanning(power: power, simulatedScopeTags: simulatedScopeTags);
+    final started = await _rfidService.startScanning(
+      power: power,
+      simulatedScopeTags: simulatedScopeTags,
+      playStartSound: playStartSound,
+    );
     _isScanning = started;
     notifyListeners();
     return started;

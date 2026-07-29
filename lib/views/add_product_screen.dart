@@ -86,6 +86,7 @@ class _AddProductScreenState extends State<AddProductScreen> with BarcodeScanMix
         if (!mounted || tags.isEmpty) return;
         setState(() => _updateField('EPC', tags.last.trim().toUpperCase()));
         if (_isBulkScanning) return;
+        unawaited(_rfidService.playBeep());
         _stopScanning();
       },
     );
@@ -272,7 +273,7 @@ class _AddProductScreenState extends State<AddProductScreen> with BarcodeScanMix
     }
     if (_isScanning) await _rfidService.stopScanning();
     _isBulkScanning = false;
-    final started = await _rfidService.startScanning(power: _power);
+    final started = await _rfidService.startScanning(power: _power, playStartSound: false);
     if (mounted) {
       setState(() => _isScanning = started);
     }

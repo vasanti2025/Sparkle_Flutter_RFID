@@ -127,8 +127,9 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
         _checkedKeys.addAll(_pendingTagKeys);
         _pendingTagKeys.clear();
       });
-      // Single Scan: stop after first matched tag (Sparkle startSingleScan).
+      // Single Scan: beep once on find (Sparkle startSingleScan playSound(1)).
       if (_isSingleScan) {
+        unawaited(_rfid.playBeep());
         unawaited(_stopScanning());
       }
     });
@@ -155,7 +156,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
     }
     _isSingleScan = true;
     _isBulkScanning = false;
-    final started = await _rfid.startScanning(power: 20);
+    final started = await _rfid.startScanning(power: 20, playStartSound: false);
     if (!mounted) return;
     setState(() {});
     if (!started) {

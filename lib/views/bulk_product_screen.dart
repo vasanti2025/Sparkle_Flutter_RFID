@@ -116,7 +116,7 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
     }
     if (vm.isScanning) await vm.stopScanning();
     vm.setBulkMode(false);
-    final started = await vm.startScanning(power: _power);
+    final started = await vm.startScanning(power: _power, playStartSound: false);
     if (!started && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(context.sRead.tr('failedToStartRfidScanner'))),

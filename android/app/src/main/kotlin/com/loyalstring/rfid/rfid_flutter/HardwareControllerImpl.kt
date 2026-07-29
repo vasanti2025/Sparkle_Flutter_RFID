@@ -1,8 +1,10 @@
 package com.loyalstring.rfid.rfid_flutter
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.SoundPool
 import android.os.Build
@@ -41,8 +43,12 @@ class HardwareControllerImpl(
     private var soundPool: SoundPool? = null
     private val soundMap = HashMap<Int, Int>()
     private val soundStreamIds = HashMap<Int, Int>()
-    private var lastSoundId = -1
-    private var lastSoundPlayAt = 0L
+    private var audioManager: AudioManager? = null
+    private var volumeRatio = 1f
+    /** Sparkle SearchViewModel lastSoundId / lastSoundPlayAt */
+    private var lastSearchSoundId = -1
+    private var lastSearchSoundPlayAt = 0L
+    private val searchSoundMinIntervalMs = 15L
 
     private var searchTags = HashSet<String>()
     private var matchEpcs = HashSet<String>()
@@ -129,13 +135,14 @@ class HardwareControllerImpl(
             "startScanning" -> {
                 val power = call.argument<Int>("power") ?: 5
                 val inventory = call.argument<Boolean>("inventory") ?: inventoryScanMode
+                val playStartSound = call.argument<Boolean>("playStartSound") ?: true
                 lastScanPower = power
                 Executors.newSingleThreadExecutor().execute {
                     val ok = try {
                         if (r6ModeEnabled) {
-                            startR6InventoryGuarded(power, inventory)
+                            startR6InventoryGuarded(power, inventory, playStartSound)
                         } else {
-                            startRfidInventory(power, inventory)
+                            startRfidInventory(power, inventory, playStartSound)
                         }
                     } catch (e: Throwable) {
                         Log.e(TAG, "startScanning failed", e)
@@ -178,7 +185,23 @@ class HardwareControllerImpl(
             }
             "playBeep" -> {
                 ensureSoundPool()
-                playDeepBeepSound()
+                playSound(1, 0)
+                result.success(true)
+            }
+            "playSound" -> {
+                ensureSoundPool()
+                val id = call.argument<Int>("id") ?: 1
+                val loop = call.argument<Int>("loop") ?: 0
+                playSound(id, loop)
+                result.success(true)
+            }
+            "stopSound" -> {
+                val id = call.argument<Int>("id")
+                if (id != null) {
+                    stopSound(id)
+                } else {
+                    stopAllSounds()
+                }
                 result.success(true)
             }
             "startInventorySound" -> {
@@ -196,11 +219,8 @@ class HardwareControllerImpl(
             }
             "clearSearchTags" -> {
                 searchTags.clear()
-                for (streamId in soundStreamIds.values) {
-                    soundPool?.stop(streamId)
-                }
-                soundStreamIds.clear()
-                lastSoundId = -1
+                stopAllSounds()
+                lastSearchSoundId = -1
                 result.success(true)
             }
             "clearInventoryScope" -> {
@@ -510,7 +530,7 @@ class HardwareControllerImpl(
         stopInventoryLoopSound()
     }
 
-    private fun startRfidInventory(power: Int, inventory: Boolean): Boolean {
+    private fun startRfidInventory(power: Int, inventory: Boolean, playStartSound: Boolean = true): Boolean {
         if (!scanningPermitted) {
             return false
         }
@@ -521,12 +541,12 @@ class HardwareControllerImpl(
         sessionUniqueEpcs.clear()
         if (trayModeEnabled || r6ModeEnabled) {
             if (r6ModeEnabled) {
-                return startR6InventoryGuarded(power, inventory)
+                return startR6InventoryGuarded(power, inventory, playStartSound)
             }
             if (!trayManager.isReallyConnected()) {
                 return false
             }
-            return startTrayInventory(power, inventory)
+            return startTrayInventory(power, inventory, playStartSound)
         }
         return try {
             ensureSoundPool()
@@ -535,6 +555,9 @@ class HardwareControllerImpl(
             drainStaleBuffer()
             if (inventory) {
                 startInventoryLoopSound()
+            } else if (playStartSound && searchTags.isEmpty()) {
+                // Sparkle BulkViewModel.startScanning: playSound(1, 0) at Gscan start.
+                playSound(1, 0)
             }
             val started = uhf().startInventory()
             if (started) {
@@ -551,7 +574,7 @@ class HardwareControllerImpl(
         }
     }
 
-    private fun startR6InventoryGuarded(power: Int, inventory: Boolean): Boolean {
+    private fun startR6InventoryGuarded(power: Int, inventory: Boolean, playStartSound: Boolean = true): Boolean {
         if (!scanningPermitted) {
             return false
         }
@@ -575,10 +598,10 @@ class HardwareControllerImpl(
         activeInventorySession = inventory
         sessionUniqueEpcs.clear()
         trayManager.bindKeyCallbackNow()
-        return startR6Inventory(power, inventory)
+        return startR6Inventory(power, inventory, playStartSound)
     }
 
-    private fun startTrayInventory(power: Int, inventory: Boolean): Boolean {
+    private fun startTrayInventory(power: Int, inventory: Boolean, playStartSound: Boolean = true): Boolean {
         return try {
             ensureSoundPool()
             try {
@@ -588,6 +611,8 @@ class HardwareControllerImpl(
             trayManager.drainBuffer()
             if (inventory) {
                 startInventoryLoopSound()
+            } else if (playStartSound && searchTags.isEmpty()) {
+                playSound(1, 0)
             }
             isScanning = true
             val started = trayManager.startInventory()
@@ -606,7 +631,7 @@ class HardwareControllerImpl(
         }
     }
 
-    private fun startR6Inventory(power: Int, inventory: Boolean): Boolean {
+    private fun startR6Inventory(power: Int, inventory: Boolean, playStartSound: Boolean = true): Boolean {
         return try {
             ensureSoundPool()
             try {
@@ -616,6 +641,8 @@ class HardwareControllerImpl(
             trayManager.drainBuffer()
             if (inventory) {
                 startInventoryLoopSound()
+            } else if (playStartSound && searchTags.isEmpty()) {
+                playSound(1, 0)
             }
             isScanning = true
             trayManager.startInventory()
@@ -636,11 +663,8 @@ class HardwareControllerImpl(
         scanningPermitted = false
         inventoryScopeEpcs.clear()
         sessionUniqueEpcs.clear()
-        for (streamId in soundStreamIds.values) {
-            soundPool?.stop(streamId)
-        }
-        soundStreamIds.clear()
-        lastSoundId = -1
+        stopAllSounds()
+        lastSearchSoundId = -1
         stopInventoryLoopSound()
 
         isScanning = false
@@ -723,22 +747,15 @@ class HardwareControllerImpl(
     }
 
     private fun handleTagRead(cleanEpc: String, rssi: String, inventory: Boolean) {
+        // Sparkle SearchViewModel: RSSI proximity tones on every matched buffer read.
+        if (!inventory && searchTags.isNotEmpty() && searchTags.contains(cleanEpc)) {
+            playRssiSearchSound(rssi)
+        }
+
         if (!shouldEmitTagToFlutter(cleanEpc)) {
             return
         }
         queueTagEvent(cleanEpc, rssi)
-
-        if (!inventory) {
-            if (searchTags.isNotEmpty() && !searchTags.contains(cleanEpc)) {
-                return
-            }
-            if (sessionUniqueEpcs.add(cleanEpc)) {
-                when (sessionUniqueEpcs.size) {
-                    1 -> playDeepBeepSound()
-                    2 -> startInventoryLoopSound()
-                }
-            }
-        }
     }
 
     private fun shouldEmitTagToFlutter(cleanEpc: String): Boolean {
@@ -826,8 +843,9 @@ class HardwareControllerImpl(
 
     private fun initSoundPool() {
         try {
+            audioManager = activity.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
             val audioAttributes = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_MEDIA)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build()
 
@@ -836,6 +854,7 @@ class HardwareControllerImpl(
                 .setAudioAttributes(audioAttributes)
                 .build()
 
+            // Same mapping as Sparkle RFIDReaderManager.initSounds()
             soundMap[1] = loadSound("barcodebeep")
             soundMap[2] = loadSound("sixty")
             soundMap[3] = loadSound("seventy")
@@ -855,11 +874,70 @@ class HardwareControllerImpl(
         }
     }
 
-    private fun playDeepBeepSound() {
-        ensureSoundPool()
-        val soundId = soundMap[1] ?: return
-        if (soundId != 0) {
-            soundPool?.play(soundId, 1.0f, 1.0f, 1, 0, 0.65f)
+    /** Sparkle RFIDReaderManager.playSound(id, loop). */
+    private fun playSound(id: Int, loop: Int = 0) {
+        try {
+            ensureSoundPool()
+            soundStreamIds.values.forEach { streamId -> soundPool?.stop(streamId) }
+            soundStreamIds.clear()
+
+            val maxVol = audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC)?.toFloat() ?: 1f
+            val curVol = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC)?.toFloat() ?: 1f
+            volumeRatio = if (maxVol > 0f) curVol / maxVol else 1f
+
+            val soundId = soundMap[id] ?: return
+            if (soundId == 0) return
+            val streamId = soundPool?.play(
+                soundId,
+                volumeRatio,
+                volumeRatio,
+                1,
+                loop,
+                1f,
+            ) ?: return
+            soundStreamIds[id] = streamId
+        } catch (e: Throwable) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun stopSound(id: Int) {
+        val streamId = soundStreamIds[id] ?: return
+        soundPool?.stop(streamId)
+        soundStreamIds.remove(id)
+    }
+
+    private fun stopAllSounds() {
+        soundStreamIds.values.forEach { streamId -> soundPool?.stop(streamId) }
+        soundStreamIds.clear()
+    }
+
+    /**
+     * Sparkle SearchViewModel RSSI → sound id buckets:
+     * abs(rssi) <50 → fourty(4), <60 → sixty(2), <70 → found2(5), else barcodebeep(1).
+     */
+    private fun playRssiSearchSound(rssi: String) {
+        val rssiAbs = try {
+            kotlin.math.abs(rssi.trim().toDouble())
+        } catch (_: Exception) {
+            0.0
+        }
+        val id = when {
+            rssiAbs > 0 && rssiAbs < 50 -> 4
+            rssiAbs > 50 && rssiAbs < 60 -> 2
+            rssiAbs > 60 && rssiAbs < 70 -> 5
+            rssiAbs > 70 -> 1
+            else -> -1
+        }
+        if (id == -1) return
+        val now = System.currentTimeMillis()
+        if (id != lastSearchSoundId || now - lastSearchSoundPlayAt >= searchSoundMinIntervalMs) {
+            lastSearchSoundPlayAt = now
+            if (lastSearchSoundId > 0) {
+                stopSound(lastSearchSoundId)
+            }
+            lastSearchSoundId = id
+            playSound(id, 0)
         }
     }
 
