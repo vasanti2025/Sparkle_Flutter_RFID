@@ -15,6 +15,7 @@ import 'widgets/delivery_challan_fields_dialog.dart';
 import 'widgets/add_customer_dialog.dart';
 import '../utils/tag_scan_batcher.dart';
 import '../utils/barcode_scan_mixin.dart';
+import '../utils/stretch_table_widths.dart';
 import 'widgets/challan_details_dialog.dart';
 
 class DeliveryChallanScreen extends StatefulWidget {
@@ -595,30 +596,9 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
     final s = context.s;
     final items = vm.productList;
 
-    // Column widths
-    const double colName = 100;
-    const double colItemcode = 80;
-    const double colGwt = 70;
-    const double colNwt = 70;
-    const double colRate = 80;
-    const double colMaking = 85;
-    const double colStone = 80;
-    const double colDiamond = 85;
-    const double colAmount = 90;
-    const double colFine = 70;
-    const double colRfid = 95;
-
-    const double scrollableWidth = colName +
-        colItemcode +
-        colGwt +
-        colNwt +
-        colRate +
-        colMaking +
-        colStone +
-        colDiamond +
-        colAmount +
-        colFine +
-        colRfid;
+    const double leftW = 45;
+    const double actionW = 75;
+    final baseWidths = <double>[100, 80, 70, 70, 80, 85, 80, 85, 90, 70, 95];
 
     // Totals calculations
     double sum(double Function(ChallanDetailsModel) sel) =>
@@ -633,12 +613,29 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
 
     return Container(
       color: Colors.white,
-      child: Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final available = (constraints.maxWidth - leftW - actionW).clamp(0.0, double.infinity);
+          final w = stretchColumnWidths(baseWidths, available);
+          final colName = w[0];
+          final colItemcode = w[1];
+          final colGwt = w[2];
+          final colNwt = w[3];
+          final colRate = w[4];
+          final colMaking = w[5];
+          final colStone = w[6];
+          final colDiamond = w[7];
+          final colAmount = w[8];
+          final colFine = w[9];
+          final colRfid = w[10];
+          final scrollableWidth = w.fold<double>(0, (a, b) => a + b);
+
+          return Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // Left Locked Column (S.No)
           SizedBox(
-            width: 45,
+            width: leftW,
             child: Column(
               children: [
                 // Header
@@ -796,7 +793,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
 
           // Right Locked Column (Action)
           SizedBox(
-            width: 75,
+            width: actionW,
             child: Column(
               children: [
                 // Header
@@ -849,6 +846,8 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
             ),
           ),
         ],
+      );
+        },
       ),
     );
   }

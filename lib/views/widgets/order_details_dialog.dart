@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../../models/order_item.dart';
 import '../../l10n/l10n_extension.dart';
+import '../../services/db_service.dart';
 import '../../utils/app_dropdown.dart';
+import '../../utils/product_image.dart';
 
 class OrderDetailsDialog extends StatefulWidget {
   final OrderItem item;
@@ -59,6 +62,9 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
   String _itemAmt = '0.00';
   bool _grossHasFocus = false;
 
+  /// Read-only product image from item / local DB (not editable).
+  String _imageUrl = '';
+
   final FocusNode _grossFocusNode = FocusNode();
 
   @override
@@ -66,6 +72,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
     super.initState();
 
     final item = widget.item;
+    _imageUrl = item.image.trim();
 
     // Initialize text values
     _totalWtCtrl = TextEditingController(text: item.totalWt);
@@ -125,6 +132,57 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 
     // Run initial recalc
     recalcAll();
+
+    // Always resolve display image from local DB for this RFID / item code.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadImageFromDatabase();
+    });
+  }
+
+  Future<void> _loadImageFromDatabase() async {
+    try {
+      final db = context.read<DbService>();
+      final keys = <String>[
+        widget.item.rfidCode.trim(),
+        widget.item.itemCode.trim(),
+      ].where((k) => k.isNotEmpty).toList();
+
+      String url = _imageUrl;
+      for (final key in keys) {
+        final found = await db.findBulkItemByScanKey(key);
+        final fromDb = found?.imageUrl.trim() ?? '';
+        if (fromDb.isNotEmpty) {
+          url = fromDb;
+          break;
+        }
+      }
+
+      if (!mounted) return;
+      if (url != _imageUrl) {
+        setState(() => _imageUrl = url);
+      }
+    } catch (_) {}
+  }
+
+  Widget _buildItemImage() {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: double.infinity,
+        height: 140,
+        color: const Color(0xFFF5F5F5),
+        alignment: Alignment.center,
+        // Display only — no picker / edit controls.
+        child: _imageUrl.isEmpty
+            ? const Icon(Icons.image_outlined, size: 48, color: Colors.grey)
+            : ProductImage.fromUrl(
+                _imageUrl,
+                iconSize: 48,
+                cacheWidth: 480,
+                cacheHeight: 320,
+              ),
+      ),
+    );
   }
 
   void _onFieldChanged() {
@@ -296,25 +354,9 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   children: [
-                    // Item image if URL exists
-                    if (widget.item.image.isNotEmpty) ...[
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          width: double.infinity,
-                          height: 120,
-                          color: const Color(0xFFF5F5F5),
-                          alignment: Alignment.center,
-                          child: Image.network(
-                            widget.item.image,
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) =>
-                                const Icon(Icons.image, size: 48, color: Colors.grey),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
+                    // Read-only product image from database (top of edit dialog).
+                    _buildItemImage(),
+                    const SizedBox(height: 12),
 
                     // Branch Dropdown
                     _buildDropdownRow(
@@ -469,6 +511,8 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                             finePlusWt: _finePlusWt,
                             itemAmt: _itemAmt,
                             netAmt: _itemAmt,
+                            // Keep DB image on the item (display-only; never edited here).
+                            image: _imageUrl.isNotEmpty ? _imageUrl : widget.item.image,
                           );
 
                           widget.onSave(updated);

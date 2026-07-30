@@ -16,6 +16,7 @@ import 'widgets/add_customer_dialog.dart';
 import 'widgets/challan_details_dialog.dart';
 import '../utils/tag_scan_batcher.dart';
 import '../utils/barcode_scan_mixin.dart';
+import '../utils/stretch_table_widths.dart';
 import 'widgets/sample_print_pdf.dart';
 
 class SampleOutScreen extends StatefulWidget {
@@ -549,17 +550,9 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
     final s = context.s;
     final items = vm.productList;
 
-    const colItemcode = 90.0;
-    const colTWt = 60.0;
-    const colGwt = 60.0;
-    const colSwt = 60.0;
-    const colDwt = 60.0;
-    const colNwt = 60.0;
-    const colFwWt = 70.0;
-    const colQty = 50.0;
-    const colPcs = 50.0;
-
-    const scrollableWidth = colItemcode + colTWt + colGwt + colSwt + colDwt + colNwt + colFwWt + colQty + colPcs;
+    const leftW = 45.0;
+    const actionW = 75.0;
+    final baseWidths = <double>[90, 60, 60, 60, 60, 60, 70, 50, 50];
 
     double sum(String Function(ChallanDetailsModel) sel) =>
         items.fold(0.0, (s, it) => s + (double.tryParse(sel(it)) ?? 0.0));
@@ -575,11 +568,26 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
 
     return Container(
       color: Colors.white,
-      child: Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final available = (constraints.maxWidth - leftW - actionW).clamp(0.0, double.infinity);
+          final w = stretchColumnWidths(baseWidths, available);
+          final colItemcode = w[0];
+          final colTWt = w[1];
+          final colGwt = w[2];
+          final colSwt = w[3];
+          final colDwt = w[4];
+          final colNwt = w[5];
+          final colFwWt = w[6];
+          final colQty = w[7];
+          final colPcs = w[8];
+          final scrollableWidth = w.fold<double>(0, (a, b) => a + b);
+
+          return Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           SizedBox(
-            width: 45,
+            width: leftW,
             child: Column(
               children: [
                 Container(
@@ -703,7 +711,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
             ),
           ),
           SizedBox(
-            width: 75,
+            width: actionW,
             child: Column(
               children: [
                 Container(
@@ -741,6 +749,8 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
             ),
           ),
         ],
+      );
+        },
       ),
     );
   }

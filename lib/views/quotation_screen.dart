@@ -607,16 +607,19 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
   static const double _rowHeight = 34;
   static const double _headerHeight = 30;
   static const double _footerHeight = 34;
+  static const int _dataColCount = 9;
 
   Widget _tableCell(String text,
       {Color color = Colors.black54, FontWeight weight = FontWeight.normal, double width = _cellWidth}) {
-    return Container(
+    return SizedBox(
       width: width,
-      padding: const EdgeInsets.symmetric(horizontal: 2),
-      child: Text(text,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: GoogleFonts.poppins(fontSize: 11, color: color, fontWeight: weight)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: Text(text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.poppins(fontSize: 11, color: color, fontWeight: weight)),
+      ),
     );
   }
 
@@ -624,7 +627,6 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
     final items = vm.productList;
     final s = context.s;
     final headers = [s.headerPName, s.itemcode, s.headerGwt, s.headerNwt, s.headerFwWt, s.colStoneAmt, s.colDiamondAmt, s.itemAmt, s.fieldRfidCode];
-    final dataWidth = _cellWidth * 9;
 
     double sum(String? Function(OrderItem) sel) =>
         items.fold(0.0, (s, it) => s + (double.tryParse(sel(it) ?? '') ?? 0.0));
@@ -648,123 +650,137 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
 
     return Container(
       color: Colors.white,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              controller: _tableHScroll,
-              scrollDirection: Axis.horizontal,
-              child: SizedBox(
-                width: dataWidth,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Fill tablet width so Action sits flush after RFID (no white gap).
+          // On narrow phones keep min width + horizontal scroll.
+          final availableForData = (constraints.maxWidth - _actionWidth).clamp(0.0, double.infinity);
+          final minDataWidth = _cellWidth * _dataColCount;
+          final dataWidth = availableForData > minDataWidth ? availableForData : minDataWidth;
+          final cellW = dataWidth / _dataColCount;
+
+          Widget cell(String text, {Color color = Colors.black54, FontWeight weight = FontWeight.normal}) =>
+              _tableCell(text, color: color, weight: weight, width: cellW);
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: _tableHScroll,
+                  scrollDirection: Axis.horizontal,
+                  child: SizedBox(
+                    width: dataWidth,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Container(
+                          height: _headerHeight,
+                          color: const Color(0xFF2E2E2E),
+                          child: Row(
+                            children: headers
+                                .map((h) => cell(h, color: Colors.white, weight: FontWeight.w600))
+                                .toList(),
+                          ),
+                        ),
+                        Expanded(
+                          child: items.isEmpty
+                              ? Center(
+                                  child: Text(s.noItemsAdded,
+                                      style: GoogleFonts.poppins(color: Colors.grey, fontSize: 13)))
+                              : ListView.builder(
+                                  controller: _dataVScroll,
+                                  padding: EdgeInsets.zero,
+                                  itemCount: items.length,
+                                  itemBuilder: (context, idx) {
+                                    final item = items[idx];
+                                    return InkWell(
+                                      onTap: () => _showItemEditDialog(item, idx),
+                                      child: Container(
+                                        height: _rowHeight,
+                                        color: idx % 2 == 0 ? const Color(0xFFF4F4F4) : Colors.white,
+                                        alignment: Alignment.centerLeft,
+                                        child: Row(
+                                          children: [
+                                            cell(item.productName),
+                                            cell(item.itemCode),
+                                            cell(item.grWt ?? ''),
+                                            cell(item.nWt ?? ''),
+                                            cell(item.finePlusWt ?? ''),
+                                            cell(item.stoneAmt ?? ''),
+                                            cell(item.diamondAmt),
+                                            cell(item.itemAmt ?? ''),
+                                            cell(item.rfidCode),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                        ),
+                        Container(
+                          height: _footerHeight,
+                          color: const Color(0xFF2E2E2E),
+                          child: Row(
+                            children: totals
+                                .map((t) => cell(t, color: Colors.white, weight: FontWeight.bold))
+                                .toList(),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: _actionWidth,
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Container(
                       height: _headerHeight,
+                      width: _actionWidth,
                       color: const Color(0xFF2E2E2E),
-                      child: Row(
-                        children: headers
-                            .map((h) => _tableCell(h, color: Colors.white, weight: FontWeight.w600))
-                            .toList(),
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      child: Text(
+                        s.action,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.poppins(
+                          fontSize: 11,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                     Expanded(
                       child: items.isEmpty
-                          ? Center(
-                              child: Text(s.noItemsAdded,
-                                  style: GoogleFonts.poppins(color: Colors.grey, fontSize: 13)))
+                          ? const SizedBox.shrink()
                           : ListView.builder(
-                              controller: _dataVScroll,
+                              controller: _actionVScroll,
                               padding: EdgeInsets.zero,
                               itemCount: items.length,
                               itemBuilder: (context, idx) {
-                                final item = items[idx];
-                                return InkWell(
-                                  onTap: () => _showItemEditDialog(item, idx),
-                                  child: Container(
-                                    height: _rowHeight,
-                                    color: idx % 2 == 0 ? const Color(0xFFF4F4F4) : Colors.white,
-                                    alignment: Alignment.centerLeft,
-                                    child: Row(
-                                      children: [
-                                        _tableCell(item.productName),
-                                        _tableCell(item.itemCode),
-                                        _tableCell(item.grWt ?? ''),
-                                        _tableCell(item.nWt ?? ''),
-                                        _tableCell(item.finePlusWt ?? ''),
-                                        _tableCell(item.stoneAmt ?? ''),
-                                        _tableCell(item.diamondAmt),
-                                        _tableCell(item.itemAmt ?? ''),
-                                        _tableCell(item.rfidCode),
-                                      ],
-                                    ),
+                                return Container(
+                                  height: _rowHeight,
+                                  color: idx % 2 == 0 ? const Color(0xFFF4F4F4) : Colors.white,
+                                  alignment: Alignment.center,
+                                  child: InkWell(
+                                    onTap: () => _confirmDelete(vm, idx),
+                                    child: const Icon(Icons.delete, color: Colors.red, size: 18),
                                   ),
                                 );
                               },
                             ),
                     ),
-                    Container(
-                      height: _footerHeight,
-                      color: const Color(0xFF2E2E2E),
-                      child: Row(
-                        children: totals
-                            .map((t) => _tableCell(t, color: Colors.white, weight: FontWeight.bold))
-                            .toList(),
-                      ),
-                    ),
+                    Container(height: _footerHeight, color: const Color(0xFF2E2E2E)),
                   ],
                 ),
               ),
-            ),
-          ),
-          SizedBox(
-            width: _actionWidth,
-            child: Column(
-              children: [
-                Container(
-                  height: _headerHeight,
-                  width: _actionWidth,
-                  color: const Color(0xFF2E2E2E),
-                  alignment: Alignment.center,
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: Text(
-                    s.action,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.poppins(
-                      fontSize: 11,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: items.isEmpty
-                      ? const SizedBox.shrink()
-                      : ListView.builder(
-                          controller: _actionVScroll,
-                          padding: EdgeInsets.zero,
-                          itemCount: items.length,
-                          itemBuilder: (context, idx) {
-                            return Container(
-                              height: _rowHeight,
-                              color: idx % 2 == 0 ? const Color(0xFFF4F4F4) : Colors.white,
-                              alignment: Alignment.center,
-                              child: InkWell(
-                                onTap: () => _confirmDelete(vm, idx),
-                                child: const Icon(Icons.delete, color: Colors.red, size: 18),
-                              ),
-                            );
-                          },
-                        ),
-                ),
-                Container(height: _footerHeight, color: const Color(0xFF2E2E2E)),
-              ],
-            ),
-          ),
-        ],
+            ],
+          );
+        },
       ),
     );
   }

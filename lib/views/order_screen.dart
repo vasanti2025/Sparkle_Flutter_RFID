@@ -21,6 +21,7 @@ import 'widgets/add_customer_dialog.dart';
 import 'widgets/order_bulk_details_dialog.dart';
 import '../utils/tag_scan_batcher.dart';
 import '../utils/barcode_scan_mixin.dart';
+import '../utils/stretch_table_widths.dart';
 
 // Brand gradient used across the screen (matches Sparkle Kotlin app).
 const _brandGradient = LinearGradient(
@@ -696,17 +697,20 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
   static const double _rowHeight = 34;
   static const double _headerHeight = 30;
   static const double _footerHeight = 34;
+  static const int _dataColCount = 9;
 
   Widget _tableCell(String text,
       {Color color = Colors.black54, FontWeight weight = FontWeight.normal, double width = _cellWidth}) {
-    return Container(
+    return SizedBox(
       width: width,
-      padding: const EdgeInsets.symmetric(horizontal: 2),
-      child: Text(
-        text,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: GoogleFonts.poppins(fontSize: 11, color: color, fontWeight: weight),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: Text(
+          text,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: GoogleFonts.poppins(fontSize: 11, color: color, fontWeight: weight),
+        ),
       ),
     );
   }
@@ -715,7 +719,6 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
     final items = vm.productList;
     final s = context.s;
     final headers = [s.headerPName, s.itemcode, s.headerGwt, s.headerNwt, s.headerFwWt, s.colStoneAmt, s.colDiamondAmt, s.itemAmt, s.fieldRfidCode];
-    final dataWidth = _cellWidth * 9;
 
     // Footer totals (mirrors the Kotlin OrderListTable footer row).
     double sum(String? Function(OrderItem) sel) =>
@@ -740,120 +743,131 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
 
     return Container(
       color: Colors.white,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Horizontally scrollable data area (header + rows + footer together)
-          Expanded(
-            child: SingleChildScrollView(
-              controller: _tableHScroll,
-              scrollDirection: Axis.horizontal,
-              child: SizedBox(
-                width: dataWidth,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final availableForData = (constraints.maxWidth - _actionWidth).clamp(0.0, double.infinity);
+          final widths = stretchColumnWidths(
+            List<double>.filled(_dataColCount, _cellWidth),
+            availableForData,
+          );
+          final dataWidth = widths.fold<double>(0, (a, b) => a + b);
+
+          Widget cell(String text, int i, {Color color = Colors.black54, FontWeight weight = FontWeight.normal}) =>
+              _tableCell(text, color: color, weight: weight, width: widths[i]);
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: _tableHScroll,
+                  scrollDirection: Axis.horizontal,
+                  child: SizedBox(
+                    width: dataWidth,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Container(
+                          height: _headerHeight,
+                          color: const Color(0xFF2E2E2E),
+                          child: Row(
+                            children: [
+                              for (var i = 0; i < headers.length; i++)
+                                cell(headers[i], i, color: Colors.white, weight: FontWeight.w600),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child: items.isEmpty
+                              ? Center(
+                                  child: Text(s.noItemsAdded,
+                                      style: GoogleFonts.poppins(color: Colors.grey, fontSize: 13)),
+                                )
+                              : ListView.builder(
+                                  controller: _dataVScroll,
+                                  padding: EdgeInsets.zero,
+                                  itemCount: items.length,
+                                  itemBuilder: (context, idx) {
+                                    final item = items[idx];
+                                    return InkWell(
+                                      onTap: () => _showItemEditDialog(item, idx),
+                                      child: Container(
+                                        height: _rowHeight,
+                                        color: idx % 2 == 0 ? const Color(0xFFF4F4F4) : Colors.white,
+                                        alignment: Alignment.centerLeft,
+                                        child: Row(
+                                          children: [
+                                            cell(item.productName, 0),
+                                            cell(item.itemCode, 1),
+                                            cell(item.grWt ?? '', 2),
+                                            cell(item.nWt ?? '', 3),
+                                            cell(item.finePlusWt ?? '', 4),
+                                            cell(item.stoneAmt ?? '', 5),
+                                            cell(item.diamondAmt, 6),
+                                            cell(item.itemAmt ?? '', 7),
+                                            cell(item.rfidCode, 8),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                        ),
+                        Container(
+                          height: _footerHeight,
+                          color: const Color(0xFF2E2E2E),
+                          child: Row(
+                            children: [
+                              for (var i = 0; i < totals.length; i++)
+                                cell(totals[i], i, color: Colors.white, weight: FontWeight.bold),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: _actionWidth,
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Header
                     Container(
                       height: _headerHeight,
                       color: const Color(0xFF2E2E2E),
-                      child: Row(
-                        children: headers
-                            .map((h) => _tableCell(h, color: Colors.white, weight: FontWeight.w600))
-                            .toList(),
-                      ),
+                      alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      child: Text(s.action,
+                          style: GoogleFonts.poppins(
+                              fontSize: 11, color: Colors.white, fontWeight: FontWeight.w600)),
                     ),
-                    // Data rows
                     Expanded(
                       child: items.isEmpty
-                          ? Center(
-                              child: Text(s.noItemsAdded,
-                                  style: GoogleFonts.poppins(color: Colors.grey, fontSize: 13)),
-                            )
+                          ? const SizedBox.shrink()
                           : ListView.builder(
-                              controller: _dataVScroll,
+                              controller: _actionVScroll,
                               padding: EdgeInsets.zero,
                               itemCount: items.length,
                               itemBuilder: (context, idx) {
-                                final item = items[idx];
-                                return InkWell(
-                                  onTap: () => _showItemEditDialog(item, idx),
-                                  child: Container(
-                                    height: _rowHeight,
-                                    color: idx % 2 == 0 ? const Color(0xFFF4F4F4) : Colors.white,
-                                    alignment: Alignment.centerLeft,
-                                    child: Row(
-                                      children: [
-                                        _tableCell(item.productName),
-                                        _tableCell(item.itemCode),
-                                        _tableCell(item.grWt ?? ''),
-                                        _tableCell(item.nWt ?? ''),
-                                        _tableCell(item.finePlusWt ?? ''),
-                                        _tableCell(item.stoneAmt ?? ''),
-                                        _tableCell(item.diamondAmt),
-                                        _tableCell(item.itemAmt ?? ''),
-                                        _tableCell(item.rfidCode),
-                                      ],
-                                    ),
+                                return Container(
+                                  height: _rowHeight,
+                                  color: idx % 2 == 0 ? const Color(0xFFF4F4F4) : Colors.white,
+                                  alignment: Alignment.center,
+                                  child: InkWell(
+                                    onTap: () => _confirmDelete(vm, idx),
+                                    child: const Icon(Icons.delete, color: Colors.red, size: 18),
                                   ),
                                 );
                               },
                             ),
                     ),
-                    // Totals footer
-                    Container(
-                      height: _footerHeight,
-                      color: const Color(0xFF2E2E2E),
-                      child: Row(
-                        children: totals
-                            .map((t) => _tableCell(t, color: Colors.white, weight: FontWeight.bold))
-                            .toList(),
-                      ),
-                    ),
+                    Container(height: _footerHeight, color: const Color(0xFF2E2E2E)),
                   ],
                 ),
               ),
-            ),
-          ),
-          // Fixed action column
-          SizedBox(
-            width: _actionWidth,
-            child: Column(
-              children: [
-                Container(
-                  height: _headerHeight,
-                  color: const Color(0xFF2E2E2E),
-                  alignment: Alignment.centerLeft,
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: Text(s.action,
-                      style: GoogleFonts.poppins(
-                          fontSize: 11, color: Colors.white, fontWeight: FontWeight.w600)),
-                ),
-                Expanded(
-                  child: items.isEmpty
-                      ? const SizedBox.shrink()
-                      : ListView.builder(
-                          controller: _actionVScroll,
-                          padding: EdgeInsets.zero,
-                          itemCount: items.length,
-                          itemBuilder: (context, idx) {
-                            return Container(
-                              height: _rowHeight,
-                              color: idx % 2 == 0 ? const Color(0xFFF4F4F4) : Colors.white,
-                              alignment: Alignment.center,
-                              child: InkWell(
-                                onTap: () => _confirmDelete(vm, idx),
-                                child: const Icon(Icons.delete, color: Colors.red, size: 18),
-                              ),
-                            );
-                          },
-                        ),
-                ),
-                Container(height: _footerHeight, color: const Color(0xFF2E2E2E)),
-              ],
-            ),
-          ),
-        ],
+            ],
+          );
+        },
       ),
     );
   }

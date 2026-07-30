@@ -37,6 +37,21 @@ class ProductImage extends StatefulWidget {
     );
   }
 
+  /// Display-only product image from a raw DB / API path or URL.
+  factory ProductImage.fromUrl(
+    String imageUrl, {
+    required double iconSize,
+    int? cacheWidth,
+    int? cacheHeight,
+  }) {
+    return ProductImage._(
+      imageUrl: imageUrl,
+      iconSize: iconSize,
+      cacheWidth: cacheWidth ?? thumbCachePx,
+      cacheHeight: cacheHeight ?? thumbCachePx,
+    );
+  }
+
   /// CDN host for relative product image paths (Sparkle default).
   static const String cdnBaseUrl = PrefService.defaultApiBaseUrl;
 

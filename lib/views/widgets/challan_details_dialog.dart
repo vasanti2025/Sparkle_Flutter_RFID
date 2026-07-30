@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 import '../../models/delivery_challan.dart';
 import '../../l10n/l10n_extension.dart';
+import '../../services/db_service.dart';
 import '../../utils/app_dropdown.dart';
+import '../../utils/product_image.dart';
 
 /// Rich per-item editor for a Delivery Challan line item, mirroring the Kotlin
 /// `DeliveryChallanDialogEditAndDisplay` composable and the Flutter
@@ -52,12 +55,16 @@ class _ChallanDetailsDialogState extends State<ChallanDetailsDialog> {
   String _itemAmt = '0.00';
   bool _grossHasFocus = false;
 
+  /// Read-only product image from item / local DB (not editable).
+  String _imageUrl = '';
+
   final FocusNode _grossFocusNode = FocusNode();
 
   @override
   void initState() {
     super.initState();
     final item = widget.item;
+    _imageUrl = item.image.trim();
 
     _totalWtCtrl = TextEditingController(text: item.totalWt);
     _packingWtCtrl = TextEditingController(text: item.packingWeight);
@@ -112,6 +119,55 @@ class _ChallanDetailsDialogState extends State<ChallanDetailsDialog> {
     });
 
     recalcAll();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadImageFromDatabase();
+    });
+  }
+
+  Future<void> _loadImageFromDatabase() async {
+    try {
+      final db = context.read<DbService>();
+      final keys = <String>[
+        widget.item.rfidCode.trim(),
+        widget.item.itemCode.trim(),
+      ].where((k) => k.isNotEmpty).toList();
+
+      String url = _imageUrl;
+      for (final key in keys) {
+        final found = await db.findBulkItemByScanKey(key);
+        final fromDb = found?.imageUrl.trim() ?? '';
+        if (fromDb.isNotEmpty) {
+          url = fromDb;
+          break;
+        }
+      }
+
+      if (!mounted) return;
+      if (url != _imageUrl) {
+        setState(() => _imageUrl = url);
+      }
+    } catch (_) {}
+  }
+
+  Widget _buildItemImage() {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: double.infinity,
+        height: 140,
+        color: const Color(0xFFF5F5F5),
+        alignment: Alignment.center,
+        child: _imageUrl.isEmpty
+            ? const Icon(Icons.image_outlined, size: 48, color: Colors.grey)
+            : ProductImage.fromUrl(
+                _imageUrl,
+                iconSize: 48,
+                cacheWidth: 480,
+                cacheHeight: 320,
+              ),
+      ),
+    );
   }
 
   void _onFieldChanged() => recalcAll();
@@ -242,24 +298,9 @@ class _ChallanDetailsDialogState extends State<ChallanDetailsDialog> {
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   children: [
-                    if (widget.item.image.isNotEmpty) ...[
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          width: double.infinity,
-                          height: 120,
-                          color: const Color(0xFFF5F5F5),
-                          alignment: Alignment.center,
-                          child: Image.network(
-                            widget.item.image,
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) =>
-                                const Icon(Icons.image, size: 48, color: Colors.grey),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
+                    // Read-only product image from database (top of edit dialog).
+                    _buildItemImage(),
+                    const SizedBox(height: 12),
                     _buildDisplayRow(s.productName, widget.item.productName),
                     _buildDisplayRow(s.itemCode, widget.item.itemCode),
                     _buildDisplayRow(s.skuCode, widget.item.sku),
@@ -399,6 +440,7 @@ class _ChallanDetailsDialogState extends State<ChallanDetailsDialog> {
       totalItemAmount: _itemAmt,
       netAmount: _itemAmt,
       totalAmount: _itemAmt,
+      image: _imageUrl.isNotEmpty ? _imageUrl : widget.item.image,
     );
 
     widget.onSave(updated);
