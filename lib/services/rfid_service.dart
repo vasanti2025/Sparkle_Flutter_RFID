@@ -405,6 +405,7 @@ class RfidService {
     List<String> simulatedScopeTags = const [],
     bool inventory = false,
     bool playStartSound = true,
+    List<String>? searchTags,
   }) async {
     if (_isScanning) {
       await stopScanning();
@@ -444,6 +445,9 @@ class RfidService {
         // a standard product-scan session (Order / Challan / Quotation / Search).
         if (!inventory) {
           await setInventoryScanMode(false);
+        }
+        if (searchTags != null && searchTags.isNotEmpty) {
+          await setSearchTags(searchTags);
         }
         await prepareForScan();
         await setPower(power);

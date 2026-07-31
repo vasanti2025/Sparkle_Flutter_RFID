@@ -111,6 +111,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     _tagsSubscription = _rfidService.tagsStream.listen(_onTagScanned);
     // Subscribe to physical trigger key presses
     _triggerSubscription = _rfidService.triggerStream.listen((_) {
+      if (!mounted) return;
+      final route = ModalRoute.of(context);
+      if (route != null && !route.isCurrent) return;
       _toggleScanning();
     });
   }
@@ -350,6 +353,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   void _checkAutoStopScan() {
     if (!_isScanning) return;
+    if (!mounted) return;
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) return;
     final scope = _getDisplayScopeItems();
     if (scope.isEmpty) return;
     final allMatched = scope.every((i) => i.currentScannedStatus == 'Matched');
@@ -414,7 +420,11 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   }
 
   void _onTagScanned(String tag) {
-    if (!_isScanning && !_rfidService.isScanning) return;
+    // Only handle tags while this screen owns the scan session.
+    if (!_isScanning) return;
+    if (!mounted) return;
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) return;
 
     final scannedEpc = tag.trim().toUpperCase();
     if (scannedEpc.isEmpty) return;
@@ -1455,8 +1465,13 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                                         title: s.searchUnmatched,
                                         icon: Icons.search,
                                         count: unmatchedCount,
-                                        onTap: () {
+                                        onTap: () async {
                                           setState(() => _showMenu = false);
+                                          if (_isScanning) {
+                                            await _rfidService.stopScanning();
+                                            await _rfidService.stopInventorySound();
+                                            if (mounted) setState(() => _isScanning = false);
+                                          }
                                           final unmatched = _scannedItems
                                               .where((item) => item.currentScannedStatus == 'Unmatched')
                                               .map((item) => item.originalBulkItem)
@@ -1926,8 +1941,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
               flex: 10,
               child: Center(
                 child: Icon(
-                  isMatched ? Icons.check_circle : Icons.error_outline,
-                  color: isMatched ? Colors.green : Colors.orange,
+                  isMatched ? Icons.check_circle : Icons.cancel,
+                  color: isMatched ? Colors.green : Colors.red,
                   size: 18,
                 ),
               ),
@@ -2004,8 +2019,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
               flex: 10,
               child: Center(
                 child: Icon(
-                  isMatched ? Icons.check_circle : Icons.error_outline,
-                  color: isMatched ? Colors.green : Colors.orange,
+                  isMatched ? Icons.check_circle : Icons.cancel,
+                  color: isMatched ? Colors.green : Colors.red,
                   size: 18,
                 ),
               ),

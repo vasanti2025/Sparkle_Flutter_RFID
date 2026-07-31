@@ -555,8 +555,7 @@ class HardwareControllerImpl(
             drainStaleBuffer()
             if (inventory) {
                 startInventoryLoopSound()
-            } else if (playStartSound && searchTags.isEmpty()) {
-                // Sparkle BulkViewModel.startScanning: playSound(1, 0) at Gscan start.
+            } else if (playStartSound) {
                 playSound(1, 0)
             }
             val started = uhf().startInventory()
@@ -611,7 +610,7 @@ class HardwareControllerImpl(
             trayManager.drainBuffer()
             if (inventory) {
                 startInventoryLoopSound()
-            } else if (playStartSound && searchTags.isEmpty()) {
+            } else if (playStartSound) {
                 playSound(1, 0)
             }
             isScanning = true
@@ -641,7 +640,7 @@ class HardwareControllerImpl(
             trayManager.drainBuffer()
             if (inventory) {
                 startInventoryLoopSound()
-            } else if (playStartSound && searchTags.isEmpty()) {
+            } else if (playStartSound) {
                 playSound(1, 0)
             }
             isScanning = true
@@ -657,8 +656,7 @@ class HardwareControllerImpl(
     }
 
     private fun stopRfidInventory(): Boolean {
-        searchTags.clear()
-        matchEpcs.clear()
+        // searchTags / matchEpcs cleared via clearSearchTags / clearMatchEpcs from Dart.
         inventoryScanMode = false
         scanningPermitted = false
         inventoryScopeEpcs.clear()

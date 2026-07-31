@@ -67,6 +67,7 @@ class _SearchScreenState extends State<SearchScreen> {
   StreamSubscription? _triggerSubscription;
   Timer? _debounceTimer;
   Timer? _uiFlushTimer;
+  bool _scanBusy = false;
 
   bool _isInit = false;
   bool _isLoading = false;
@@ -92,6 +93,9 @@ class _SearchScreenState extends State<SearchScreen> {
     });
     _tagsSubscription = _rfidService.tagsWithRssiStream.listen(_onTagScanned);
     _triggerSubscription = _rfidService.triggerStream.listen((_) {
+      if (!mounted) return;
+      final route = ModalRoute.of(context);
+      if (route != null && !route.isCurrent) return;
       _toggleScanning();
     });
     _loadPower();
@@ -111,6 +115,7 @@ class _SearchScreenState extends State<SearchScreen> {
           if (_listKey == 'unmatchedItems') {
             _searchItems = items.map((i) => _searchItemFromBulk(i)).toList();
             _rebuildTagIndex();
+            unawaited(_rfidService.prepareForScan());
           }
         });
       }
@@ -124,8 +129,10 @@ class _SearchScreenState extends State<SearchScreen> {
     _triggerSubscription?.cancel();
     _debounceTimer?.cancel();
     _uiFlushTimer?.cancel();
-    _rfidService.stopScanning();
-    _rfidService.clearSearchTags();
+    unawaited(_rfidService.stopInventorySound());
+    unawaited(_rfidService.stopSound());
+    unawaited(_rfidService.stopScanning());
+    unawaited(_rfidService.clearSearchTags());
     _searchController.dispose();
     super.dispose();
   }
@@ -162,6 +169,31 @@ class _SearchScreenState extends State<SearchScreen> {
       });
       _pendingItemUpdates.clear();
     });
+    _checkAutoStopSearch();
+  }
+
+  /// Stop when every item in the current list reaches max proximity (Sparkle Search).
+  void _checkAutoStopSearch() {
+    if (!_isScanning || _scanBusy) return;
+    final items = _getFilteredItems();
+    if (items.isEmpty) return;
+    if (items.every((i) => i.proximityPercent >= 100)) {
+      unawaited(_stopSearchScan());
+    }
+  }
+
+  Future<void> _stopSearchScan() async {
+    if (!_isScanning && !_rfidService.isScanning) return;
+    _scanBusy = true;
+    try {
+      await _rfidService.stopScanning();
+      await _rfidService.stopInventorySound();
+      await _rfidService.stopSound();
+      await _rfidService.clearSearchTags();
+      if (mounted) setState(() => _isScanning = false);
+    } finally {
+      _scanBusy = false;
+    }
   }
 
   void _scheduleSearchUiUpdate(int index, SearchItem updated) {
@@ -224,55 +256,84 @@ class _SearchScreenState extends State<SearchScreen> {
     if (index == null || index < 0 || index >= _searchItems.length) return;
 
     final proximity = convertRssiToProximity(rssi);
+    final current = _searchItems[index].proximityPercent;
     _scheduleSearchUiUpdate(
       index,
       _searchItems[index].copyWith(
         rssi: rssi,
-        proximityPercent: proximity,
+        proximityPercent: proximity > current ? proximity : current,
       ),
     );
   }
 
   void _toggleScanning() async {
+    if (_scanBusy) return;
+    if (!mounted) return;
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) return;
+
     if (_isScanning) {
-      await _rfidService.stopScanning();
-      await _rfidService.clearSearchTags();
-      setState(() {
-        _isScanning = false;
-      });
-    } else {
-      final itemsToSearch = _getFilteredItems();
-      if (itemsToSearch.isEmpty) {
-        _showToast(context.sRead.noItemsToSearch);
-        return;
-      }
-      
-      final tags = <String>[];
-      for (var item in itemsToSearch) {
-        if (item.epc.isNotEmpty) tags.add(item.epc);
-        if (item.rfid.isNotEmpty) tags.add(item.rfid);
-        if (item.itemCode.isNotEmpty) tags.add(item.itemCode);
-        if (item.tid.isNotEmpty) tags.add(item.tid);
-        if (item.hex.isNotEmpty) tags.add(item.hex);
-      }
-      
-      final cleanTags = tags.map((t) => t.trim().toUpperCase()).where((t) => t.isNotEmpty).toSet().toList();
-      if (cleanTags.isEmpty) {
-        _showToast(context.sRead.noSearchableIdentifiersFound);
-        return;
-      }
-      
-      await _rfidService.setSearchTags(cleanTags);
+      await _stopSearchScan();
+      return;
+    }
+
+    final itemsToSearch = _getFilteredItems();
+    if (itemsToSearch.isEmpty) {
+      _showToast(context.sRead.noItemsToSearch);
+      return;
+    }
+
+    final tags = <String>[];
+    for (var item in itemsToSearch) {
+      if (item.epc.isNotEmpty) tags.add(item.epc);
+      if (item.rfid.isNotEmpty) tags.add(item.rfid);
+      if (item.itemCode.isNotEmpty) tags.add(item.itemCode);
+      if (item.tid.isNotEmpty) tags.add(item.tid);
+      if (item.hex.isNotEmpty) tags.add(item.hex);
+    }
+
+    final cleanTags = tags
+        .map((t) => t.trim().toUpperCase())
+        .where((t) => t.isNotEmpty)
+        .toSet()
+        .toList();
+    if (cleanTags.isEmpty) {
+      _showToast(context.sRead.noSearchableIdentifiersFound);
+      return;
+    }
+
+    _scanBusy = true;
+    try {
+      // Instant tap feedback — single beep only; RSSI tones come from native during scan.
+      setState(() => _isScanning = true);
+      unawaited(_rfidService.playBeep());
       _rebuildTagIndex();
       _lastSearchUiUpdateUs = 0;
-      final started = await _rfidService.startScanning(
-        power: _selectedPower,
-      );
-      if (started) {
-        setState(() {
-          _isScanning = true;
-        });
+
+      final started = await _rfidService
+          .startScanning(
+            power: _selectedPower,
+            searchTags: cleanTags,
+            playStartSound: false,
+          )
+          .timeout(const Duration(seconds: 12), onTimeout: () => false);
+
+      if (!mounted) return;
+      if (!started) {
+        setState(() => _isScanning = false);
+        await _rfidService.stopSound();
+        await _rfidService.stopScanning();
+        await _rfidService.clearSearchTags();
+        _showToast(context.sRead.failedToStartRfidScanner);
       }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isScanning = false);
+        unawaited(_rfidService.stopSound());
+        _showToast(context.sRead.failedToStartRfidScanner);
+      }
+    } finally {
+      _scanBusy = false;
     }
   }
 
@@ -458,8 +519,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _resetSearch() {
-    _rfidService.stopScanning();
-    _rfidService.clearSearchTags();
+    unawaited(_stopSearchScan());
     _searchController.clear();
     setState(() {
       _searchQuery = '';
