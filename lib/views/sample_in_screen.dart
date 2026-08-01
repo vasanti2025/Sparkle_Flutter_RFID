@@ -15,6 +15,7 @@ import 'widgets/sample_out_fields_dialog.dart';
 import 'widgets/sample_print_pdf.dart';
 import '../utils/tag_scan_batcher.dart';
 import '../utils/barcode_scan_mixin.dart';
+import '../utils/tray_scan_auto_stop.dart';
 import '../utils/app_dropdown.dart';
 import 'widgets/scan_bottom_bar.dart';
 
@@ -39,15 +40,25 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
   bool _isSingleScan = false;
   Map<String, dynamic>? _pendingMatchIssue;
   Map<String, dynamic>? _pendingRemoveIssue;
+  late final TrayGscanAutoStopController _trayAutoStop;
   late final TagScanBatcher _tagBatcher;
 
   @override
   void initState() {
     super.initState();
+    _trayAutoStop = TrayGscanAutoStopController(
+      rfidService: _rfidService,
+      onStop: () async {
+        await _rfidService.stopScanning();
+        if (mounted) setState(() {});
+      },
+    );
     _tagBatcher = TagScanBatcher(
       onFlush: (tags) {
         if (!mounted || !_rfidService.isScanning) return;
-        context.read<SampleInViewModel>().processScannedTags(tags);
+        final vm = context.read<SampleInViewModel>();
+        _trayAutoStop.afterBatch(tags, vm.isTagInScanScope);
+        vm.processScannedTags(tags);
       },
     );
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -147,6 +158,7 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
       power: _power,
       simulatedScopeTags: scopeTags,
     );
+    if (started) _trayAutoStop.onScanStarted();
     if (mounted) setState(() {});
     if (!started && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(context.sRead.failedToStartRfidScanner)));

@@ -13,6 +13,7 @@ import '../services/pref_service.dart';
 import '../services/rfid_service.dart';
 import '../services/email_service.dart';
 import '../utils/product_image.dart';
+import '../utils/tray_scan_auto_stop.dart';
 import 'widgets/scan_bottom_bar.dart';
 
 class ScannedBulkItem {
@@ -93,6 +94,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   int _lastScanUiUpdateMs = 0;
   int _lastTriggerMs = 0;
   Timer? _scanUiFlushTimer;
+  final TrayInventoryScanSession _trayScanSession = TrayInventoryScanSession();
 
   List<ScannedBulkItem>? _cachedFilteredItems;
   Map<String, List<ScannedBulkItem>>? _cachedGroupedMap;
@@ -356,6 +358,15 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     if (!mounted) return;
     final route = ModalRoute.of(context);
     if (route != null && !route.isCurrent) return;
+
+    // Tray: stop once every tag physically on the tray is matched (not full list).
+    if (_rfidService.trayReaderActive) {
+      if (_trayScanSession.shouldStop(_matchedEpcSet)) {
+        _stopScanning();
+      }
+      return;
+    }
+
     final scope = _getDisplayScopeItems();
     if (scope.isEmpty) return;
     final allMatched = scope.every((i) => i.currentScannedStatus == 'Matched');
@@ -430,6 +441,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     if (scannedEpc.isEmpty) return;
 
     if (_filteredDbEpcSet.contains(scannedEpc)) {
+      if (_rfidService.trayReaderActive) {
+        _trayScanSession.recordInScope(scannedEpc, _filteredDbEpcSet);
+      }
       final masterIndex = _epcToMasterIndex[scannedEpc];
       if (masterIndex != null && masterIndex < _scannedItems.length) {
         _registerMatchForItem(_scannedItems[masterIndex], scannedEpc);
@@ -495,6 +509,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
     // Kotlin sets isScanning=true BEFORE hardware start.
     setState(() => _isScanning = true);
+    _trayScanSession.reset();
     unawaited(_rfidService.startInventorySound());
 
     if (_rfidService.isScanning) {
@@ -521,6 +536,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   void _stopScanning() async {
     if (!_isScanning) return;
+    _trayScanSession.reset();
     await _rfidService.stopScanning();
     await _rfidService.haltScan();
     _scanUiFlushTimer?.cancel();

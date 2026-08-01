@@ -9,6 +9,7 @@ import '../services/pref_service.dart';
 import '../services/rfid_service.dart';
 import '../viewmodels/stock_transfer_view_model.dart';
 import '../utils/app_dropdown.dart';
+import '../utils/tray_scan_auto_stop.dart';
 import 'widgets/product_form_widgets.dart';
 import 'widgets/scan_bottom_bar.dart';
 import 'widgets/stock_transfer_dialogs.dart';
@@ -34,6 +35,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
   String? _rfidIndexToken;
   Timer? _tagUiTimer;
   final Set<String> _pendingTagKeys = {};
+  final TrayGscanSession _trayGscanSession = TrayGscanSession();
   StockTransferViewModel? _vm;
 
   /// Sparkle: trim + uppercase + strip spaces before EPC/RFID match.
@@ -117,8 +119,22 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
     if (!_rfid.isScanning) return;
     final vm = context.read<StockTransferViewModel>();
     _syncRfidIndex(vm);
-    final key = _rfidToItemKey[_norm(epc)];
-    if (key == null || key.isEmpty || _checkedKeys.contains(key)) return;
+    final normEpc = _norm(epc);
+    final key = _rfidToItemKey[normEpc];
+    if (_rfid.trayReaderActive && !_isSingleScan) {
+      _trayGscanSession.recordSeen(normEpc);
+      if (key != null && key.isNotEmpty) {
+        _trayGscanSession.recordHandled(normEpc);
+      }
+    }
+    if (key == null || key.isEmpty || _checkedKeys.contains(key)) {
+      if (_rfid.trayReaderActive &&
+          !_isSingleScan &&
+          _trayGscanSession.shouldStop()) {
+        unawaited(_stopScanning());
+      }
+      return;
+    }
     _pendingTagKeys.add(key);
     _tagUiTimer?.cancel();
     _tagUiTimer = Timer(const Duration(milliseconds: 80), () {
@@ -131,11 +147,16 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
       if (_isSingleScan) {
         unawaited(_rfid.playBeep());
         unawaited(_stopScanning());
+      } else if (_rfid.trayReaderActive &&
+          _rfid.isScanning &&
+          _trayGscanSession.shouldStop()) {
+        unawaited(_stopScanning());
       }
     });
   }
 
   Future<void> _stopScanning() async {
+    _trayGscanSession.reset();
     await _rfid.stopScanning();
     if (mounted) {
       setState(() {
@@ -180,6 +201,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
     }
     _isSingleScan = false;
     await _rfid.stopScanning();
+    _trayGscanSession.reset();
     final started = await _rfid.startScanning(power: _power);
     if (mounted) {
       setState(() => _isBulkScanning = started);
@@ -188,6 +210,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
 
   void _resetScan() {
     unawaited(_rfid.stopScanning());
+    _trayGscanSession.reset();
     setState(() {
       _isBulkScanning = false;
       _isSingleScan = false;

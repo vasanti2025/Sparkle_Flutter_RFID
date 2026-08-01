@@ -22,6 +22,7 @@ import 'widgets/order_bulk_details_dialog.dart';
 import '../utils/tag_scan_batcher.dart';
 import '../utils/barcode_scan_mixin.dart';
 import '../utils/stretch_table_widths.dart';
+import '../utils/tray_scan_auto_stop.dart';
 
 // Brand gradient used across the screen (matches Sparkle Kotlin app).
 const _brandGradient = LinearGradient(
@@ -58,6 +59,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
 
   // Item-code suggestion results (SQL search — no full inventory in RAM).
   List<BulkItem> _itemSuggestions = [];
+  late final TrayGscanAutoStopController _trayAutoStop;
   late final TagScanBatcher _tagBatcher;
   Timer? _suggestTimer;
 
@@ -65,9 +67,21 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
   void initState() {
     super.initState();
     _power = context.read<PrefService>().orderPower;
+    _trayAutoStop = TrayGscanAutoStopController(
+      rfidService: _rfidService,
+      onStop: () async {
+        await _rfidService.stopScanning();
+        if (mounted) setState(() {});
+      },
+    );
     _tagBatcher = TagScanBatcher(
       onFlush: (tags) {
         if (!mounted || !_rfidService.isScanning) return;
+        final db = context.read<DbService>();
+        _trayAutoStop.afterBatch(
+          tags,
+          (tag) => db.findBulkItemByScanKeySync(tag) != null,
+        );
         context.read<OrderViewModel>().processScannedTags(tags);
       },
     );
@@ -319,6 +333,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
     unawaited(_rfidService.prepareProductScanMatchSet(db));
 
     final started = await _rfidService.startScanning(power: _power);
+    if (started) _trayAutoStop.onScanStarted();
     if (mounted) setState(() {});
     if (!started && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

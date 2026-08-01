@@ -16,6 +16,7 @@ import 'widgets/add_customer_dialog.dart';
 import 'widgets/quotation_pdf.dart';
 import '../utils/tag_scan_batcher.dart';
 import '../utils/barcode_scan_mixin.dart';
+import '../utils/tray_scan_auto_stop.dart';
 import 'widgets/order_bulk_details_dialog.dart';
 
 const _brandGradient = LinearGradient(
@@ -50,15 +51,28 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
   bool _isSingleScan = false;
 
   List<BulkItem> _itemSuggestions = [];
+  late final TrayGscanAutoStopController _trayAutoStop;
   late final TagScanBatcher _tagBatcher;
   Timer? _suggestTimer;
 
   @override
   void initState() {
     super.initState();
+    _trayAutoStop = TrayGscanAutoStopController(
+      rfidService: _rfidService,
+      onStop: () async {
+        await _rfidService.stopScanning();
+        if (mounted) setState(() {});
+      },
+    );
     _tagBatcher = TagScanBatcher(
       onFlush: (tags) {
         if (!mounted || !_rfidService.isScanning) return;
+        final db = context.read<DbService>();
+        _trayAutoStop.afterBatch(
+          tags,
+          (tag) => db.findBulkItemByScanKeySync(tag) != null,
+        );
         context.read<QuotationViewModel>().processScannedTags(tags);
       },
     );
@@ -268,6 +282,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
     unawaited(_rfidService.prepareProductScanMatchSet(context.read<DbService>()));
 
     final started = await _rfidService.startScanning(power: _power);
+    if (started) _trayAutoStop.onScanStarted();
     if (mounted) setState(() {});
     if (!started && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

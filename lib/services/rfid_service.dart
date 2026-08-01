@@ -39,6 +39,9 @@ class RfidService {
   bool get bleReaderActive =>
       (_trayModeEnabled && _trayConnected) || (_r6ModeEnabled && _r6Connected);
 
+  /// BLE tray reader only (not R6 handheld sled).
+  bool get trayReaderActive => _trayModeEnabled && _trayConnected;
+
   int _power = 5;
   int get power => _power;
 

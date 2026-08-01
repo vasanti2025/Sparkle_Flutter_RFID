@@ -300,6 +300,30 @@ class SampleInViewModel extends ChangeNotifier {
     ].where((c) => c.isNotEmpty).toList();
   }
 
+  /// Whether a tray tag maps to an item in the active Sample Out issue list.
+  bool isTagInScanScope(String tag) {
+    if (issueItems.isEmpty) return false;
+    final scanned = normSampleCode(tag);
+    if (scanned.isEmpty) return false;
+
+    for (final issue in issueItems) {
+      final itemCode = normSampleCode(issue['ItemCode']?.toString());
+      final rfid = normSampleCode(issue['RFIDCode']?.toString());
+      final tid = normSampleCode(issue['TIDNumber']?.toString());
+      if (scanned == itemCode || scanned == rfid || scanned == tid) {
+        return true;
+      }
+    }
+
+    final bulk = _findBulkItemByCode(scanned);
+    if (bulk == null) return false;
+    final issueItemCodes = issueItems
+        .map((i) => normSampleCode(i['ItemCode']?.toString()))
+        .where((c) => c.isNotEmpty)
+        .toSet();
+    return issueItemCodes.contains(normSampleCode(bulk.itemCode));
+  }
+
   void manualMatchIssue(Map<String, dynamic> issue) {
     _scannedCodes.addAll(_codesForIssue(issue));
     notifyListeners();

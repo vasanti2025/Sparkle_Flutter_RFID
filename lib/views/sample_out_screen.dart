@@ -17,6 +17,7 @@ import 'widgets/challan_details_dialog.dart';
 import '../utils/tag_scan_batcher.dart';
 import '../utils/barcode_scan_mixin.dart';
 import '../utils/stretch_table_widths.dart';
+import '../utils/tray_scan_auto_stop.dart';
 import 'widgets/sample_print_pdf.dart';
 
 class SampleOutScreen extends StatefulWidget {
@@ -39,6 +40,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
   int _power = 30;
   bool _isSingleScan = false;
   List<BulkItem> _itemSuggestions = [];
+  late final TrayGscanAutoStopController _trayAutoStop;
   late final TagScanBatcher _tagBatcher;
   Timer? _suggestTimer;
 
@@ -51,9 +53,21 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
   @override
   void initState() {
     super.initState();
+    _trayAutoStop = TrayGscanAutoStopController(
+      rfidService: _rfidService,
+      onStop: () async {
+        await _rfidService.stopScanning();
+        if (mounted) setState(() {});
+      },
+    );
     _tagBatcher = TagScanBatcher(
       onFlush: (tags) {
         if (!mounted || !_rfidService.isScanning) return;
+        final db = context.read<DbService>();
+        _trayAutoStop.afterBatch(
+          tags,
+          (tag) => db.findBulkItemByScanKeySync(tag) != null,
+        );
         context.read<SampleOutViewModel>().processScannedTags(tags);
       },
     );
@@ -160,6 +174,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
 
     await _rfidService.prepareProductScanMatchSet(context.read<DbService>());
     final started = await _rfidService.startScanning(power: _power);
+    if (started) _trayAutoStop.onScanStarted();
     if (mounted) setState(() {});
     if (!started && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
