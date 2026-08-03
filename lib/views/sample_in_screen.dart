@@ -464,7 +464,7 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
                               decoration: InputDecoration(
                                 isCollapsed: true,
                                 border: InputBorder.none,
-                                hintText: vm.selectedCustomer == null ? s.selectCustomerFirst : s.enterSampleOutNo,
+                                hintText: s.enterSampleOutNo,
                                 hintStyle: GoogleFonts.poppins(fontSize: 12, color: Colors.grey),
                               ),
                               onChanged: (v) => setState(() => _showSampleOutSuggestions = v.isNotEmpty),

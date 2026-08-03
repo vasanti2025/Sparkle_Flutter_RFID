@@ -989,7 +989,7 @@ class AppStrings {
       'mobileLabel': 'Mobile: {mobile}',
       'mobileGstLabel': 'Mobile: {mobile} | GST: {gst}',
       'selectCustomerFirst': 'Select customer first',
-      'enterSampleOutNo': 'Enter Sample Out No',
+      'enterSampleOutNo': 'Enter SampleOut No',
       'sampleOutItemsCount': '{no} ({count} items)',
       'sampleInSavedSuccessfully': 'Sample In saved successfully',
       'failedToSaveSampleIn': 'Failed to save Sample In',
