@@ -42,6 +42,9 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
   bool _isLoading = false;
   bool _isSingleScan = false;
   bool _tagScannedInSession = false;
+  bool _scanBusy = false;
+  int _scanGeneration = 0;
+  int _lastTriggerMs = 0;
   Timer? _singleScanTimer;
   late final TagScanBatcher _tagBatcher;
   final List<DesktopTag> _pendingTags = [];
@@ -74,6 +77,13 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
       onFlush: (tags) => _processTagBatch(tags),
     );
     _initDeviceAndServer();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      if (_rfidService.isScanning) {
+        await _stopScanning();
+      }
+    });
     
     // Subscribe to RFID scanned tag events
     _tagsSubscription = _rfidService.tagsStream.listen((tag) {
@@ -86,6 +96,10 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     
     // Subscribe to gun key triggers
     _triggerSubscription = _rfidService.triggerStream.listen((_) {
+      if (!mounted || _scanBusy) return;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - _lastTriggerMs < 300) return;
+      _lastTriggerMs = now;
       _handleHardwareTrigger();
     });
   }
@@ -97,7 +111,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     _singleScanTimer?.cancel();
     _uiFlushTimer?.cancel();
     _tagBatcher.dispose();
-    _rfidService.stopScanning();
+    unawaited(_stopScanning());
     _stopWebServer();
     super.dispose();
   }
@@ -261,7 +275,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     }
 
     if (toAdd.isEmpty) {
-      if (_isSingleScan) _stopScanning();
+      if (_isSingleScan) unawaited(_stopScanning());
       return;
     }
 
@@ -269,7 +283,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     _scheduleUiFlush();
 
     if (_isSingleScan) {
-      _stopScanning();
+      unawaited(_stopScanning());
     }
   }
 
@@ -284,55 +298,123 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     });
   }
 
-  void _startSingleScan() async {
-    _singleScanTimer?.cancel();
-    if (_isScanning) {
-      await _rfidService.stopScanning();
-    }
-    setState(() {
-      _isScanning = true;
-      _isSingleScan = true;
-      _tagScannedInSession = false;
-    });
-    
-    // Start scanning with power 20 (standard single scan power)
-    await _rfidService.startScanning(power: 20);
+  Future<void> _startSingleScan() async {
+    if (_scanBusy) return;
 
-    // Timeout single scan after 2 seconds
-    _singleScanTimer = Timer(const Duration(seconds: 2), () {
-      if (_isSingleScan && _isScanning) {
-        _stopScanning();
+    if (_isScanning && _isSingleScan) {
+      await _stopScanning();
+      return;
+    }
+
+    _scanBusy = true;
+    _singleScanTimer?.cancel();
+    final gen = ++_scanGeneration;
+    if (mounted) {
+      setState(() {
+        _isScanning = true;
+        _isSingleScan = true;
+        _tagScannedInSession = false;
+      });
+    }
+
+    try {
+      if (_rfidService.isScanning) {
+        await _rfidService.stopScanning();
+        await _rfidService.haltScan();
       }
-    });
-  }
 
-  void _startGScan() async {
-    _singleScanTimer?.cancel();
-    if (_isScanning) {
-      await _rfidService.stopScanning();
+      final started = await _rfidService.startScanning(power: 20);
+      if (gen != _scanGeneration) {
+        if (started) {
+          await _rfidService.stopScanning();
+          await _rfidService.haltScan();
+        }
+        return;
+      }
+
+      if (!started && mounted) {
+        setState(() {
+          _isScanning = false;
+          _isSingleScan = false;
+        });
+        return;
+      }
+
+      _singleScanTimer = Timer(const Duration(seconds: 2), () {
+        if (_isSingleScan && _isScanning) {
+          unawaited(_stopScanning());
+        }
+      });
+    } finally {
+      _scanBusy = false;
+      if (mounted) setState(() {});
     }
-    setState(() {
-      _isScanning = true;
-      _isSingleScan = false;
-    });
-    await _rfidService.startScanning(power: _selectedPower);
   }
 
-  void _stopScanning() async {
+  Future<void> _startGScan() async {
+    if (_scanBusy) return;
+
+    if (_isScanning && !_isSingleScan) {
+      await _stopScanning();
+      return;
+    }
+
+    _scanBusy = true;
     _singleScanTimer?.cancel();
-    if (!_isScanning) return;
+    final gen = ++_scanGeneration;
+    if (mounted) {
+      setState(() {
+        _isScanning = true;
+        _isSingleScan = false;
+      });
+    }
+
+    try {
+      if (_rfidService.isScanning) {
+        await _rfidService.stopScanning();
+        await _rfidService.haltScan();
+      }
+
+      final started = await _rfidService.startScanning(power: _selectedPower);
+      if (gen != _scanGeneration) {
+        if (started) {
+          await _rfidService.stopScanning();
+          await _rfidService.haltScan();
+        }
+        return;
+      }
+
+      if (!started && mounted) {
+        setState(() => _isScanning = false);
+      }
+    } finally {
+      _scanBusy = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _stopScanning() async {
+    _scanGeneration++;
+    _singleScanTimer?.cancel();
+    if (!_isScanning && !_rfidService.isScanning) {
+      await _rfidService.haltScan();
+      return;
+    }
+    if (mounted) {
+      setState(() {
+        _isScanning = false;
+        _isSingleScan = false;
+      });
+    }
     await _rfidService.stopScanning();
-    setState(() {
-      _isScanning = false;
-      _isSingleScan = false;
-    });
+    await _rfidService.haltScan();
   }
 
   void _handleHardwareTrigger() {
     if (_isScanning) {
-      _stopScanning();
+      unawaited(_stopScanning());
     } else {
-      _startGScan();
+      unawaited(_startGScan());
     }
   }
 
@@ -460,12 +542,26 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
   }
 
 
-  void _resetScanning() {
-    _stopScanning();
-    setState(() {
-      _desktopScans.clear();
-    });
-    _showToast(context.sRead.scanResetSuccessful);
+  Future<void> _resetScanning() async {
+    if (_scanBusy) return;
+    _scanBusy = true;
+    if (mounted) setState(() {});
+    try {
+      await _stopScanning();
+      _tagBatcher.flushNow();
+      _pendingTags.clear();
+      _uiFlushTimer?.cancel();
+      _uiFlushTimer = null;
+      if (mounted) {
+        setState(() {
+          _desktopScans.clear();
+        });
+        _showToast(context.sRead.scanResetSuccessful);
+      }
+    } finally {
+      _scanBusy = false;
+      if (mounted) setState(() {});
+    }
   }
 
   void _showManualRfidDialog(int index) {
@@ -723,21 +819,9 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
               ScanBottomBarDesktop(
                 onSave: _saveScansToServer,
                 onClear: _showClearConfirmationDialog,
-                onScan: () {
-                  if (_isScanning && _isSingleScan) {
-                    _stopScanning();
-                  } else {
-                    _startSingleScan();
-                  }
-                },
-                onGscan: () {
-                  if (_isScanning && !_isSingleScan) {
-                    _stopScanning();
-                  } else {
-                    _startGScan();
-                  }
-                },
-                onReset: _resetScanning,
+                onScan: () => unawaited(_startSingleScan()),
+                onGscan: () => unawaited(_startGScan()),
+                onReset: () => unawaited(_resetScanning()),
                 isScanning: _isScanning && _isSingleScan,
                 isBulkScanning: _isScanning && !_isSingleScan,
               ),

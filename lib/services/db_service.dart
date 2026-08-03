@@ -1062,6 +1062,21 @@ class DbService {
     return _mapsToBulkItems(maps);
   }
 
+  Future<({List<String> categories, List<String> products, List<String> designs})>
+      getLocalDropdownData() async {
+    final db = await database;
+    final results = await Future.wait([
+      db.query('local_categories', orderBy: 'name'),
+      db.query('local_products', orderBy: 'name'),
+      db.query('local_designs', orderBy: 'name'),
+    ]);
+    return (
+      categories: results[0].map((r) => r['name'] as String).toList(),
+      products: results[1].map((r) => r['name'] as String).toList(),
+      designs: results[2].map((r) => r['name'] as String).toList(),
+    );
+  }
+
   Future<List<String>> getLocalCategories() async {
     final db = await database;
     final rows = await db.query('local_categories', orderBy: 'name');

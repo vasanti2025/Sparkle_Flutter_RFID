@@ -67,6 +67,7 @@ class _SearchScreenState extends State<SearchScreen> {
   StreamSubscription? _triggerSubscription;
   Timer? _debounceTimer;
   Timer? _uiFlushTimer;
+  Timer? _proximityDecayTimer;
   bool _scanBusy = false;
 
   bool _isInit = false;
@@ -82,6 +83,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   // O(1) tag lookup — mirrors Kotlin SearchViewModel.epcToIndex
   final Map<String, int> _tagIndexMap = {};
+  final Map<int, int> _lastRssiUpdateMs = {};
   int _lastSearchUiUpdateUs = 0;
   final Map<int, SearchItem> _pendingItemUpdates = {};
 
@@ -129,6 +131,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _triggerSubscription?.cancel();
     _debounceTimer?.cancel();
     _uiFlushTimer?.cancel();
+    _proximityDecayTimer?.cancel();
     unawaited(_rfidService.stopInventorySound());
     unawaited(_rfidService.stopSound());
     unawaited(_rfidService.stopScanning());
@@ -141,6 +144,47 @@ class _SearchScreenState extends State<SearchScreen> {
     final power = context.read<PrefService>().searchPower;
     if (mounted) setState(() => _selectedPower = power.clamp(1, 30));
     _rfidService.setPower(power);
+  }
+
+  bool _itemMatchesScannedTag(SearchItem item, String epc) {
+    final key = epc.trim().toUpperCase();
+    if (key.isEmpty) return false;
+    for (final value in [item.epc, item.rfid, item.itemCode, item.tid, item.hex]) {
+      if (value.trim().toUpperCase() == key) return true;
+    }
+    return false;
+  }
+
+  void _startProximityDecay() {
+    _proximityDecayTimer?.cancel();
+    _proximityDecayTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
+      if (!_isScanning || !mounted) return;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      var changed = false;
+      for (int i = 0; i < _searchItems.length; i++) {
+        final last = _lastRssiUpdateMs[i];
+        if (last == null) continue;
+        // No fresh RSSI for this row — decay so progress drops when tag moves away.
+        if (now - last > 350) {
+          final current = _pendingItemUpdates[i]?.proximityPercent ??
+              _searchItems[i].proximityPercent;
+          if (current > 0) {
+            final next = (current - 12).clamp(0, 100);
+            _pendingItemUpdates[i] = (_pendingItemUpdates[i] ?? _searchItems[i])
+                .copyWith(proximityPercent: next);
+            changed = true;
+            if (next == 0) _lastRssiUpdateMs.remove(i);
+          }
+        }
+      }
+      if (changed) _flushPendingSearchUpdates();
+    });
+  }
+
+  void _stopProximityDecay() {
+    _proximityDecayTimer?.cancel();
+    _proximityDecayTimer = null;
+    _lastRssiUpdateMs.clear();
   }
 
   void _rebuildTagIndex() {
@@ -186,6 +230,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (!_isScanning && !_rfidService.isScanning) return;
     _scanBusy = true;
     try {
+      _stopProximityDecay();
       await _rfidService.stopScanning();
       await _rfidService.stopInventorySound();
       await _rfidService.stopSound();
@@ -229,12 +274,18 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
+  /// Matches Sparkle SearchViewModel + native [playRssiSearchSound] buckets:
+  /// lower |RSSI| = closer (stronger signal), higher |RSSI| = farther.
   int convertRssiToProximity(String rssi) {
     try {
-      final rssiValue = double.parse(rssi.trim());
-      return (((rssiValue + 80).clamp(0.0, 40.0)) * 100 / 40).toInt().clamp(0, 100);
+      final raw = rssi.trim();
+      if (raw.isEmpty) return -1;
+      final rssiValue = double.parse(raw);
+      if (rssiValue == 0) return -1;
+      final magnitude = rssiValue.abs();
+      return (((80 - magnitude).clamp(0.0, 40.0)) * 100 / 40).toInt().clamp(0, 100);
     } catch (_) {
-      return 0;
+      return -1;
     }
   }
 
@@ -252,18 +303,37 @@ class _SearchScreenState extends State<SearchScreen> {
     final rssi = (tagEvent['rssi'] as String? ?? '').trim();
     if (epc.isEmpty) return;
 
-    final index = _tagIndexMap[epc];
-    if (index == null || index < 0 || index >= _searchItems.length) return;
-
     final proximity = convertRssiToProximity(rssi);
-    final current = _searchItems[index].proximityPercent;
-    _scheduleSearchUiUpdate(
-      index,
-      _searchItems[index].copyWith(
-        rssi: rssi,
-        proximityPercent: proximity > current ? proximity : current,
-      ),
-    );
+    if (proximity < 0) return;
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    var updatedAny = false;
+
+    for (int i = 0; i < _searchItems.length; i++) {
+      if (!_itemMatchesScannedTag(_searchItems[i], epc)) continue;
+      _lastRssiUpdateMs[i] = now;
+      _scheduleSearchUiUpdate(
+        i,
+        _searchItems[i].copyWith(
+          rssi: rssi,
+          proximityPercent: proximity,
+        ),
+      );
+      updatedAny = true;
+    }
+
+    if (!updatedAny) {
+      final index = _tagIndexMap[epc];
+      if (index == null || index < 0 || index >= _searchItems.length) return;
+      _lastRssiUpdateMs[index] = now;
+      _scheduleSearchUiUpdate(
+        index,
+        _searchItems[index].copyWith(
+          rssi: rssi,
+          proximityPercent: proximity,
+        ),
+      );
+    }
   }
 
   void _toggleScanning() async {
@@ -309,6 +379,7 @@ class _SearchScreenState extends State<SearchScreen> {
       unawaited(_rfidService.playBeep());
       _rebuildTagIndex();
       _lastSearchUiUpdateUs = 0;
+      _startProximityDecay();
 
       final started = await _rfidService
           .startScanning(
@@ -320,6 +391,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
       if (!mounted) return;
       if (!started) {
+        _stopProximityDecay();
         setState(() => _isScanning = false);
         await _rfidService.stopSound();
         await _rfidService.stopScanning();
@@ -328,6 +400,7 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     } catch (e) {
       if (mounted) {
+        _stopProximityDecay();
         setState(() => _isScanning = false);
         unawaited(_rfidService.stopSound());
         _showToast(context.sRead.failedToStartRfidScanner);
@@ -520,6 +593,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _resetSearch() {
     unawaited(_stopSearchScan());
+    _stopProximityDecay();
     _searchController.clear();
     setState(() {
       _searchQuery = '';

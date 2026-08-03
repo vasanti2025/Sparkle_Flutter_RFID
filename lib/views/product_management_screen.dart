@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:rfid_flutter/utils/app_fonts.dart';
 import 'package:provider/provider.dart';
@@ -5,6 +6,7 @@ import '../l10n/l10n_extension.dart';
 import '../services/db_service.dart';
 import '../services/excel_product_service.dart';
 import '../viewmodels/product_view_model.dart';
+import '../viewmodels/bulk_product_view_model.dart';
 import 'import_excel_flow.dart';
 
 class ProductManagementScreen extends StatefulWidget {
@@ -25,6 +27,10 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
     super.initState();
     _vm = context.read<ProductViewModel>();
     _vm!.addListener(_onVmChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(context.read<BulkProductViewModel>().loadDropdowns());
+    });
   }
 
   @override

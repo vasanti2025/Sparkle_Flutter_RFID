@@ -23,9 +23,12 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
   bool _applyItemCodeToAll = false;
   bool _applyRfidToAll = false;
   int _power = 5;
+  bool _scanBusy = false;
+  int _lastTriggerMs = 0;
   final Map<int, TextEditingController> _itemCodeCtrls = {};
   final Map<int, TextEditingController> _rfidCtrls = {};
   StreamSubscription<void>? _triggerSub;
+  BulkProductViewModel? _vm;
 
   static const _typeKeys = {
     'Category': 'fieldCategory',
@@ -40,18 +43,39 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
   void initState() {
     super.initState();
     _power = context.read<PrefService>().productPower;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
       final vm = context.read<BulkProductViewModel>();
-      vm.loadDropdowns();
+      _vm = vm;
+      if (vm.isScanning) {
+        await vm.stopScanning();
+      }
+      unawaited(vm.loadDropdowns());
       _triggerSub = vm.rfidService.triggerStream.listen((_) {
-        if (!mounted) return;
-        if (vm.isScanning) {
-          vm.stopScanning();
+        if (!mounted || _scanBusy) return;
+        final now = DateTime.now().millisecondsSinceEpoch;
+        if (now - _lastTriggerMs < 300) return;
+        _lastTriggerMs = now;
+        final currentVm = context.read<BulkProductViewModel>();
+        if (currentVm.isScanning) {
+          unawaited(_stopAllScan(currentVm));
         } else {
-          _toggleGscan(vm);
+          unawaited(_toggleGscan(currentVm));
         }
       });
     });
+  }
+
+  Future<void> _stopAllScan(BulkProductViewModel vm) async {
+    if (_scanBusy) return;
+    _scanBusy = true;
+    try {
+      await vm.stopScanning();
+      vm.setBulkMode(false);
+    } finally {
+      _scanBusy = false;
+      if (mounted) setState(() {});
+    }
   }
 
   Future<void> _showAddDialog(String type, BulkProductViewModel vm) async {
@@ -95,32 +119,79 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
   }
 
   Future<void> _toggleGscan(BulkProductViewModel vm) async {
+    if (_scanBusy) return;
+
     if (vm.isScanning && vm.isBulkMode) {
-      await vm.stopScanning();
+      await _stopAllScan(vm);
       return;
     }
-    if (vm.isScanning) await vm.stopScanning();
-    vm.setBulkMode(true);
-    final started = await vm.startScanning(power: _power);
-    if (!started && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.sRead.tr('failedToStartRfidScanner'))),
-      );
+
+    _scanBusy = true;
+    if (mounted) setState(() {});
+    try {
+      if (vm.isScanning) await vm.stopScanning();
+      vm.setBulkMode(true);
+      final started = await vm.startScanning(power: _power);
+      if (!started && mounted) {
+        vm.setBulkMode(false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.sRead.tr('failedToStartRfidScanner'))),
+        );
+      }
+    } finally {
+      _scanBusy = false;
+      if (mounted) setState(() {});
     }
   }
 
   Future<void> _singleScan(BulkProductViewModel vm) async {
+    if (_scanBusy) return;
+
     if (vm.isScanning && !vm.isBulkMode) {
-      await vm.stopScanning();
+      await _stopAllScan(vm);
       return;
     }
-    if (vm.isScanning) await vm.stopScanning();
-    vm.setBulkMode(false);
-    final started = await vm.startScanning(power: _power, playStartSound: false);
-    if (!started && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.sRead.tr('failedToStartRfidScanner'))),
-      );
+
+    _scanBusy = true;
+    if (mounted) setState(() {});
+    try {
+      if (vm.isScanning) await vm.stopScanning();
+      vm.setBulkMode(false);
+      final started = await vm.startScanning(power: _power, playStartSound: false);
+      if (!started && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.sRead.tr('failedToStartRfidScanner'))),
+        );
+      }
+    } finally {
+      _scanBusy = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _resetAll(BulkProductViewModel vm) async {
+    if (_scanBusy) return;
+    _scanBusy = true;
+    if (mounted) setState(() {});
+    try {
+      await vm.resetScanResults();
+      for (final c in _itemCodeCtrls.values) {
+        c.dispose();
+      }
+      for (final c in _rfidCtrls.values) {
+        c.dispose();
+      }
+      _itemCodeCtrls.clear();
+      _rfidCtrls.clear();
+      if (mounted) {
+        setState(() {
+          _applyItemCodeToAll = false;
+          _applyRfidToAll = false;
+        });
+      }
+    } finally {
+      _scanBusy = false;
+      if (mounted) setState(() {});
     }
   }
 
@@ -150,7 +221,15 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(s.tr('itemsSavedSuccessfully'))),
       );
-      vm.resetScanResults();
+      await vm.resetScanResults();
+      for (final c in _itemCodeCtrls.values) {
+        c.dispose();
+      }
+      for (final c in _rfidCtrls.values) {
+        c.dispose();
+      }
+      _itemCodeCtrls.clear();
+      _rfidCtrls.clear();
       Navigator.pop(context);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -185,6 +264,7 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
   @override
   void dispose() {
     _triggerSub?.cancel();
+    unawaited(_vm?.stopScanning());
     for (final c in _itemCodeCtrls.values) {
       c.dispose();
     }
@@ -387,24 +467,9 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
           ScanBottomBar(
             onSave: () => _save(vm),
             onList: () => Navigator.pushNamed(context, '/product_list'),
-            onScan: () => _singleScan(vm),
-            onGscan: () => _toggleGscan(vm),
-            onReset: () {
-              vm.stopScanning();
-              vm.resetScanResults();
-              for (final c in _itemCodeCtrls.values) {
-                c.dispose();
-              }
-              for (final c in _rfidCtrls.values) {
-                c.dispose();
-              }
-              _itemCodeCtrls.clear();
-              _rfidCtrls.clear();
-              setState(() {
-                _applyItemCodeToAll = false;
-                _applyRfidToAll = false;
-              });
-            },
+            onScan: () => unawaited(_singleScan(vm)),
+            onGscan: () => unawaited(_toggleGscan(vm)),
+            onReset: () => unawaited(_resetAll(vm)),
             isScanning: vm.isScanning && !vm.isBulkMode,
             isBulkScanning: vm.isScanning && vm.isBulkMode,
           ),

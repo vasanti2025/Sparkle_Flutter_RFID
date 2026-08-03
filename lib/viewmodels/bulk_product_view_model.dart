@@ -12,10 +12,10 @@ class ScannedTagRow {
 }
 
 class BulkProductViewModel extends ChangeNotifier {
+  BulkProductViewModel({required DbService dbService}) : _dbService = dbService;
+
   final DbService _dbService;
   final RfidService _rfidService = RfidService();
-
-  BulkProductViewModel({required DbService dbService}) : _dbService = dbService;
 
   List<String> _categories = [];
   List<String> _products = [];
@@ -26,7 +26,9 @@ class BulkProductViewModel extends ChangeNotifier {
 
   bool _isBulkMode = false;
   bool _isScanning = false;
+  bool _dropdownsLoaded = false;
   int? _lastClickedIndex;
+  int _scanGeneration = 0;
   StreamSubscription<String>? _tagSub;
   Timer? _notifyDebounce;
 
@@ -45,29 +47,33 @@ class BulkProductViewModel extends ChangeNotifier {
   Map<int, String> get rfidCodes => Map.unmodifiable(_rfidCodes);
   bool get isBulkMode => _isBulkMode;
   bool get isScanning => _isScanning;
+  bool get dropdownsLoaded => _dropdownsLoaded;
   int? get lastClickedIndex => _lastClickedIndex;
   RfidService get rfidService => _rfidService;
 
-  Future<void> loadDropdowns() async {
-    _categories = await _dbService.getLocalCategories();
-    _products = await _dbService.getLocalProducts();
-    _designs = await _dbService.getLocalDesigns();
+  Future<void> loadDropdowns({bool force = false}) async {
+    if (_dropdownsLoaded && !force) return;
+    final data = await _dbService.getLocalDropdownData();
+    _categories = data.categories;
+    _products = data.products;
+    _designs = data.designs;
+    _dropdownsLoaded = true;
     notifyListeners();
   }
 
   Future<void> addLocalCategory(String name) async {
     await _dbService.insertLocalCategory(name);
-    await loadDropdowns();
+    await loadDropdowns(force: true);
   }
 
   Future<void> addLocalProduct(String name) async {
     await _dbService.insertLocalProduct(name);
-    await loadDropdowns();
+    await loadDropdowns(force: true);
   }
 
   Future<void> addLocalDesign(String name) async {
     await _dbService.insertLocalDesign(name);
-    await loadDropdowns();
+    await loadDropdowns(force: true);
   }
 
   void setLastClickedIndex(int? index) {
@@ -83,6 +89,7 @@ class BulkProductViewModel extends ChangeNotifier {
   }
 
   void setBulkMode(bool value) {
+    if (_isBulkMode == value) return;
     _isBulkMode = value;
     notifyListeners();
   }
@@ -93,6 +100,7 @@ class BulkProductViewModel extends ChangeNotifier {
   }
 
   void _onTagScanned(String rawEpc) {
+    if (!_isScanning) return;
     final epc = rawEpc.trim().toUpperCase();
     if (epc.isEmpty) return;
 
@@ -109,8 +117,7 @@ class BulkProductViewModel extends ChangeNotifier {
         }
         _scannedTags[idx] = ScannedTagRow(epc: epc, tid: epc);
       }
-      stopScanning();
-      // Sparkle startSingleScan: playSound(1) when tag found.
+      unawaited(stopScanning());
       unawaited(_rfidService.playBeep());
     }
     _scheduleNotify();
@@ -121,24 +128,45 @@ class BulkProductViewModel extends ChangeNotifier {
     List<String> simulatedScopeTags = const [],
     bool playStartSound = true,
   }) async {
+    final gen = ++_scanGeneration;
     listenToTags();
+    _isScanning = true;
+    notifyListeners();
+
     final started = await _rfidService.startScanning(
       power: power,
       simulatedScopeTags: simulatedScopeTags,
       playStartSound: playStartSound,
     );
+
+    if (gen != _scanGeneration) {
+      if (started) {
+        await _rfidService.stopScanning();
+        await _rfidService.haltScan();
+      }
+      return false;
+    }
+
     _isScanning = started;
     notifyListeners();
     return started;
   }
 
   Future<void> stopScanning() async {
-    await _rfidService.stopScanning();
+    _scanGeneration++;
+    if (!_isScanning) {
+      await _rfidService.haltScan();
+      return;
+    }
     _isScanning = false;
     notifyListeners();
+    await _rfidService.stopScanning();
+    await _rfidService.haltScan();
   }
 
-  void resetScanResults() {
+  Future<void> resetScanResults() async {
+    await stopScanning();
+    _isBulkMode = false;
     _scannedTags.clear();
     _itemCodes.clear();
     _rfidCodes.clear();
@@ -183,7 +211,8 @@ class BulkProductViewModel extends ChangeNotifier {
   void dispose() {
     _notifyDebounce?.cancel();
     _tagSub?.cancel();
-    _rfidService.stopScanning();
+    unawaited(_rfidService.stopScanning());
+    unawaited(_rfidService.haltScan());
     super.dispose();
   }
 }
