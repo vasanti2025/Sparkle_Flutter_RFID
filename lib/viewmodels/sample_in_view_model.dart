@@ -7,6 +7,7 @@ import '../models/sample_in.dart';
 import '../models/sample_out.dart';
 import '../services/api_service.dart';
 import '../services/db_service.dart';
+import '../services/label_stock_sync_service.dart';
 import '../services/list_json_cache.dart';
 import '../services/pref_service.dart';
 import '../views/widgets/sample_print_pdf.dart';
@@ -588,6 +589,11 @@ class SampleInViewModel extends ChangeNotifier {
 
       final response = await _apiService.updateSampleOut(payload);
       if (response != null) {
+        // Refresh LabelStock so SampleIn items become Active again locally.
+        LabelStockSyncService.afterStockIn(
+          prefService: _prefService,
+          dbService: _dbService,
+        );
         await fetchAllSampleIn();
         await fetchOpenSampleOuts();
         _lastSaveResponse = response;

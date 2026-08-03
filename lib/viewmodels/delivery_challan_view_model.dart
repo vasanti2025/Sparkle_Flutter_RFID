@@ -5,6 +5,7 @@ import '../models/delivery_challan.dart';
 import '../models/customer_tunch.dart';
 import '../services/api_service.dart';
 import '../services/db_service.dart';
+import '../services/label_stock_sync_service.dart';
 import '../services/list_json_cache.dart';
 import '../services/pref_service.dart';
 
@@ -659,6 +660,12 @@ class DeliveryChallanViewModel extends ChangeNotifier {
 
       final response = await _apiService.addDeliveryChallan(payload);
       if (response != null) {
+        // Sparkle: after AddDeliveryChallan → BulkViewModel.syncItems (label stock).
+        LabelStockSyncService.afterStockOut(
+          prefService: _prefService,
+          dbService: _dbService,
+          labelledStockIds: _productList.map((e) => e.labelledStockId),
+        );
         await fetchAllChallans();
         _isLoading = false;
         notifyListeners();
