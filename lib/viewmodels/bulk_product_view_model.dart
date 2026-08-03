@@ -107,6 +107,8 @@ class BulkProductViewModel extends ChangeNotifier {
     if (_isBulkMode) {
       if (_scannedTags.any((t) => t.epc == epc)) return;
       _scannedTags.add(ScannedTagRow(epc: epc, tid: epc));
+      // Sparkle BulkViewModel Gscan: beep on each new tag added to the list.
+      unawaited(_rfidService.playBeep());
     } else {
       final idx = _lastClickedIndex ?? _scannedTags.length;
       if (idx < _scannedTags.length) {
