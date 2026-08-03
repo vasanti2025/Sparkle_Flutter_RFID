@@ -13,6 +13,11 @@ interface UhfFacade {
     /** @return epc to rssi, or null if buffer empty */
     fun readTagFromBuffer(): Pair<String, String>?
     fun isReady(): Boolean
+    /**
+     * Sparkle Search LED: brief Reserved-bank read filtered by EPC makes the tag LED blink.
+     * Must be called while inventory is stopped.
+     */
+    fun readReservedBankForLed(epc: String): Boolean
 }
 
 /**
@@ -85,6 +90,33 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
             epc to rssi
         } catch (_: Throwable) {
             null
+        }
+    }
+
+    /**
+     * Same call as Sparkle SearchViewModel.startContinuousBlink:
+     * readData(pwd, Bank_EPC, 32, epcLen*4, epc, Bank_RESERVED, 4, 1)
+     */
+    override fun readReservedBankForLed(epc: String): Boolean {
+        return try {
+            val r = reader ?: return false
+            val clean = epc.trim()
+            if (clean.isEmpty()) return false
+            val filterCnt = clean.length * 4
+            r.readData(
+                "00000000",
+                com.rscja.deviceapi.RFIDWithUHFUART.Bank_EPC,
+                32,
+                filterCnt,
+                clean,
+                com.rscja.deviceapi.interfaces.IUHF.Bank_RESERVED,
+                4,
+                1,
+            )
+            true
+        } catch (e: Throwable) {
+            android.util.Log.w("UhfUartFacade", "readReservedBankForLed failed: ${e.message}")
+            false
         }
     }
 }

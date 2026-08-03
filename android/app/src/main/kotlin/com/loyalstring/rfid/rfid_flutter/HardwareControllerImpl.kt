@@ -50,6 +50,13 @@ class HardwareControllerImpl(
     private var lastSearchSoundPlayAt = 0L
     private val searchSoundMinIntervalMs = 15L
 
+    /** Sparkle SearchViewModel continuous tag LED blink (Bank_RESERVED read). */
+    @Volatile private var blinkEpc: String? = null
+    private var blinkExecutor: ExecutorService? = null
+    private val blinkLedVisibleMs = 50L
+    private val blinkCyclePauseMs = 200L
+    private val blinkLock = Any()
+
     private var searchTags = HashSet<String>()
     private var matchEpcs = HashSet<String>()
     private var inventoryScanMode = false
@@ -657,6 +664,7 @@ class HardwareControllerImpl(
 
     private fun stopRfidInventory(): Boolean {
         // searchTags / matchEpcs cleared via clearSearchTags / clearMatchEpcs from Dart.
+        stopBlinkingEpc()
         inventoryScanMode = false
         scanningPermitted = false
         inventoryScopeEpcs.clear()
@@ -745,15 +753,98 @@ class HardwareControllerImpl(
     }
 
     private fun handleTagRead(cleanEpc: String, rssi: String, inventory: Boolean) {
-        // Sparkle SearchViewModel: RSSI proximity tones on every matched buffer read.
+        // Sparkle SearchViewModel: RSSI proximity tones + tag LED on every matched buffer read.
         if (!inventory && searchTags.isNotEmpty() && searchTags.contains(cleanEpc)) {
             playRssiSearchSound(rssi)
+            updateSearchLedBlink(cleanEpc, rssi)
         }
 
         if (!shouldEmitTagToFlutter(cleanEpc)) {
             return
         }
         queueTagEvent(cleanEpc, rssi)
+    }
+
+    /**
+     * Sparkle convertRssiToProximity + LED gate: blink while proximity > 0 for matched EPC.
+     * Handheld UART only (tag LED via Reserved-bank read); BLE tray/R6 has no tag LED path.
+     */
+    private fun updateSearchLedBlink(cleanEpc: String, rssi: String) {
+        if (trayModeEnabled || r6ModeEnabled) return
+        val proximity = rssiToProximityPercent(rssi)
+        if (proximity > 0) {
+            startContinuousBlink(cleanEpc)
+        } else if (blinkEpc == cleanEpc) {
+            stopBlinkingEpc()
+        }
+    }
+
+    /** Matches Flutter SearchScreen.convertRssiToProximity (abs RSSI → 0–100). */
+    private fun rssiToProximityPercent(rssi: String): Int {
+        val magnitude = try {
+            kotlin.math.abs(rssi.trim().toFloat())
+        } catch (_: Exception) {
+            return 0
+        }
+        return (((80f - magnitude).coerceIn(0f, 40f)) * 100f / 40f).toInt().coerceIn(0, 100)
+    }
+
+    /**
+     * Sparkle SearchViewModel.startContinuousBlink — stop inventory, read Reserved bank
+     * (tag LED flashes), restart inventory; repeat while search is active.
+     */
+    private fun startContinuousBlink(epc: String) {
+        synchronized(blinkLock) {
+            if (blinkEpc == epc && blinkExecutor != null && !(blinkExecutor!!.isShutdown)) {
+                return
+            }
+            stopBlinkingEpcLocked()
+            blinkEpc = epc
+            val target = epc
+            val power = lastScanPower
+            blinkExecutor = Executors.newSingleThreadExecutor()
+            blinkExecutor?.execute {
+                while (!Thread.currentThread().isInterrupted &&
+                    isScanning &&
+                    !activeInventorySession &&
+                    blinkEpc == target
+                ) {
+                    try {
+                        uhfFacade?.stopInventory()
+                        if (!isScanning || blinkEpc != target) break
+                        uhfFacade?.readReservedBankForLed(target)
+                        Thread.sleep(blinkLedVisibleMs)
+                        if (!isScanning || blinkEpc != target) break
+                        uhfFacade?.prepareScan(power)
+                        uhfFacade?.startInventory()
+                    } catch (e: InterruptedException) {
+                        break
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Search LED blink error: ${e.message}", e)
+                    }
+                    try {
+                        Thread.sleep(blinkCyclePauseMs)
+                    } catch (_: InterruptedException) {
+                        break
+                    }
+                }
+            }
+        }
+    }
+
+    private fun stopBlinkingEpc() {
+        synchronized(blinkLock) {
+            stopBlinkingEpcLocked()
+        }
+    }
+
+    private fun stopBlinkingEpcLocked() {
+        blinkEpc = null
+        try {
+            blinkExecutor?.shutdownNow()
+        } catch (_: Throwable) {
+        }
+        blinkExecutor = null
     }
 
     private fun shouldEmitTagToFlutter(cleanEpc: String): Boolean {
