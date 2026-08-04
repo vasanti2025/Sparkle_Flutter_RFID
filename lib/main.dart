@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -18,18 +19,31 @@ import 'viewmodels/login_view_model.dart';
 import 'views/dashboard_screen.dart';
 import 'views/login_screen.dart';
 import 'utils/app_dialogs.dart';
+import 'utils/app_logger.dart';
 
 @pragma('vm:entry-point')
 void main(List<String> args) {
-  WidgetsFlutterBinding.ensureInitialized();
   final initialLoggedIn = args.isNotEmpty && args.first == 'dashboard';
-  final savedUsername = args.length > 1 ? args[1] : '';
-  final savedPassword = args.length > 2 ? args[2] : '';
-  runApp(_BootstrapApp(
-    initialLoggedIn: initialLoggedIn,
-    savedUsername: savedUsername,
-    savedPassword: savedPassword,
-  ));
+  final savedUsername = args.length > 1 ? _decodeBootstrapArg(args[1]) : '';
+  final savedPassword = args.length > 2 ? _decodeBootstrapArg(args[2]) : '';
+
+  AppLogger.bootstrapAndRunApp(
+    _BootstrapApp(
+      initialLoggedIn: initialLoggedIn,
+      savedUsername: savedUsername,
+      savedPassword: savedPassword,
+    ),
+  );
+}
+
+String _decodeBootstrapArg(String raw) {
+  if (raw.isEmpty) return raw;
+  try {
+    return utf8.decode(base64.decode(raw));
+  } catch (_) {
+    // Legacy installs passed plain text args.
+    return raw;
+  }
 }
 
 class _BootstrapApp extends StatefulWidget {

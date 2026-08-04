@@ -24,6 +24,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _expiryDialogQueued = false;
   String? _lastShownError;
   bool _fieldsInitialized = false;
+  bool _rememberFieldsApplied = false;
   LoginViewModel? _loginVm;
 
   @override
@@ -33,16 +34,32 @@ class _LoginScreenState extends State<LoginScreen> {
     _fieldsInitialized = true;
     final pref = context.read<PrefService>();
     if (pref.getSavedUsername().isNotEmpty) {
-      _usernameController.text = pref.getSavedUsername();
-      _passwordController.text = pref.getSavedPassword();
+      _applyRememberMeFields(
+        pref.getSavedUsername(),
+        pref.getSavedPassword(),
+      );
     }
     final viewModel = context.read<LoginViewModel>();
     _loginVm = viewModel;
     viewModel.addListener(_onLoginVmChanged);
     if (_usernameController.text.isEmpty && viewModel.username.isNotEmpty) {
-      _usernameController.text = viewModel.username;
-      _passwordController.text = viewModel.password;
+      _applyRememberMeFields(viewModel.username, viewModel.password);
     }
+  }
+
+  void _applyRememberMeFields(String username, String password) {
+    if (_rememberFieldsApplied) return;
+    _usernameController.value = TextEditingValue(
+      text: username,
+      selection: TextSelection.collapsed(offset: username.length),
+    );
+    _passwordController.value = TextEditingValue(
+      text: password,
+      selection: TextSelection.collapsed(offset: password.length),
+    );
+    _loginVm?.setUsername(username);
+    _loginVm?.setPassword(password);
+    _rememberFieldsApplied = true;
   }
 
   @override
@@ -57,9 +74,12 @@ class _LoginScreenState extends State<LoginScreen> {
   void _onLoginVmChanged() {
     if (!mounted || _loginVm == null) return;
     final viewModel = _loginVm!;
-    if (viewModel.rememberMe) {
-      _usernameController.text = viewModel.username;
-      _passwordController.text = viewModel.password;
+    // Only pre-fill once from Remember Me — never overwrite while user is typing.
+    if (viewModel.rememberMe &&
+        !_rememberFieldsApplied &&
+        _usernameController.text.isEmpty &&
+        _passwordController.text.isEmpty) {
+      _applyRememberMeFields(viewModel.username, viewModel.password);
     }
     if (viewModel.showExpiryWarning && !_expiryDialogQueued) {
       _expiryDialogQueued = true;
@@ -70,14 +90,17 @@ class _LoginScreenState extends State<LoginScreen> {
       });
     }
     final err = viewModel.errorMessage;
-    if (err != null && err != _lastShownError) {
+    if (err != null && err.isNotEmpty && err != _lastShownError) {
       _lastShownError = err;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(err), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text(err),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
         );
-        viewModel.clearErrorMessage();
       });
     }
   }
@@ -468,7 +491,14 @@ class _LoginScreenState extends State<LoginScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 16.0),
                         child: TextField(
                           controller: _usernameController,
-                          onChanged: viewModel.setUsername,
+                          onChanged: (value) {
+                            _rememberFieldsApplied = true;
+                            _lastShownError = null;
+                            viewModel.clearErrorMessage();
+                            viewModel.setUsername(value);
+                          },
+                          autocorrect: false,
+                          enableSuggestions: false,
                           decoration: InputDecoration(
                             border: const OutlineInputBorder(),
                             labelText: s.usernameLabel,
@@ -482,8 +512,15 @@ class _LoginScreenState extends State<LoginScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 16.0),
                         child: TextField(
                           controller: _passwordController,
-                          onChanged: viewModel.setPassword,
+                          onChanged: (value) {
+                            _rememberFieldsApplied = true;
+                            _lastShownError = null;
+                            viewModel.clearErrorMessage();
+                            viewModel.setPassword(value);
+                          },
                           obscureText: !viewModel.passwordVisible,
+                          autocorrect: false,
+                          enableSuggestions: false,
                           decoration: InputDecoration(
                             border: const OutlineInputBorder(),
                             labelText: s.password,
@@ -560,7 +597,28 @@ class _LoginScreenState extends State<LoginScreen> {
                             ? null
                             : () async {
                                 if (viewModel.selectedLoginMode == 'password') {
-                                  final success = await viewModel.login(context);
+                                  FocusManager.instance.primaryFocus?.unfocus();
+                                  _lastShownError = null;
+                                  final username = _usernameController.value.text;
+                                  final password = _passwordController.value.text;
+                                  final success = await viewModel.login(
+                                    context,
+                                    username: username,
+                                    password: password,
+                                  );
+                                  if (!success && mounted) {
+                                    final err = viewModel.errorMessage;
+                                    if (err != null && err.isNotEmpty) {
+                                      setState(() {});
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text(err),
+                                          backgroundColor: Colors.red,
+                                          duration: const Duration(seconds: 5),
+                                        ),
+                                      );
+                                    }
+                                  }
                                   if (success && context.mounted) {
                                     _navigateAfterLogin(context);
                                   }
@@ -597,6 +655,20 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                     ),
+                    if (viewModel.errorMessage != null &&
+                        viewModel.errorMessage!.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                        child: Text(
+                          viewModel.errorMessage!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.red,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
                     const SizedBox(height: 24),
 
                     // Trouble Logging In?

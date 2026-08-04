@@ -34,6 +34,8 @@ class LoginViewModel extends ChangeNotifier {
   bool _rememberMe = false;
   bool _isLoading = false;
   String? _errorMessage;
+  /// Prevents Remember Me / hydrate from overwriting typed credentials.
+  bool _credentialsLocked = false;
 
   // Subscription Expiry Warning variables
   bool _showExpiryWarning = false;
@@ -61,10 +63,12 @@ class LoginViewModel extends ChangeNotifier {
 
   void setUsername(String value) {
     _username = value;
+    _credentialsLocked = true;
   }
 
   void setPassword(String value) {
     _password = value;
+    _credentialsLocked = true;
   }
 
   void togglePasswordVisibility() {
@@ -82,10 +86,16 @@ class LoginViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _showLoginError(String message) {
+    _errorMessage = message;
+    _isLoading = false;
+    notifyListeners();
+  }
+
   /// Called after native prefs snapshot hydrates memory store at startup.
   void reloadRememberMe() {
     _rememberMe = _prefService.isRememberMe();
-    if (_rememberMe) {
+    if (_rememberMe && !_credentialsLocked) {
       _username = _prefService.getSavedUsername();
       _password = _prefService.getSavedPassword();
     }
@@ -117,11 +127,30 @@ class LoginViewModel extends ChangeNotifier {
     }
   }
 
-  Future<bool> login(BuildContext context) async {
-    if (_username.trim().isEmpty || _password.trim().isEmpty) {
+  Future<bool> login(
+    BuildContext context, {
+    String? username,
+    String? password,
+  }) async {
+    final user = username ?? _username;
+    final pass = password ?? _password;
+
+    // Must send exact text to server — leading/trailing spaces are significant.
+    if (user.isEmpty || pass.isEmpty) {
       _errorMessage = 'Please enter username and password';
       notifyListeners();
       return false;
+    }
+
+    _credentialsLocked = true;
+    _username = user;
+    _password = pass;
+
+    if (kDebugMode) {
+      debugPrint(
+        '[LOGIN] sending username(len=${user.length}, leadSpace=${user.startsWith(' ')}) '
+        'password(len=${pass.length}, leadSpace=${pass.startsWith(' ')})',
+      );
     }
 
     _isLoading = true;
@@ -130,12 +159,12 @@ class LoginViewModel extends ChangeNotifier {
 
     try {
       final response = await _apiService.login(
-        LoginRequest(username: _username.trim(), password: _password),
+        LoginRequest(username: user, password: pass),
       );
 
       final employee = response.employee;
       if (employee == null) {
-        throw Exception('Login failed: Employee data missing');
+        throw Exception('Login failed. Please check username and password.');
       }
 
       final planExpiryDate = employee.clients?.planExpiryDate;
@@ -159,12 +188,10 @@ class LoginViewModel extends ChangeNotifier {
       }
 
       // Standard login flow
-      await _completeLogin(response);
+      await _completeLogin(response, username: user, password: pass);
       return true;
     } catch (e) {
-      _errorMessage = e.toString().replaceFirst('Exception: ', '');
-      _isLoading = false;
-      notifyListeners();
+      _showLoginError(e.toString().replaceFirst('Exception: ', ''));
       return false;
     }
   }
@@ -172,7 +199,11 @@ class LoginViewModel extends ChangeNotifier {
   Future<void> confirmExpiryAndLogin() async {
     if (_pendingLoginResponse != null) {
       _showExpiryWarning = false;
-      await _completeLogin(_pendingLoginResponse!);
+      await _completeLogin(
+        _pendingLoginResponse!,
+        username: _username,
+        password: _password,
+      );
       _pendingLoginResponse = null;
     }
   }
@@ -183,7 +214,11 @@ class LoginViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _completeLogin(LoginResponse response) async {
+  Future<void> _completeLogin(
+    LoginResponse response, {
+    required String username,
+    required String password,
+  }) async {
     final employee = response.employee!;
     final client = employee.clients;
 
@@ -201,14 +236,17 @@ class LoginViewModel extends ChangeNotifier {
     await _prefService.saveBranchIds(_fallbackBranchIds(employee));
 
     await _prefService.saveLoginCredentials(
-      username: _username.trim(),
-      password: _password,
+      username: username,
+      password: password,
       rememberMe: _rememberMe,
       rfidType: client?.rfidType ?? '',
       userId: employee.id,
       branchId: employee.defaultBranchId,
       organisationName: client?.organisationName ?? '',
     );
+
+    _username = username;
+    _password = password;
 
     _isLoading = false;
     _errorMessage = null;

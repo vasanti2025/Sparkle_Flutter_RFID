@@ -7,6 +7,7 @@ import '../models/location_item.dart';
 import '../models/stock_transfer_models.dart';
 import '../models/user_permission.dart';
 import 'order_payload_builder.dart';
+import 'api_logging_interceptor.dart';
 import 'pref_service.dart';
 
 class ApiService {
@@ -24,6 +25,11 @@ class ApiService {
     // Default to rrgold; interceptor overrides when a custom API is saved.
     _dio.options.baseUrl = PrefService.defaultApiBaseUrl;
     
+    // Debug-only API logging.
+    if (kDebugMode) {
+      _dio.interceptors.add(ApiLoggingInterceptor());
+    }
+
     // Add interceptor to dynamically rewrite the base URL for every request
     _dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) {
@@ -49,26 +55,41 @@ class ApiService {
           connectTimeout: const Duration(seconds: 25),
           receiveTimeout: const Duration(seconds: 25),
           sendTimeout: const Duration(seconds: 25),
+          contentType: Headers.jsonContentType,
         ),
       );
 
       if (response.statusCode == 200) {
         final data = response.data;
         if (data is Map<String, dynamic>) {
-          return LoginResponse.fromJson(data);
-        } else {
-          throw Exception('Invalid response format');
+          final apiMessage = _readApiMessage(data);
+          final loginResponse = LoginResponse.fromJson(data);
+          if (loginResponse.employee == null) {
+            throw Exception(
+              apiMessage ?? 'Login failed. Please check username and password.',
+            );
+          }
+          return loginResponse;
         }
+        if (data is Map) {
+          final map = Map<String, dynamic>.from(data);
+          final apiMessage = _readApiMessage(map);
+          throw Exception(
+            apiMessage ?? 'Invalid response format',
+          );
+        }
+        throw Exception('Invalid response format');
       } else {
         throw Exception('Server returned status: ${response.statusCode}');
       }
     } on DioException catch (e) {
       String errMsg = 'Network error occurred';
       if (e.response != null && e.response?.data != null) {
-        // Try parsing error message from response
         final data = e.response?.data;
-        if (data is Map && data.containsKey('message')) {
-          errMsg = data['message'].toString();
+        if (data is Map) {
+          errMsg = _readApiMessage(Map<String, dynamic>.from(data)) ??
+              data['message']?.toString() ??
+              'Error status: ${e.response?.statusCode}';
         } else if (data is String && data.isNotEmpty) {
           errMsg = data;
         } else {
@@ -84,6 +105,14 @@ class ApiService {
       }
       throw Exception(errMsg);
     }
+  }
+
+  static String? _readApiMessage(Map<String, dynamic> data) {
+    for (final key in ['Message', 'message', 'error', 'Error']) {
+      final value = data[key]?.toString().trim();
+      if (value != null && value.isNotEmpty) return value;
+    }
+    return null;
   }
 
   // Delete product API call

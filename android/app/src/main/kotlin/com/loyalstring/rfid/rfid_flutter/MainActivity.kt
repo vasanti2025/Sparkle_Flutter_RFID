@@ -19,6 +19,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import android.util.Base64
 import net.posprinter.POSConnect
 import java.io.File
 import java.util.concurrent.Executors
@@ -65,6 +66,11 @@ class MainActivity : FlutterActivity() {
         super.onCreate(savedInstanceState)
     }
 
+    private fun encodeDartArg(value: String): String {
+        if (value.isEmpty()) return ""
+        return Base64.encodeToString(value.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+    }
+
     /**
      * Pass login hint into Dart before prefs finish — first frame can be Login/Home.
      * Flutter SharedPreferences keys are stored as "flutter.<key>".
@@ -73,8 +79,8 @@ class MainActivity : FlutterActivity() {
         ensureLaunchPrefsRead()
         return mutableListOf(
             if (launchLoggedIn == true) "dashboard" else "login",
-            launchUsername,
-            launchPassword,
+            encodeDartArg(launchUsername),
+            encodeDartArg(launchPassword),
         )
     }
 
