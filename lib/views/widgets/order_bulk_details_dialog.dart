@@ -8,12 +8,15 @@ class OrderBulkDetailsDialog extends StatefulWidget {
   final List<dynamic> branches;
   final List<dynamic> dailyRates;
   final Function(Map<String, dynamic> result) onConfirm;
+  /// Dialog header title. Defaults to Order Details.
+  final String? title;
 
   const OrderBulkDetailsDialog({
     super.key,
     required this.branches,
     required this.dailyRates,
     required this.onConfirm,
+    this.title,
   });
 
   @override
@@ -127,7 +130,7 @@ class _OrderBulkDetailsDialogState extends State<OrderBulkDetailsDialog> {
                   const Icon(Icons.receipt, color: Colors.white, size: 20),
                   const SizedBox(width: 8),
                   Text(
-                    s.orderDetails,
+                    widget.title ?? s.orderDetails,
                     style: GoogleFonts.poppins(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,

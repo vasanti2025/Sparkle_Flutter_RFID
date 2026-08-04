@@ -6,6 +6,7 @@ import '../models/delivery_challan.dart';
 import '../models/sample_out.dart';
 import '../services/api_service.dart';
 import '../services/db_service.dart';
+import '../services/label_stock_sync_service.dart';
 import '../services/list_json_cache.dart';
 import '../services/pref_service.dart';
 import '../views/widgets/sample_print_pdf.dart';
@@ -527,6 +528,12 @@ class SampleOutViewModel extends ChangeNotifier {
 
       final response = await _apiService.addSampleOut(payload);
       if (response != null) {
+        // Sparkle: after AddCustomerIssue → BulkViewModel.syncItems (label stock).
+        LabelStockSyncService.afterStockOut(
+          prefService: _prefService,
+          dbService: _dbService,
+          labelledStockIds: _productList.map((e) => e.labelledStockId),
+        );
         await fetchAllSampleOut();
         _isLoading = false;
         notifyListeners();

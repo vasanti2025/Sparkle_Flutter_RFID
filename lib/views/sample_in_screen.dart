@@ -186,6 +186,7 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
         initialDate: vm.selectedDate,
         initialReturnDate: vm.returnDate,
         initialDescription: vm.description,
+        title: context.sRead.sampleInFields,
         onConfirm: (fields) {
           vm.setSampleInFields(
             date: fields['date'] ?? '',
@@ -267,6 +268,7 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
         item: vm.issueToDetails(issue),
         branches: const [],
         dailyRates: vm.dailyRates,
+        title: context.sRead.sampleInDetails,
         onSave: (updated) => vm.updateIssueItem(index, updated),
       ),
     );
@@ -464,7 +466,7 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
                               decoration: InputDecoration(
                                 isCollapsed: true,
                                 border: InputBorder.none,
-                                hintText: vm.selectedCustomer == null ? s.selectCustomerFirst : s.enterSampleOutNo,
+                                hintText: s.selectChallanNo,
                                 hintStyle: GoogleFonts.poppins(fontSize: 12, color: Colors.grey),
                               ),
                               onChanged: (v) => setState(() => _showSampleOutSuggestions = v.isNotEmpty),

@@ -8,6 +8,8 @@ class SampleOutFieldsDialog extends StatefulWidget {
   final String initialReturnDate;
   final String initialDescription;
   final Function(Map<String, String> result) onConfirm;
+  /// Dialog header title. Defaults to Sample Out Fields.
+  final String? title;
 
   const SampleOutFieldsDialog({
     super.key,
@@ -15,6 +17,7 @@ class SampleOutFieldsDialog extends StatefulWidget {
     required this.initialReturnDate,
     required this.initialDescription,
     required this.onConfirm,
+    this.title,
   });
 
   @override
@@ -86,7 +89,7 @@ class _SampleOutFieldsDialogState extends State<SampleOutFieldsDialog> {
                 ),
               ),
               child: Text(
-                s.customOrderFields,
+                widget.title ?? s.sampleOutFields,
                 style: GoogleFonts.poppins(
                   color: Colors.white,
                   fontWeight: FontWeight.w600,

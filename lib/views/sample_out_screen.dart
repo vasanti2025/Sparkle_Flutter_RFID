@@ -204,6 +204,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
         initialDate: vm.selectedDate,
         initialReturnDate: vm.returnDate,
         initialDescription: vm.description,
+        title: context.sRead.sampleOutFields,
         onConfirm: (fields) {
           vm.setSampleOutFields(
             date: fields['date'] ?? '',
@@ -222,6 +223,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
         item: item,
         branches: const [],
         dailyRates: vm.dailyRates,
+        title: context.sRead.sampleOutDetails,
         onSave: (updated) => vm.updateProductItemDetails(index, updated),
       ),
     );

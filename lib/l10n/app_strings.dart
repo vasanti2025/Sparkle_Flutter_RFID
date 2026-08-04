@@ -191,6 +191,7 @@ class AppStrings {
   String get confirmRemoveFromMatchedList => _t('confirmRemoveFromMatchedList');
   String get enterCustomerName => _t('enterCustomerName');
   String get selectCustomerFirst => _t('selectCustomerFirst');
+  String get selectChallanNo => _t('selectChallanNo');
   String get enterSampleOutNo => _t('enterSampleOutNo');
   String get sampleInSavedSuccessfully => _t('sampleInSavedSuccessfully');
   String get failedToSaveSampleIn => _t('failedToSaveSampleIn');
@@ -211,6 +212,9 @@ class AppStrings {
   String get removeItemFromSampleOut => _t('removeItemFromSampleOut');
   String get enterRfidItemcode => _t('enterRfidItemcode');
   String get sampleOutFields => _t('sampleOutFields');
+  String get sampleOutDetails => _t('sampleOutDetails');
+  String get sampleInFields => _t('sampleInFields');
+  String get sampleInDetails => _t('sampleInDetails');
   String get unknown => _t('unknown');
   String get editSampleOut => _t('editSampleOut');
   String get createSampleOut => _t('createSampleOut');
@@ -427,6 +431,7 @@ class AppStrings {
 
   String get confirmDeleteChallanItem => _t('confirmDeleteChallanItem');
   String get challanFields => _t('challanFields');
+  String get deliveryChallanFields => _t('deliveryChallanFields');
   String get itemName => _t('itemName');
   String get rate => _t('rate');
   String get makingChg => _t('makingChg');
@@ -989,7 +994,8 @@ class AppStrings {
       'mobileLabel': 'Mobile: {mobile}',
       'mobileGstLabel': 'Mobile: {mobile} | GST: {gst}',
       'selectCustomerFirst': 'Select customer first',
-      'enterSampleOutNo': 'Enter Sample Out No',
+      'selectChallanNo': 'Select Challan No',
+      'enterSampleOutNo': 'Enter SampleOut No',
       'sampleOutItemsCount': '{no} ({count} items)',
       'sampleInSavedSuccessfully': 'Sample In saved successfully',
       'failedToSaveSampleIn': 'Failed to save Sample In',
@@ -1010,6 +1016,9 @@ class AppStrings {
       'removeItemFromSampleOut': 'Remove this item from sample out?',
       'enterRfidItemcode': 'Enter RFID / Itemcode',
       'sampleOutFields': 'Sample Out Fields',
+      'sampleOutDetails': 'Sample Out Details',
+      'sampleInFields': 'Sample In Fields',
+      'sampleInDetails': 'Sample In Details',
       'unknown': 'Unknown',
       'editSampleOut': 'Edit Sample Out',
       'createSampleOut': 'Create Sample Out',
@@ -1207,6 +1216,7 @@ class AppStrings {
       'failedToSaveOrder': 'Failed to save order',
       'confirmDeleteChallanItem': 'Are you sure you want to delete this item from the challan?',
       'challanFields': 'Challan Fields',
+      'deliveryChallanFields': 'Delivery Challan Fields',
       'itemName': 'Item Name',
       'rate': 'Rate',
       'makingChg': 'Making Chg',
@@ -1673,6 +1683,7 @@ class AppStrings {
       'failedToSaveOrder': 'ऑर्डर सहेजने में विफल',
       'confirmDeleteChallanItem': 'क्या आप वाकई इस आइटम को चालान से हटाना चाहते हैं?',
       'challanFields': 'चालान फ़ील्ड',
+      'deliveryChallanFields': 'डिलीवरी चालान फ़ील्ड्स',
       'itemName': 'आइटम का नाम',
       'rate': 'दर',
       'makingChg': 'मेकिंग चार्ज',
@@ -1690,6 +1701,9 @@ class AppStrings {
       'customerName': 'ग्राहक का नाम',
       'addAtLeastOneQuotationItem': 'कोटेशन विवरण सेट करने के लिए कम से कम एक आइटम जोड़ें',
       'quotationDetails': 'कोटेशन का विवरण',
+      'sampleOutDetails': 'सैंपल आउट विवरण',
+      'sampleInFields': 'सैंपल इन फ़ील्ड्स',
+      'sampleInDetails': 'सैंपल इन विवरण',
       'quotationSavedSuccessfully': 'कोटेशन सफलतापूर्वक सहेजा गया',
       'quotationUpdatedSuccessfully': 'कोटेशन सफलतापूर्वक अपडेट किया गया',
       'failedToSaveQuotation': 'कोटेशन सहेजने में विफल',
@@ -2180,6 +2194,7 @@ class AppStrings {
       'failedToSaveOrder': 'فشل في حفظ الطلب',
       'confirmDeleteChallanItem': 'هل أنت متأكد أنك تريد حذف هذا العنصر من السند؟',
       'challanFields': 'حقول السند',
+      'deliveryChallanFields': 'حقول سند التسليم',
       'itemName': 'اسم العميل *',
       'rate': 'السعر',
       'makingChg': 'رسوم الصياغة',
@@ -2197,6 +2212,9 @@ class AppStrings {
       'customerName': 'اسم العميل',
       'addAtLeastOneQuotationItem': 'أضف عنصرًا واحدًا على الأقل لتعيين تفاصيل عرض السعر',
       'quotationDetails': 'تفاصيل عرض السعر',
+      'sampleOutDetails': 'تفاصيل عينة الخارج',
+      'sampleInFields': 'حقول عينة الداخل',
+      'sampleInDetails': 'تفاصيل عينة الداخل',
       'quotationSavedSuccessfully': 'تم حفظ عرض السعر بنجاح',
       'quotationUpdatedSuccessfully': 'تم تحديث عرض السعر بنجاح',
       'failedToSaveQuotation': 'فشل في حفظ عرض السعر',

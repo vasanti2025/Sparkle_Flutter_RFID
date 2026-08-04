@@ -13,6 +13,8 @@ class OrderDetailsDialog extends StatefulWidget {
   final List<dynamic> branches;
   final List<dynamic> dailyRates;
   final Function(OrderItem) onSave;
+  /// Dialog header title. Defaults to Custom Order Fields.
+  final String? title;
 
   const OrderDetailsDialog({
     super.key,
@@ -20,6 +22,7 @@ class OrderDetailsDialog extends StatefulWidget {
     required this.branches,
     required this.dailyRates,
     required this.onSave,
+    this.title,
   });
 
   @override
@@ -332,7 +335,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                   const Icon(Icons.edit_note, color: Colors.white),
                   const SizedBox(width: 8),
                   Text(
-                    s.customOrderFields,
+                    widget.title ?? s.customOrderFields,
                     style: GoogleFonts.poppins(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,

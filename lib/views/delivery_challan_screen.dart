@@ -233,6 +233,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
         item: item,
         branches: vm.branches,
         dailyRates: vm.dailyRates,
+        title: context.sRead.deliveryChallanFields,
         onSave: (updated) => vm.updateProductItemDetails(index, updated),
       ),
     );

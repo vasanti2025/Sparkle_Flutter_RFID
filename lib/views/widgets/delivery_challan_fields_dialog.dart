@@ -94,7 +94,7 @@ class _DeliveryChallanFieldsDialogState extends State<DeliveryChallanFieldsDialo
                   const Icon(Icons.edit_note, color: Colors.white),
                   const SizedBox(width: 8),
                   Text(
-                    s.customOrderFields,
+                    s.deliveryChallanFields,
                     style: GoogleFonts.poppins(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,

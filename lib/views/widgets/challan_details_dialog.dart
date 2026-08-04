@@ -15,6 +15,8 @@ class ChallanDetailsDialog extends StatefulWidget {
   final List<dynamic> branches;
   final List<dynamic> dailyRates;
   final Function(ChallanDetailsModel) onSave;
+  /// Dialog header title. Defaults to Custom Order Fields (Sample In/Out).
+  final String? title;
 
   const ChallanDetailsDialog({
     super.key,
@@ -22,6 +24,7 @@ class ChallanDetailsDialog extends StatefulWidget {
     required this.branches,
     required this.dailyRates,
     required this.onSave,
+    this.title,
   });
 
   @override
@@ -282,7 +285,7 @@ class _ChallanDetailsDialogState extends State<ChallanDetailsDialog> {
                   const Icon(Icons.edit_note, color: Colors.white),
                   const SizedBox(width: 8),
                   Text(
-                    s.customOrderFields,
+                    widget.title ?? s.customOrderFields,
                     style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
                   ),
                   const Spacer(),
