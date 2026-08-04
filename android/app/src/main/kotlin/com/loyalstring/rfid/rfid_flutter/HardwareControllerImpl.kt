@@ -67,8 +67,14 @@ class HardwareControllerImpl(
     private val pendingTagLock = Any()
     private var tagFlushScheduled = false
     private val recentEmitAt = HashMap<String, Long>()
+    private val recentEmitProx = HashMap<String, Int>()
     private val emitDedupMs = 250L
+    /** Search proximity needs fresher RSSI than generic product-scan dedup. */
+    private val searchEmitDedupMs = 80L
     private val tagFlushDelayMs = 50L
+
+    private fun normalizeScanKey(raw: String): String =
+        raw.trim().uppercase().replace(Regex("\\s+"), "")
 
     private var inventoryMediaPlayer: MediaPlayer? = null
     private val sessionUniqueEpcs = HashSet<String>()
@@ -173,7 +179,7 @@ class HardwareControllerImpl(
                 val tags = call.argument<List<String>>("tags") ?: emptyList()
                 searchTags.clear()
                 matchEpcs.clear()
-                searchTags.addAll(tags.map { it.trim().uppercase() })
+                searchTags.addAll(tags.map { normalizeScanKey(it) }.filter { it.isNotEmpty() })
                 result.success(true)
             }
             "setMatchEpcs" -> {
@@ -684,6 +690,9 @@ class HardwareControllerImpl(
         synchronized(recentEmitAt) {
             recentEmitAt.clear()
         }
+        synchronized(recentEmitProx) {
+            recentEmitProx.clear()
+        }
         return try {
             if (useBleReader()) {
                 trayManager.stopInventory()
@@ -719,7 +728,7 @@ class HardwareControllerImpl(
                         do {
                             val epc = tagInfo?.epc ?: tagInfo?.getEPC()
                             if (!epc.isNullOrBlank()) {
-                                val cleanEpc = epc.trim().uppercase()
+                                val cleanEpc = normalizeScanKey(epc)
                                 val rssi = tagInfo?.rssi ?: ""
                                 handleTagRead(cleanEpc, rssi, inventory)
                             }
@@ -732,7 +741,7 @@ class HardwareControllerImpl(
                             continue
                         }
                         do {
-                            val cleanEpc = pair!!.first.trim().uppercase()
+                            val cleanEpc = normalizeScanKey(pair!!.first)
                             if (cleanEpc.isNotEmpty()) {
                                 handleTagRead(cleanEpc, pair.second, inventory)
                             }
@@ -759,7 +768,7 @@ class HardwareControllerImpl(
             updateSearchLedBlink(cleanEpc, rssi)
         }
 
-        if (!shouldEmitTagToFlutter(cleanEpc)) {
+        if (!shouldEmitTagToFlutter(cleanEpc, rssi)) {
             return
         }
         queueTagEvent(cleanEpc, rssi)
@@ -772,7 +781,8 @@ class HardwareControllerImpl(
     private fun updateSearchLedBlink(cleanEpc: String, rssi: String) {
         if (trayModeEnabled || r6ModeEnabled) return
         val proximity = rssiToProximityPercent(rssi)
-        if (proximity > 0) {
+        // Blink only when very close — otherwise LED cycle stops inventory and stalls RSSI updates.
+        if (proximity >= 70) {
             startContinuousBlink(cleanEpc)
         } else if (blinkEpc == cleanEpc) {
             stopBlinkingEpc()
@@ -847,7 +857,7 @@ class HardwareControllerImpl(
         blinkExecutor = null
     }
 
-    private fun shouldEmitTagToFlutter(cleanEpc: String): Boolean {
+    private fun shouldEmitTagToFlutter(cleanEpc: String, rssi: String = ""): Boolean {
         if (!trayModeEnabled && !r6ModeEnabled) {
             if (inventoryScanMode) {
                 if (inventoryScopeEpcs.isNotEmpty() && !inventoryScopeEpcs.contains(cleanEpc)) {
@@ -861,12 +871,27 @@ class HardwareControllerImpl(
             }
         }
         val now = System.currentTimeMillis()
+        val isSearchTag = searchTags.isNotEmpty() && searchTags.contains(cleanEpc)
         synchronized(recentEmitAt) {
             val last = recentEmitAt[cleanEpc] ?: 0L
+            if (isSearchTag && rssi.isNotBlank()) {
+                val prox = rssiToProximityPercent(rssi)
+                val lastProx = recentEmitProx[cleanEpc]
+                if (lastProx != null && prox != lastProx) {
+                    recentEmitAt[cleanEpc] = now
+                    recentEmitProx[cleanEpc] = prox
+                    return true
+                }
+                if (now - last < searchEmitDedupMs) return false
+                recentEmitAt[cleanEpc] = now
+                recentEmitProx[cleanEpc] = prox
+                return true
+            }
             if (now - last < emitDedupMs) return false
             recentEmitAt[cleanEpc] = now
             if (recentEmitAt.size > 12000) {
                 recentEmitAt.clear()
+                recentEmitProx.clear()
             }
         }
         return true

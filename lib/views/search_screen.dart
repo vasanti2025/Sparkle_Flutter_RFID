@@ -146,11 +146,15 @@ class _SearchScreenState extends State<SearchScreen> {
     _rfidService.setPower(power);
   }
 
+  /// Trim + uppercase + strip spaces — matches native EPC keys and stock transfer.
+  static String _normScanKey(String value) =>
+      value.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
+
   bool _itemMatchesScannedTag(SearchItem item, String epc) {
-    final key = epc.trim().toUpperCase();
+    final key = _normScanKey(epc);
     if (key.isEmpty) return false;
     for (final value in [item.epc, item.rfid, item.itemCode, item.tid, item.hex]) {
-      if (value.trim().toUpperCase() == key) return true;
+      if (_normScanKey(value) == key) return true;
     }
     return false;
   }
@@ -165,11 +169,11 @@ class _SearchScreenState extends State<SearchScreen> {
         final last = _lastRssiUpdateMs[i];
         if (last == null) continue;
         // No fresh RSSI for this row — decay so progress drops when tag moves away.
-        if (now - last > 350) {
+        if (now - last > 450) {
           final current = _pendingItemUpdates[i]?.proximityPercent ??
               _searchItems[i].proximityPercent;
           if (current > 0) {
-            final next = (current - 12).clamp(0, 100);
+            final next = (current - 8).clamp(0, 100);
             _pendingItemUpdates[i] = (_pendingItemUpdates[i] ?? _searchItems[i])
                 .copyWith(proximityPercent: next);
             changed = true;
@@ -192,7 +196,7 @@ class _SearchScreenState extends State<SearchScreen> {
     for (int i = 0; i < _searchItems.length; i++) {
       final item = _searchItems[i];
       void addKey(String value) {
-        final key = value.trim().toUpperCase();
+        final key = _normScanKey(value);
         if (key.isNotEmpty) _tagIndexMap[key] = i;
       }
       addKey(item.epc);
@@ -299,7 +303,7 @@ class _SearchScreenState extends State<SearchScreen> {
   void _onTagScanned(Map<String, dynamic> tagEvent) {
     if (!_isScanning) return;
 
-    final epc = (tagEvent['epc'] as String? ?? '').trim().toUpperCase();
+    final epc = _normScanKey(tagEvent['epc'] as String? ?? '');
     final rssi = (tagEvent['rssi'] as String? ?? '').trim();
     if (epc.isEmpty) return;
 
@@ -312,9 +316,10 @@ class _SearchScreenState extends State<SearchScreen> {
     for (int i = 0; i < _searchItems.length; i++) {
       if (!_itemMatchesScannedTag(_searchItems[i], epc)) continue;
       _lastRssiUpdateMs[i] = now;
+      final base = _pendingItemUpdates[i] ?? _searchItems[i];
       _scheduleSearchUiUpdate(
         i,
-        _searchItems[i].copyWith(
+        base.copyWith(
           rssi: rssi,
           proximityPercent: proximity,
         ),
@@ -326,9 +331,10 @@ class _SearchScreenState extends State<SearchScreen> {
       final index = _tagIndexMap[epc];
       if (index == null || index < 0 || index >= _searchItems.length) return;
       _lastRssiUpdateMs[index] = now;
+      final base = _pendingItemUpdates[index] ?? _searchItems[index];
       _scheduleSearchUiUpdate(
         index,
-        _searchItems[index].copyWith(
+        base.copyWith(
           rssi: rssi,
           proximityPercent: proximity,
         ),
@@ -363,7 +369,7 @@ class _SearchScreenState extends State<SearchScreen> {
     }
 
     final cleanTags = tags
-        .map((t) => t.trim().toUpperCase())
+        .map(_normScanKey)
         .where((t) => t.isNotEmpty)
         .toSet()
         .toList();
