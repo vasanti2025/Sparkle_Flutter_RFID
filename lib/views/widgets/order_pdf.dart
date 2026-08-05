@@ -8,9 +8,9 @@ import 'package:pdf/widgets.dart' as pw;
 
 import '../../utils/pdf_open_util.dart';
 
-const _rowsPerPage = 6;
+const _tableRowsPerPage = 6;
 
-/// Customer order PDF — table layout (Barcode, Item, Image, Colour, PT, DWT, Size, Net Wt, Remarks).
+/// Customer order PDF — summary table + per-item detail pages.
 /// Used from Order save and Order list print.
 Future<void> printCustomOrderPdf({
   required BuildContext context,
@@ -62,37 +62,42 @@ Future<Uint8List> _buildOrderPdfBytes({
   final orderNo = _orderNo(orderRes);
   final itemsList = orderRes['CustomOrderItem'];
 
-  final rows = <_OrderPdfRow>[];
+  final tableRows = <_OrderPdfRow>[];
+  final detailItems = <Map<String, dynamic>>[];
+
   if (itemsList is List) {
     for (var i = 0; i < itemsList.length; i++) {
       final raw = itemsList[i];
       if (raw is! Map) continue;
       final item = Map<String, dynamic>.from(raw);
+      detailItems.add(item);
+
       final image = await _loadPdfThumbnail(
-        item['Image']?.toString() ?? '',
+        _orderImagePath(item),
         baseUrl,
+        large: false,
       );
 
-      rows.add(
+      tableRows.add(
         _OrderPdfRow(
           srNo: '${i + 1}',
           barCode: _orderBarCode(item),
           item: _orderItemName(item),
           image: image,
           colour: _orderColour(item),
-          pt: _formatPt(item['HallmarkAmount']),
-          dwt: _formatDwt(item['DiamondWt']),
-          size: _orderSize(item),
-          netWt: _dash(item['NetWt']?.toString()),
-          remarks: _dash(item['Remark']?.toString()),
+          pt: _orderPt(item, orderRes),
+          dwt: _orderDwt(item, orderRes),
+          size: _orderSize(item, orderRes),
+          netWt: _displayWt(item['NetWt']),
+          remarks: _orderRemark(item, orderRes),
         ),
       );
     }
   }
 
-  if (rows.isEmpty) {
-    rows.add(
-      _OrderPdfRow(
+  if (tableRows.isEmpty) {
+    tableRows.add(
+      const _OrderPdfRow(
         srNo: '-',
         barCode: '-',
         item: '-',
@@ -107,8 +112,43 @@ Future<Uint8List> _buildOrderPdfBytes({
     );
   }
 
-  for (var pageStart = 0; pageStart < rows.length; pageStart += _rowsPerPage) {
-    final end = (pageStart + _rowsPerPage).clamp(0, rows.length);
+  _addTablePages(
+    pdf: pdf,
+    custName: custName,
+    orderNo: orderNo,
+    rows: tableRows,
+  );
+
+  for (var i = 0; i < detailItems.length; i++) {
+    final item = detailItems[i];
+    final largeImage = await _loadPdfThumbnail(
+      _orderImagePath(item),
+      baseUrl,
+      large: true,
+    );
+    _addItemDetailPage(
+      pdf: pdf,
+      orderRes: orderRes,
+      custName: custName,
+      orderNo: _itemOrderNo(orderRes, item),
+      item: item,
+      image: largeImage,
+      itemIndex: i + 1,
+      totalItems: detailItems.length,
+    );
+  }
+
+  return pdf.save();
+}
+
+void _addTablePages({
+  required pw.Document pdf,
+  required String custName,
+  required String orderNo,
+  required List<_OrderPdfRow> rows,
+}) {
+  for (var pageStart = 0; pageStart < rows.length; pageStart += _tableRowsPerPage) {
+    final end = (pageStart + _tableRowsPerPage).clamp(0, rows.length);
     final pageRows = rows.sublist(pageStart, end);
     final isFirstPage = pageStart == 0;
 
@@ -160,8 +200,156 @@ Future<Uint8List> _buildOrderPdfBytes({
       ),
     );
   }
+}
 
-  return pdf.save();
+void _addItemDetailPage({
+  required pw.Document pdf,
+  required Map<String, dynamic> orderRes,
+  required String custName,
+  required String orderNo,
+  required Map<String, dynamic> item,
+  required pw.MemoryImage? image,
+  required int itemIndex,
+  required int totalItems,
+}) {
+  final leftLines = [
+    _detailLine('Name', custName),
+    _detailLine('Order No', orderNo),
+    _detailLine('Design', _displayText(item['DesignName'] ?? item['CategoryName'])),
+    _detailLine('RFID No', _displayRfid(item)),
+    _detailLine('Quantity', _displayQty(item['Quantity'])),
+    _detailLine('Bar Code', _orderBarCode(item)),
+    _detailLine('Item', _orderItemName(item)),
+  ];
+
+  final rightLines = [
+    _detailLine('Gross Wt', _displayWt(item['GrossWt'])),
+    _detailLine('Stone Wt', _displayWt(item['StoneWt'])),
+    _detailLine('Net Wt', _displayWt(item['NetWt'])),
+    _detailLine('Colour', _orderColour(item)),
+    _detailLine('PT', _orderPt(item, orderRes)),
+    _detailLine('DWT', _orderDwt(item, orderRes)),
+    _detailLine('Size', _orderSize(item, orderRes)),
+    _detailLine('Remark', _orderRemark(item, orderRes)),
+  ];
+
+  pdf.addPage(
+    pw.Page(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.all(20),
+      build: (ctx) {
+        return pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+          children: [
+            pw.Center(
+              child: pw.Text(
+                'Customer Order',
+                style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
+              ),
+            ),
+            pw.SizedBox(height: 6),
+            pw.Center(
+              child: pw.Text(
+                'Item $itemIndex of $totalItems',
+                style: const pw.TextStyle(fontSize: 10),
+              ),
+            ),
+            pw.SizedBox(height: 14),
+            pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Expanded(
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: leftLines,
+                  ),
+                ),
+                pw.SizedBox(width: 24),
+                pw.Expanded(
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: rightLines,
+                  ),
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 20),
+            if (image != null)
+              pw.Expanded(
+                child: pw.Center(
+                  child: pw.Image(image, fit: pw.BoxFit.contain),
+                ),
+              )
+            else
+              pw.Padding(
+                padding: const pw.EdgeInsets.only(top: 24),
+                child: pw.Center(
+                  child: pw.Text(
+                    'Image not available',
+                    style: pw.TextStyle(
+                      fontSize: 12,
+                      fontStyle: pw.FontStyle.italic,
+                      color: PdfColors.grey700,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    ),
+  );
+}
+
+pw.Widget _detailLine(String label, String value) {
+  return pw.Padding(
+    padding: const pw.EdgeInsets.only(bottom: 6),
+    child: pw.RichText(
+      text: pw.TextSpan(
+        children: [
+          pw.TextSpan(
+            text: '$label     : ',
+            style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
+          ),
+          pw.TextSpan(
+            text: value.isEmpty ? '-' : value,
+            style: const pw.TextStyle(fontSize: 11),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+String _itemOrderNo(Map<String, dynamic> orderRes, Map<String, dynamic> item) {
+  return _firstNonEmpty([
+    item['OrderNo']?.toString(),
+    orderRes['OrderNo']?.toString(),
+  ]);
+}
+
+String _displayRfid(Map<String, dynamic> item) {
+  return _displayText(
+    item['RFIDCode'] ?? item['RfidCode'] ?? item['EPC'] ?? item['TIDNumber'],
+  );
+}
+
+String _displayQty(dynamic value) {
+  final t = value?.toString().trim() ?? '';
+  if (t.isEmpty) return '1';
+  return t;
+}
+
+String _displayWt(dynamic value) {
+  final t = value?.toString().trim() ?? '';
+  if (t.isEmpty) return '-';
+  return t;
+}
+
+String _displayText(dynamic value) {
+  final t = value?.toString().trim() ?? '';
+  if (t.isEmpty || t.toLowerCase() == 'null') return '-';
+  return t;
 }
 
 String _customerName(Map<String, dynamic> orderRes) {
@@ -174,6 +362,10 @@ String _customerName(Map<String, dynamic> orderRes) {
     ]);
   }
   return _firstNonEmpty([orderRes['CustomerName']?.toString()]);
+}
+
+String _orderImagePath(Map<String, dynamic> item) {
+  return _pickOrderField(item, const {}, ['Image', 'Images']) ?? '';
 }
 
 String _orderNo(Map<String, dynamic> orderRes) {
@@ -193,7 +385,11 @@ String _resolveImageUrl(String path, String baseUrl) {
   return '$base$lastImg';
 }
 
-Future<pw.MemoryImage?> _loadPdfThumbnail(String rawImage, String baseUrl) async {
+Future<pw.MemoryImage?> _loadPdfThumbnail(
+  String rawImage,
+  String baseUrl, {
+  required bool large,
+}) async {
   if (rawImage.isEmpty) return null;
   final url = _resolveImageUrl(rawImage, baseUrl);
   if (url.isEmpty) return null;
@@ -201,19 +397,20 @@ Future<pw.MemoryImage?> _loadPdfThumbnail(String rawImage, String baseUrl) async
   try {
     final res = await http
         .get(Uri.parse(url))
-        .timeout(const Duration(seconds: 8));
+        .timeout(const Duration(seconds: 10));
     if (res.statusCode != 200 || res.bodyBytes.isEmpty) return null;
 
     final decoded = img.decodeImage(res.bodyBytes);
     if (decoded == null) return null;
 
+    final target = large ? 480 : 72;
     final thumb = img.copyResize(
       decoded,
-      width: 72,
-      height: 72,
+      width: target,
+      height: target,
       interpolation: img.Interpolation.linear,
     );
-    final jpg = Uint8List.fromList(img.encodeJpg(thumb, quality: 70));
+    final jpg = Uint8List.fromList(img.encodeJpg(thumb, quality: large ? 82 : 70));
     return pw.MemoryImage(jpg);
   } catch (e) {
     debugPrint('Order PDF image skipped ($url): $e');
@@ -281,49 +478,102 @@ pw.TableRow _orderDataRow(_OrderPdfRow r) {
   );
 }
 
-/// PDF Bar Code ← dashboard Product No. (ProductCode / ProductNo)
 String _orderBarCode(Map<String, dynamic> item) {
-  return _dash(_firstNonEmpty([
+  return _displayText(_firstNonEmpty([
     item['ProductNo']?.toString(),
     item['ProductCode']?.toString(),
     item['ItemCode']?.toString(),
   ]));
 }
 
-/// PDF Item ← dashboard Product Code (ProductName / ProductCode)
 String _orderItemName(Map<String, dynamic> item) {
-  return _dash(_firstNonEmpty([
+  return _displayText(_firstNonEmpty([
     item['ProductName']?.toString(),
     item['ProductCode']?.toString(),
   ]));
 }
 
-/// PDF COLOUR ← dashboard Design (DesignName)
 String _orderColour(Map<String, dynamic> item) {
-  return _dash(_firstNonEmpty([
+  return _displayText(_firstNonEmpty([
     item['DesignName']?.toString(),
     item['TypesOdColors']?.toString(),
   ]));
 }
 
-/// PDF SIZE ← dashboard Description
-String _orderSize(Map<String, dynamic> item) {
-  return _dash(_firstNonEmpty([
-    item['Description']?.toString(),
-    item['Size']?.toString(),
-  ]));
+/// Read a field from CustomOrderItem first, then parent order response.
+String? _pickOrderField(
+  Map<String, dynamic> item,
+  Map<String, dynamic> orderRes,
+  List<String> keys,
+) {
+  for (final key in keys) {
+    if (!item.containsKey(key) || item[key] == null) continue;
+    final text = item[key].toString().trim();
+    if (text.isNotEmpty && text.toLowerCase() != 'null') return text;
+  }
+  for (final key in keys) {
+    if (!orderRes.containsKey(key) || orderRes[key] == null) continue;
+    final text = orderRes[key].toString().trim();
+    if (text.isNotEmpty && text.toLowerCase() != 'null') return text;
+  }
+  return null;
+}
+
+/// PT ← HallmarkAmount (order response / CustomOrderItem)
+String _orderPt(Map<String, dynamic> item, Map<String, dynamic> orderRes) {
+  final raw = _pickOrderField(item, orderRes, [
+    'HallmarkAmount',
+    'HallmarkAmt',
+    'HallMarkAmount',
+    'PT',
+  ]);
+  if (raw == null) return '-';
+  return _formatPt(raw);
+}
+
+/// DWT ← DiamondWt / DiamondWeight (order response / CustomOrderItem)
+String _orderDwt(Map<String, dynamic> item, Map<String, dynamic> orderRes) {
+  final raw = _pickOrderField(item, orderRes, [
+    'DiamondWt',
+    'DiamondWeight',
+    'TotalDiamondWeight',
+    'DWT',
+  ]);
+  if (raw == null) return '-';
+  return _formatDwt(raw);
+}
+
+/// Size ← Description / Size (order response / CustomOrderItem)
+String _orderSize(Map<String, dynamic> item, Map<String, dynamic> orderRes) {
+  final raw = _pickOrderField(item, orderRes, [
+    'Description',
+    'Size',
+    'ItemSize',
+    'Length',
+  ]);
+  return raw ?? '-';
+}
+
+/// Remark ← Remark (order response / CustomOrderItem)
+String _orderRemark(Map<String, dynamic> item, Map<String, dynamic> orderRes) {
+  final raw = _pickOrderField(item, orderRes, [
+    'Remark',
+    'Remarks',
+    'OrderRemark',
+  ]);
+  return raw ?? '-';
 }
 
 String _formatPt(dynamic value) {
-  final t = value?.toString().trim() ?? '';
-  if (t.isEmpty || t == '0' || t == '0.0' || t == '0.00') return '-';
+  final t = value.toString().trim();
+  if (t.isEmpty) return '-';
   if (t.toUpperCase().endsWith('PT')) return t;
   return '${t}PT';
 }
 
 String _formatDwt(dynamic value) {
-  final t = value?.toString().trim() ?? '';
-  if (t.isEmpty || t == '0' || t == '0.0' || t == '0.000') return '-';
+  final t = value.toString().trim();
+  if (t.isEmpty) return '-';
   if (t.toUpperCase().endsWith('CT')) return t;
   return '${t}CT';
 }
@@ -386,10 +636,4 @@ String _firstNonEmpty(List<String?> values) {
     if (t.isNotEmpty && t != '0') return t;
   }
   return '';
-}
-
-String _dash(String? v) {
-  final t = v?.trim() ?? '';
-  if (t.isEmpty || t == '0' || t == '0.0' || t == '0.00' || t == '0.000') return '-';
-  return t;
 }
