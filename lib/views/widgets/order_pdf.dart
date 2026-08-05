@@ -114,8 +114,10 @@ Future<Uint8List> _buildOrderPdfBytes({
 
   _addTablePages(
     pdf: pdf,
+    orderRes: orderRes,
     custName: custName,
     orderNo: orderNo,
+    detailItems: detailItems,
     rows: tableRows,
   );
 
@@ -143,8 +145,10 @@ Future<Uint8List> _buildOrderPdfBytes({
 
 void _addTablePages({
   required pw.Document pdf,
+  required Map<String, dynamic> orderRes,
   required String custName,
   required String orderNo,
+  required List<Map<String, dynamic>> detailItems,
   required List<_OrderPdfRow> rows,
 }) {
   for (var pageStart = 0; pageStart < rows.length; pageStart += _tableRowsPerPage) {
@@ -167,14 +171,15 @@ void _addTablePages({
                 ),
               ),
               pw.SizedBox(height: 8),
-              if (isFirstPage)
-                pw.Row(
-                  children: [
-                    pw.Expanded(child: _headerLine('Customer', custName)),
-                    pw.Expanded(child: _headerLine('Order No', orderNo)),
-                  ],
+              if (isFirstPage) ...[
+                _buildOrderSummaryHeader(
+                  orderRes: orderRes,
+                  custName: custName,
+                  orderNo: orderNo,
+                  detailItems: detailItems,
                 ),
-              if (isFirstPage) pw.SizedBox(height: 10),
+                pw.SizedBox(height: 10),
+              ],
               pw.Table(
                 border: pw.TableBorder.all(color: PdfColors.black, width: 0.7),
                 columnWidths: const {
@@ -200,6 +205,159 @@ void _addTablePages({
       ),
     );
   }
+}
+
+pw.Widget _buildOrderSummaryHeader({
+  required Map<String, dynamic> orderRes,
+  required String custName,
+  required String orderNo,
+  required List<Map<String, dynamic>> detailItems,
+}) {
+  final firstItem = detailItems.isNotEmpty ? detailItems.first : <String, dynamic>{};
+  final totals = _orderWeightTotals(detailItems);
+
+  final leftLines = [
+    _detailLine('Name', custName),
+    _detailLine('Order No', orderNo),
+    _detailLine('Design', _orderDesign(orderRes, firstItem)),
+    _detailLine('RFID No', _orderHeaderRfid(orderRes, detailItems)),
+    _detailLine('Quantity', _orderTotalQuantity(orderRes, detailItems)),
+  ];
+
+  final rightLines = [
+    _detailLine('Gross Wt', totals.grossWt),
+    _detailLine('Stone Wt', totals.stoneWt),
+    _detailLine('Net Wt', totals.netWt),
+    _detailLine('Remark', _orderHeaderRemark(orderRes, detailItems)),
+  ];
+
+  return pw.Row(
+    crossAxisAlignment: pw.CrossAxisAlignment.start,
+    children: [
+      pw.Expanded(
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: leftLines,
+        ),
+      ),
+      pw.SizedBox(width: 24),
+      pw.Expanded(
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: rightLines,
+        ),
+      ),
+    ],
+  );
+}
+
+class _OrderWeightTotals {
+  final String grossWt;
+  final String stoneWt;
+  final String netWt;
+
+  const _OrderWeightTotals({
+    required this.grossWt,
+    required this.stoneWt,
+    required this.netWt,
+  });
+}
+
+_OrderWeightTotals _orderWeightTotals(List<Map<String, dynamic>> items) {
+  var gross = 0.0;
+  var stone = 0.0;
+  var net = 0.0;
+  var hasGross = false;
+  var hasStone = false;
+  var hasNet = false;
+
+  for (final item in items) {
+    final g = double.tryParse(item['GrossWt']?.toString() ?? '');
+    if (g != null) {
+      gross += g;
+      hasGross = true;
+    }
+    final s = double.tryParse(
+      _firstNonEmpty([
+        item['StoneWt']?.toString(),
+        item['TotalStoneWeight']?.toString(),
+      ]),
+    );
+    if (s != null) {
+      stone += s;
+      hasStone = true;
+    }
+    final n = double.tryParse(item['NetWt']?.toString() ?? '');
+    if (n != null) {
+      net += n;
+      hasNet = true;
+    }
+  }
+
+  return _OrderWeightTotals(
+    grossWt: hasGross ? gross.toStringAsFixed(3) : '-',
+    stoneWt: hasStone ? stone.toStringAsFixed(3) : '-',
+    netWt: hasNet ? net.toStringAsFixed(2) : '-',
+  );
+}
+
+String _orderDesign(Map<String, dynamic> orderRes, Map<String, dynamic> firstItem) {
+  return _displayText(_firstNonEmpty([
+    orderRes['DesignName']?.toString(),
+    orderRes['CategoryName']?.toString(),
+    firstItem['CategoryName']?.toString(),
+    firstItem['DesignName']?.toString(),
+  ]));
+}
+
+String _orderHeaderRfid(
+  Map<String, dynamic> orderRes,
+  List<Map<String, dynamic>> items,
+) {
+  final orderRfid = _displayRfid(orderRes);
+  if (orderRfid != '-') return orderRfid;
+  if (items.length == 1) return _displayRfid(items.first);
+  return '-';
+}
+
+String _orderTotalQuantity(
+  Map<String, dynamic> orderRes,
+  List<Map<String, dynamic>> items,
+) {
+  final orderQty = orderRes['Quantity']?.toString().trim() ?? '';
+  if (orderQty.isNotEmpty && orderQty.toLowerCase() != 'null') {
+    return orderQty;
+  }
+
+  var total = 0;
+  var hasQty = false;
+  for (final item in items) {
+    final q = int.tryParse(item['Quantity']?.toString() ?? '') ??
+        int.tryParse(item['Qty']?.toString() ?? '');
+    if (q != null) {
+      total += q;
+      hasQty = true;
+    }
+  }
+  if (hasQty) return total.toString();
+  if (items.isNotEmpty) return items.length.toString();
+  return '-';
+}
+
+String _orderHeaderRemark(
+  Map<String, dynamic> orderRes,
+  List<Map<String, dynamic>> items,
+) {
+  final orderRemark = _pickOrderField(const {}, orderRes, [
+    'Remark',
+    'Remarks',
+    'OrderRemark',
+  ]);
+  if (orderRemark != null) return orderRemark;
+  if (items.length == 1) {
+    return _orderRemark(items.first, orderRes);
+  }
+  return '-';
 }
 
 void _addItemDetailPage({
@@ -576,26 +734,6 @@ String _formatDwt(dynamic value) {
   if (t.isEmpty) return '-';
   if (t.toUpperCase().endsWith('CT')) return t;
   return '${t}CT';
-}
-
-pw.Widget _headerLine(String label, String value) {
-  return pw.Padding(
-    padding: const pw.EdgeInsets.only(bottom: 4),
-    child: pw.RichText(
-      text: pw.TextSpan(
-        children: [
-          pw.TextSpan(
-            text: '$label: ',
-            style: pw.TextStyle(fontSize: 10.5, fontWeight: pw.FontWeight.bold),
-          ),
-          pw.TextSpan(
-            text: value.isEmpty ? '-' : value,
-            style: const pw.TextStyle(fontSize: 10.5),
-          ),
-        ],
-      ),
-    ),
-  );
 }
 
 pw.Widget _orderCell(
