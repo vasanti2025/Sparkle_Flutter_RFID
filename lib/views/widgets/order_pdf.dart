@@ -204,7 +204,28 @@ Future<void> printCustomOrderPdf({
   required Map<String, dynamic> orderRes,
   required String baseUrl,
 }) async {
-  if (!context.mounted) return;
+  await openOrdersPdf(
+    context: context,
+    orders: [orderRes],
+    baseUrl: baseUrl,
+    fileName: _singleOrderPdfFileName(orderRes),
+  );
+}
+
+String _singleOrderPdfFileName(Map<String, dynamic> orderRes) {
+  final orderNo = _orderNo(orderRes);
+  final custName = _customerName(orderRes);
+  return 'Order_${orderNo.isNotEmpty ? orderNo : (custName.isNotEmpty ? custName : 'Customer')}';
+}
+
+/// Opens one combined PDF for multiple orders (filtered list download).
+Future<void> openOrdersPdf({
+  required BuildContext context,
+  required List<Map<String, dynamic>> orders,
+  required String baseUrl,
+  required String fileName,
+}) async {
+  if (!context.mounted || orders.isEmpty) return;
 
   showDialog<void>(
     context: context,
@@ -213,16 +234,14 @@ Future<void> printCustomOrderPdf({
   );
 
   try {
-    final bytes = await _buildOrderPdfBytes(orderRes: orderRes, baseUrl: baseUrl);
+    final bytes = await buildOrdersPdfBytes(orders: orders, baseUrl: baseUrl);
     if (context.mounted) {
       Navigator.of(context, rootNavigator: true).pop();
     }
 
-    final orderNo = _orderNo(orderRes);
-    final custName = _customerName(orderRes);
     final ok = await PdfOpenUtil.openPdfBytes(
       bytes: bytes,
-      fileName: 'Order_${orderNo.isNotEmpty ? orderNo : (custName.isNotEmpty ? custName : 'Customer')}.pdf',
+      fileName: fileName,
     );
     if (!ok && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -240,11 +259,26 @@ Future<void> printCustomOrderPdf({
   }
 }
 
-Future<Uint8List> _buildOrderPdfBytes({
-  required Map<String, dynamic> orderRes,
+Future<Uint8List> buildOrdersPdfBytes({
+  required List<Map<String, dynamic>> orders,
   required String baseUrl,
 }) async {
   final pdf = pw.Document();
+  for (final orderRes in orders) {
+    await _appendOrderPagesToPdf(
+      pdf: pdf,
+      orderRes: orderRes,
+      baseUrl: baseUrl,
+    );
+  }
+  return pdf.save();
+}
+
+Future<void> _appendOrderPagesToPdf({
+  required pw.Document pdf,
+  required Map<String, dynamic> orderRes,
+  required String baseUrl,
+}) async {
   final custName = _customerName(orderRes);
   final orderNo = _orderNo(orderRes);
   final itemsList = orderRes['CustomOrderItem'];
@@ -326,8 +360,6 @@ Future<Uint8List> _buildOrderPdfBytes({
       totalItems: detailItems.length,
     );
   }
-
-  return pdf.save();
 }
 
 void _addTablePages({
