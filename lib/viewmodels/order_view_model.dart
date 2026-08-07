@@ -9,6 +9,7 @@ import '../services/order_offline_service.dart';
 import '../services/order_payload_builder.dart';
 import '../services/order_sync_service.dart';
 import '../services/pref_service.dart';
+import '../views/widgets/order_pdf.dart';
 
 class OrderViewModel extends ChangeNotifier {
   final PrefService _prefService;
@@ -783,7 +784,8 @@ class OrderViewModel extends ChangeNotifier {
 
       _isLoading = false;
       notifyListeners();
-      return response;
+      if (response == null) return null;
+      return mergeOrderResponseForPdf(enrichedPayload, response);
     } catch (e) {
       _isLoading = false;
       _errorMessage = e.toString();
@@ -841,6 +843,71 @@ class OrderViewModel extends ChangeNotifier {
   String get editingLocalOrderId => _editingLocalOrderId ?? '';
 
   String _editingOrderNo = '';
+
+  /// Ensures customer master is loaded, then merges city/email/mobile into order for PDF.
+  Future<Map<String, dynamic>> orderForPdf(Map<String, dynamic> order) async {
+    final code = _prefService.getEmployee()?.clientCode ?? '';
+    final normalized = normalizeOrderMap(order);
+
+    final online = await _offline.isOnline();
+    if (online) {
+      try {
+        final rawCustomers = await _apiService.getAllCustomers(code);
+        _customers = rawCustomers
+            .map((c) => CustomerModel.fromJson(c as Map<String, dynamic>))
+            .toList();
+        await _mergePendingCustomers(code);
+      } catch (e) {
+        debugPrint('Order PDF customer refresh failed: $e');
+        if (_customers.isEmpty) {
+          await loadMasterData(force: true);
+        }
+      }
+    } else if (_customers.isEmpty) {
+      await loadMasterData(force: true);
+    }
+
+    final customers = List<CustomerModel>.from(_customers);
+
+    final selected = _selectedCustomer;
+    if (selected?.id != null && selected!.id! > 0) {
+      final orderCustomerId = resolveOrderCustomerId(normalized);
+      if (orderCustomerId == null || orderCustomerId == selected.id) {
+        final idx = customers.indexWhere((c) => c.id == selected.id);
+        if (idx >= 0) {
+          customers[idx] = selected;
+        } else {
+          customers.add(selected);
+        }
+      }
+    }
+
+    return enrichOrderForPdf(normalized, customers);
+  }
+
+  Map<String, dynamic> mergeOrderResponseForPdf(
+    Map<String, dynamic> enrichedPayload,
+    Map<String, dynamic> response,
+  ) {
+    final snap = normalizeOrderMap(enrichedPayload);
+    response.forEach((key, value) {
+      if (value == null) return;
+      final k = key.toString();
+      if (k == 'Customer' && value is Map && value.isEmpty) return;
+      if (k == 'CustomOrderItem' && value is List && value.isEmpty) return;
+      snap[k] = value is Map
+          ? normalizeOrderMap(value)
+          : value is List
+              ? value
+                  .map((entry) => entry is Map ? normalizeOrderMap(entry) : entry)
+                  .toList()
+              : value;
+    });
+    if (response['CustomOrderId'] != null) {
+      snap['CustomOrderId'] = response['CustomOrderId'];
+    }
+    return snap;
+  }
 
   Future<void> fetchOrdersHistory({bool syncPendingFirst = true, bool forceNetwork = false}) async {
     _errorMessage = null;

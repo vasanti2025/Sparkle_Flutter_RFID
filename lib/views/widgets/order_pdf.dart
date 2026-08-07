@@ -6,9 +6,196 @@ import 'package:image/image.dart' as img;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../../models/customer.dart';
 import '../../utils/pdf_open_util.dart';
 
 const _tableRowsPerPage = 6;
+
+/// Deep-converts decoded JSON maps so nested Customer fields are readable.
+Map<String, dynamic> normalizeOrderMap(Map source) {
+  final out = <String, dynamic>{};
+  source.forEach((key, value) {
+    final k = key.toString();
+    if (value is Map) {
+      out[k] = normalizeOrderMap(value);
+    } else if (value is List) {
+      out[k] = value.map((entry) {
+        if (entry is Map) return normalizeOrderMap(entry);
+        return entry;
+      }).toList();
+    } else {
+      out[k] = value;
+    }
+  });
+  return out;
+}
+
+/// Fills missing customer fields (city, email, mobile, etc.) from customer list API cache.
+/// Matches strictly by [CustomerId] — never by name alone.
+Map<String, dynamic> enrichOrderForPdf(
+  Map<String, dynamic> orderRes,
+  List<CustomerModel> customers,
+) {
+  orderRes = normalizeOrderMap(orderRes);
+  if (customers.isEmpty) return orderRes;
+
+  var customerId = resolveOrderCustomerId(orderRes);
+  CustomerModel? match = customerId == null
+      ? null
+      : findCustomerById(customers, customerId);
+
+  if (match == null) {
+    final byName = findCustomerByName(customers, _customerName(orderRes));
+    if (byName != null) {
+      match = byName;
+      customerId = byName.id;
+      debugPrint(
+        'Order PDF: CustomerId missing — matched "${byName.firstName ?? ''}" by name (Id=${byName.id}).',
+      );
+    }
+  }
+
+  if (match == null || customerId == null) {
+    debugPrint('Order PDF: no customer match for order CustomerId=$customerId');
+    return orderRes;
+  }
+
+  if (!_customerIdentityConsistent(orderRes, match, customerId)) {
+    debugPrint(
+      'Order PDF: CustomerId=$customerId name mismatch — using customer list record '
+      '"${match.firstName ?? ''} ${match.lastName ?? ''}".',
+    );
+  }
+
+  final enriched = Map<String, dynamic>.from(orderRes);
+  enriched['CustomerId'] = customerId.toString();
+
+  final existing = enriched['Customer'];
+  final merged = existing is Map
+      ? Map<String, dynamic>.from(existing)
+      : <String, dynamic>{};
+
+  merged['Id'] = match.id;
+
+  void setFromCustomerList(String key, String? value) {
+    if (value == null || value.trim().isEmpty) return;
+    merged[key] = value.trim();
+  }
+
+  setFromCustomerList('Mobile', match.mobile);
+  setFromCustomerList('Email', match.email);
+  setFromCustomerList('CurrAddState', match.currAddState);
+  setFromCustomerList('City', match.city);
+  setFromCustomerList('CustomerLoginId', match.customerLoginId ?? match.email);
+  setFromCustomerList('FirstName', match.firstName);
+  setFromCustomerList('LastName', match.lastName);
+  setFromCustomerList('CurrAddTown', match.currAddTown);
+  setFromCustomerList('Area', match.area);
+  setFromCustomerList('Country', match.country);
+
+  enriched['Customer'] = merged;
+  enriched['Mobile'] = match.mobile ?? merged['Mobile']?.toString() ?? '';
+  enriched['Email'] = match.email ?? merged['Email']?.toString() ?? '';
+  enriched['CurrAddState'] =
+      match.currAddState ?? merged['CurrAddState']?.toString() ?? '';
+  enriched['City'] = match.city ?? merged['City']?.toString() ?? '';
+
+  final name = '${match.firstName ?? ''} ${match.lastName ?? ''}'.trim();
+  if (name.isNotEmpty) {
+    enriched['CustomerName'] = name;
+  }
+
+  return enriched;
+}
+
+/// Parses a positive customer id from order root, nested Customer, or line items.
+int? resolveOrderCustomerId(Map<String, dynamic> orderRes) {
+  int? parsePositiveId(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is int) return raw > 0 ? raw : null;
+    final parsed = int.tryParse(raw.toString().trim());
+    if (parsed == null || parsed <= 0) return null;
+    return parsed;
+  }
+
+  final fromRoot = parsePositiveId(orderRes['CustomerId']);
+  final customer = orderRes['Customer'];
+  final fromCustomer = customer is Map ? parsePositiveId(customer['Id']) : null;
+
+  int? fromItems;
+  final items = orderRes['CustomOrderItem'];
+  if (items is List) {
+    for (final raw in items) {
+      if (raw is! Map) continue;
+      final itemId = parsePositiveId(raw['CustomerId']);
+      if (itemId == null) continue;
+      if (fromItems == null) {
+        fromItems = itemId;
+      } else if (fromItems != itemId) {
+        debugPrint(
+          'Order PDF: mixed CustomerId on items ($fromItems vs $itemId) — using order header id.',
+        );
+        break;
+      }
+    }
+  }
+
+  final ids = <int>{};
+  if (fromRoot != null) ids.add(fromRoot);
+  if (fromCustomer != null) ids.add(fromCustomer);
+  if (fromItems != null) ids.add(fromItems);
+  if (ids.isEmpty) return null;
+  if (ids.length > 1) {
+    debugPrint('Order PDF: conflicting CustomerId values $ids — preferring order header.');
+  }
+
+  return fromRoot ?? fromCustomer ?? fromItems;
+}
+
+CustomerModel? findCustomerById(List<CustomerModel> customers, int customerId) {
+  for (final customer in customers) {
+    if (customer.id == customerId) return customer;
+  }
+  return null;
+}
+
+CustomerModel? findCustomerByName(List<CustomerModel> customers, String customerName) {
+  final target = _normalizePersonName(customerName);
+  if (target.isEmpty) return null;
+
+  for (final customer in customers) {
+    final listName = _normalizePersonName(
+      '${customer.firstName ?? ''} ${customer.lastName ?? ''}',
+    );
+    if (listName.isNotEmpty && listName == target) return customer;
+  }
+  return null;
+}
+
+bool _customerIdentityConsistent(
+  Map<String, dynamic> orderRes,
+  CustomerModel match,
+  int customerId,
+) {
+  final nested = orderRes['Customer'];
+  if (nested is Map) {
+    final nestedId = int.tryParse(nested['Id']?.toString() ?? '');
+    if (nestedId != null && nestedId > 0 && nestedId != customerId) {
+      return false;
+    }
+  }
+
+  final orderName = _normalizePersonName(_customerName(orderRes));
+  final listName = _normalizePersonName(
+    '${match.firstName ?? ''} ${match.lastName ?? ''}',
+  );
+  if (orderName.isEmpty || listName.isEmpty) return true;
+  return orderName == listName;
+}
+
+String _normalizePersonName(String value) {
+  return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+}
 
 /// Customer order PDF — summary table + per-item detail pages.
 /// Used from Order save and Order list print.
@@ -213,41 +400,69 @@ pw.Widget _buildOrderSummaryHeader({
   required String orderNo,
   required List<Map<String, dynamic>> detailItems,
 }) {
-  final firstItem = detailItems.isNotEmpty ? detailItems.first : <String, dynamic>{};
   final totals = _orderWeightTotals(detailItems);
+  final remarks = _orderHeaderRemark(orderRes, detailItems);
+  final email = _customerEmail(orderRes);
+  final mobile = _customerMobile(orderRes);
+  final date = _orderDateFormatted(orderRes);
+  final totalWtGms = totals.netWtGms;
 
-  final leftLines = [
-    _detailLine('Name', custName),
-    _detailLine('Order No', orderNo),
-    _detailLine('Design', _orderDesign(orderRes, firstItem)),
-    _detailLine('RFID No', _orderHeaderRfid(orderRes, detailItems)),
-    _detailLine('Quantity', _orderTotalQuantity(orderRes, detailItems)),
-  ];
-
-  final rightLines = [
-    _detailLine('Gross Wt', totals.grossWt),
-    _detailLine('Stone Wt', totals.stoneWt),
-    _detailLine('Net Wt', totals.netWt),
-    _detailLine('Remark', _orderHeaderRemark(orderRes, detailItems)),
-  ];
-
-  return pw.Row(
-    crossAxisAlignment: pw.CrossAxisAlignment.start,
+  return pw.Column(
+    crossAxisAlignment: pw.CrossAxisAlignment.stretch,
     children: [
-      pw.Expanded(
-        child: pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: leftLines,
-        ),
+      _headerGridRow(
+        left: _detailLine('PURCHASE ORDER NO', orderNo),
+        right: _detailLine('REMARKS', remarks),
       ),
-      pw.SizedBox(width: 24),
-      pw.Expanded(
-        child: pw.Column(
+      _headerGridRow(
+        left: _detailLine('CLIENT / COMPANY NAME', custName),
+      ),
+      _headerGridRow(
+        left: _detailLine('CITY / PLACE', _customerCity(orderRes)),
+      ),
+      _headerGridRow(
+        left: _detailLine('CONTACT PERSON', _contactPerson(orderRes)),
+      ),
+      _headerGridRow(
+        left: _detailLine('MOBILE NO :', mobile),
+        right: _detailLine('EMAIL', email),
+      ),
+      _headerGridRow(
+        left: pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: rightLines,
+          children: [
+            _detailLine('TOTAL ORDER WT', ''),
+            pw.Padding(
+              padding: const pw.EdgeInsets.only(bottom: 4),
+              child: pw.Text(
+                'Number of pcs as per DESIGN CODE / Total $totalWtGms GMS',
+                style: const pw.TextStyle(fontSize: 9),
+              ),
+            ),
+          ],
         ),
+        right: _detailLine('DATE', date),
       ),
     ],
+  );
+}
+
+pw.Widget _headerGridRow({
+  required pw.Widget left,
+  pw.Widget? right,
+}) {
+  return pw.Padding(
+    padding: const pw.EdgeInsets.only(bottom: 2),
+    child: pw.Row(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Expanded(flex: 3, child: left),
+        if (right != null) ...[
+          pw.SizedBox(width: 16),
+          pw.Expanded(flex: 2, child: right),
+        ],
+      ],
+    ),
   );
 }
 
@@ -255,11 +470,13 @@ class _OrderWeightTotals {
   final String grossWt;
   final String stoneWt;
   final String netWt;
+  final String netWtGms;
 
   const _OrderWeightTotals({
     required this.grossWt,
     required this.stoneWt,
     required this.netWt,
+    required this.netWtGms,
   });
 }
 
@@ -298,50 +515,95 @@ _OrderWeightTotals _orderWeightTotals(List<Map<String, dynamic>> items) {
     grossWt: hasGross ? gross.toStringAsFixed(3) : '-',
     stoneWt: hasStone ? stone.toStringAsFixed(3) : '-',
     netWt: hasNet ? net.toStringAsFixed(2) : '-',
+    netWtGms: hasNet ? net.toStringAsFixed(3) : '0.000',
   );
 }
 
-String _orderDesign(Map<String, dynamic> orderRes, Map<String, dynamic> firstItem) {
+Map<String, dynamic>? _customerMap(Map<String, dynamic> orderRes) {
+  final customer = orderRes['Customer'];
+  if (customer is Map) return Map<String, dynamic>.from(customer);
+  return null;
+}
+
+String _pickCustomerField(Map<String, dynamic> orderRes, List<String> keys) {
+  for (final key in keys) {
+    final top = orderRes[key]?.toString().trim() ?? '';
+    if (top.isNotEmpty && top.toLowerCase() != 'null') return top;
+  }
+
+  final customer = _customerMap(orderRes);
+  if (customer != null) {
+    for (final key in keys) {
+      final text = customer[key]?.toString().trim() ?? '';
+      if (text.isNotEmpty && text.toLowerCase() != 'null') return text;
+    }
+  }
+  return '';
+}
+
+String _customerCity(Map<String, dynamic> orderRes) {
   return _displayText(_firstNonEmpty([
-    orderRes['DesignName']?.toString(),
-    orderRes['CategoryName']?.toString(),
-    firstItem['CategoryName']?.toString(),
-    firstItem['DesignName']?.toString(),
+    _pickCustomerField(orderRes, ['CurrAddState']),
+    _pickCustomerField(orderRes, ['City']),
+    _pickCustomerField(orderRes, ['PerAddState']),
+    _pickCustomerField(orderRes, ['CurrAddTown', 'PerAddTown']),
+    _pickCustomerField(orderRes, ['Area']),
   ]));
 }
 
-String _orderHeaderRfid(
-  Map<String, dynamic> orderRes,
-  List<Map<String, dynamic>> items,
-) {
-  final orderRfid = _displayRfid(orderRes);
-  if (orderRfid != '-') return orderRfid;
-  if (items.length == 1) return _displayRfid(items.first);
-  return '-';
+String _contactPerson(Map<String, dynamic> orderRes) {
+  return _displayText(_firstNonEmpty([
+    _pickCustomerField(orderRes, ['ContactPerson', 'ContactName']),
+    '${_pickCustomerField(orderRes, ['FirstName'])} ${_pickCustomerField(orderRes, ['LastName'])}'
+        .trim(),
+    orderRes['ContactPerson']?.toString(),
+  ]));
 }
 
-String _orderTotalQuantity(
-  Map<String, dynamic> orderRes,
-  List<Map<String, dynamic>> items,
-) {
-  final orderQty = orderRes['Quantity']?.toString().trim() ?? '';
-  if (orderQty.isNotEmpty && orderQty.toLowerCase() != 'null') {
-    return orderQty;
-  }
+String _customerMobile(Map<String, dynamic> orderRes) {
+  return _displayText(_firstNonEmpty([
+    _pickCustomerField(orderRes, ['Mobile']),
+  ]));
+}
 
-  var total = 0;
-  var hasQty = false;
-  for (final item in items) {
-    final q = int.tryParse(item['Quantity']?.toString() ?? '') ??
-        int.tryParse(item['Qty']?.toString() ?? '');
-    if (q != null) {
-      total += q;
-      hasQty = true;
+String _customerEmail(Map<String, dynamic> orderRes) {
+  return _displayText(_firstNonEmpty([
+    _pickCustomerField(orderRes, ['Email']),
+    _pickCustomerField(orderRes, ['CustomerLoginId']),
+  ]));
+}
+
+String _orderDateFormatted(Map<String, dynamic> orderRes) {
+  final raw = _firstNonEmpty([
+    orderRes['OrderDate']?.toString(),
+    orderRes['CreatedOn']?.toString(),
+  ]);
+  if (raw.isEmpty) return _formatPdfDate(DateTime.now());
+
+  final datePart = raw.split('T').first.trim();
+  final parsed = DateTime.tryParse(datePart);
+  if (parsed != null) return _formatPdfDate(parsed);
+
+  final slashParts = datePart.split('/');
+  if (slashParts.length == 3) return datePart;
+
+  final dashParts = datePart.split('-');
+  if (dashParts.length == 3) {
+    final year = int.tryParse(dashParts[0]);
+    final month = int.tryParse(dashParts[1]);
+    final day = int.tryParse(dashParts[2]);
+    if (year != null && month != null && day != null) {
+      return _formatPdfDate(DateTime(year, month, day));
     }
   }
-  if (hasQty) return total.toString();
-  if (items.isNotEmpty) return items.length.toString();
-  return '-';
+
+  return datePart;
+}
+
+String _formatPdfDate(DateTime date) {
+  final day = date.day.toString().padLeft(2, '0');
+  final month = date.month.toString().padLeft(2, '0');
+  return '$day/$month/${date.year}';
 }
 
 String _orderHeaderRemark(

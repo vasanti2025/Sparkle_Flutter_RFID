@@ -30,6 +30,7 @@ class _OrderListScreenState extends State<OrderListScreen> {
       runAfterRouteSettled(context, () {
         if (!mounted) return;
         final vm = context.read<OrderViewModel>();
+        unawaited(vm.loadMasterData());
         // Skip long pending sync on open — cloud button / background worker handle that.
         unawaited(vm.fetchOrdersHistory(syncPendingFirst: false));
       });
@@ -469,9 +470,12 @@ class _OrderListScreenState extends State<OrderListScreen> {
             listActionIcon(
               icon: Icons.print,
               onTap: () async {
+                final vm = context.read<OrderViewModel>();
+                final enriched = await vm.orderForPdf(order);
+                if (!context.mounted) return;
                 await printCustomOrderPdf(
                   context: context,
-                  orderRes: order,
+                  orderRes: enriched,
                   baseUrl: vm.baseUrl,
                 );
               },

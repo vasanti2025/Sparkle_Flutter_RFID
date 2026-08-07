@@ -313,9 +313,11 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
   // PDF invoice view launcher
   Future<void> _generateAndShowPdf(Map<String, dynamic> orderRes) async {
     final vm = context.read<OrderViewModel>();
+    final enriched = await vm.orderForPdf(orderRes);
+    if (!mounted) return;
     await printCustomOrderPdf(
       context: context,
-      orderRes: orderRes,
+      orderRes: enriched,
       baseUrl: vm.baseUrl,
     );
   }
