@@ -673,17 +673,30 @@ class OrderViewModel extends ChangeNotifier {
         forceCreateDefaults: !_isEditMode || orderId <= 0,
       );
 
+      // Offline / pending customers use temp (negative) Id — keep on payload for
+      // sync remap after syncPendingCustomers (Sparkle customer→order chain).
       if (custIdForPayload <= 0) {
-        throw Exception(
-          'Customer Id is missing (0). Select a customer that already exists on the server, then save again.',
-        );
+        enrichedPayload['CustomerId'] = custIdForPayload.toString();
+        final cust = enrichedPayload['Customer'];
+        if (cust is Map) {
+          cust['Id'] = custIdForPayload;
+        }
+        final items = enrichedPayload['CustomOrderItem'] as List?;
+        if (items != null) {
+          for (final it in items) {
+            if (it is Map) it['CustomerId'] = custIdForPayload;
+          }
+        }
       }
+
+      final hasServerCustomer = custIdForPayload > 0;
 
       Map<String, dynamic>? response;
       final online = await _offline.isOnline();
       String? onlineSubmitError;
 
-      if (online && !isPendingLocalEdit) {
+      // Online API only when CustomerId is a real server id (> 0).
+      if (online && hasServerCustomer && !isPendingLocalEdit) {
         try {
           if (_isEditMode && orderId > 0) {
             response = await _apiService.updateCustomOrder(enrichedPayload);
@@ -704,7 +717,7 @@ class OrderViewModel extends ChangeNotifier {
       }
 
       // Pending local edit while online: try create now and drop queue row.
-      if (online && isPendingLocalEdit && response == null) {
+      if (online && hasServerCustomer && isPendingLocalEdit && response == null) {
         try {
           final nextNo = await _offline.resolveNextOrderNo(clientCode);
           final ready = OrderPayloadBuilder.toSparkleApiPayload(
@@ -712,7 +725,7 @@ class OrderViewModel extends ChangeNotifier {
             clientCode: clientCode,
             employee: employee,
             customOrderId: 0,
-            customerId: custIdForPayload > 0 ? custIdForPayload : null,
+            customerId: custIdForPayload,
             orderNo: nextNo.toString(),
           );
           response = await _apiService.addCustomOrder(ready);
@@ -733,7 +746,8 @@ class OrderViewModel extends ChangeNotifier {
       }
 
       if (response == null) {
-        // Offline (or API failed): queue create / update like Sparkle.
+        // Offline, API failed, or offline customer (temp Id): queue like Sparkle.
+        // syncAll() uploads pending customers first, remaps CustomerId, then orders.
         String operation;
         if (isPendingLocalEdit) {
           operation = 'create';
@@ -762,17 +776,19 @@ class OrderViewModel extends ChangeNotifier {
         _isOfflineMode = true;
         await _refreshPendingCount();
 
-        // If network is up, sync immediately and refresh so * clears when upload works.
+        // Network up → sync customer + order now; otherwise Workmanager / next online.
         if (online) {
           try {
             await _offline.syncAll();
           } catch (e) {
             debugPrint('Post-save sync failed: $e');
           }
+          await _refreshCustomersAfterOfflineSync(clientCode);
           await _refreshPendingCount();
           await fetchOrdersHistory();
         } else {
           unawaited(_offline.syncAll().then((_) async {
+            await _refreshCustomersAfterOfflineSync(clientCode);
             await _refreshPendingCount();
             await fetchOrdersHistory();
           }));
@@ -791,6 +807,34 @@ class OrderViewModel extends ChangeNotifier {
       _errorMessage = e.toString();
       notifyListeners();
       rethrow;
+    }
+  }
+
+  /// After customer+order sync, replace temp (negative) selected customer with server Id.
+  Future<void> _refreshCustomersAfterOfflineSync(String code) async {
+    final selected = _selectedCustomer;
+    final mobile = (selected?.mobile ?? '').trim();
+    try {
+      if (await _offline.isOnline()) {
+        final raw = await _apiService.getAllCustomers(code);
+        _customers =
+            raw.map((c) => CustomerModel.fromJson(c as Map<String, dynamic>)).toList();
+        await _offline.updateCustomersInCache(code, _customers);
+      } else {
+        await _loadMasterFromCache(code);
+        return;
+      }
+      await _mergePendingCustomers(code);
+      if (selected != null && (selected.id ?? 0) <= 0 && mobile.isNotEmpty) {
+        for (final c in _customers) {
+          if ((c.mobile ?? '').trim() == mobile && (c.id ?? 0) > 0) {
+            _selectedCustomer = c;
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('refresh customers after offline sync: $e');
     }
   }
 

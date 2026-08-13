@@ -532,7 +532,8 @@ class OrderOfflineService {
     if (v == null) return 0;
     if (v is int) return v > 0 ? v : 0;
     if (v is num) return v.toInt() > 0 ? v.toInt() : 0;
-    return int.tryParse(v.toString().trim()) ?? 0;
+    final n = int.tryParse(v.toString().trim()) ?? 0;
+    return n > 0 ? n : 0;
   }
 
   Future<int> _resolveCustomerIdByMobile(String clientCode, String mobile) async {
@@ -867,6 +868,13 @@ class OrderOfflineService {
         ? Map<String, dynamic>.from(custRaw)
         : <String, dynamic>{};
 
+    // Keep temp (negative) id for pending_customers remap before clearing.
+    final tempFromRoot = int.tryParse(payload['CustomerId']?.toString() ?? '') ?? 0;
+    final tempFromCust = int.tryParse(cust['Id']?.toString() ?? '') ?? 0;
+    final tempId = tempFromRoot < 0
+        ? tempFromRoot
+        : (tempFromCust < 0 ? tempFromCust : 0);
+
     var customerId = _parsePositiveId(payload['CustomerId']);
     if (customerId <= 0) {
       customerId = _parsePositiveId(cust['Id']);
@@ -884,7 +892,7 @@ class OrderOfflineService {
     if (customerId <= 0) {
       customerId = await _lookupSyncedCustomerId(
         clientCode,
-        tempId: int.tryParse(cust['Id']?.toString() ?? '') ?? 0,
+        tempId: tempId,
         mobile: cust['Mobile']?.toString() ?? '',
       );
     }
