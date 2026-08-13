@@ -121,8 +121,8 @@ class _AddProductScreenState extends State<AddProductScreen> with BarcodeScanMix
     });
     bindBarcodeScanner();
     _barcodeFocusTriggerSub = barcodeRfid.barcodeTriggerStream.listen((_) {
-      if (!mounted || _focusedField != 'RFID Code') return;
-      setState(() => _barcodeScanActive = true);
+      if (!mounted) return;
+      unawaited(_startRfidBarcodeScan(fromHardwareKey: true));
     });
   }
 
@@ -131,22 +131,30 @@ class _AddProductScreenState extends State<AddProductScreen> with BarcodeScanMix
     setState(() => _focusedField = field);
   }
 
-  Future<void> _startRfidBarcodeScan() async {
-    await _stopScanning();
+  Future<void> _startRfidBarcodeScan({bool fromHardwareKey = false}) async {
+    if (_isScanning) await _rfidService.stopScanning();
     if (!mounted) return;
-    setState(() => _barcodeScanActive = true);
+    setState(() {
+      _isScanning = false;
+      _isBulkScanning = false;
+      _isSingleScan = false;
+      _barcodeScanActive = true;
+      _focusedField = 'RFID Code';
+    });
     _rfidRowKey.currentState?.requestFieldFocus();
-    await barcodeRfid.startBarcodeScan();
+    if (!fromHardwareKey) {
+      await barcodeRfid.startBarcodeScan();
+    }
   }
 
   @override
   void onBarcodeScanned(String code) {
-    if (_focusedField != 'RFID Code' && !_barcodeScanActive) return;
     final trimmed = code.trim();
     if (trimmed.isEmpty) return;
     setState(() {
       _updateField('RFID Code', trimmed.toUpperCase());
       _barcodeScanActive = false;
+      _focusedField = 'RFID Code';
     });
     unawaited(barcodeRfid.stopBarcodeScan());
   }

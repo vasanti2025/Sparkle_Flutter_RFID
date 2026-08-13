@@ -72,7 +72,9 @@ class ProductFormRowState extends State<ProductFormRow> {
   @override
   void didUpdateWidget(ProductFormRow oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.value != _ctrl.text && (!_focusNode.hasFocus || widget.readOnly)) {
+    final parentPushedNewValue = widget.value != oldWidget.value;
+    if (widget.value != _ctrl.text &&
+        (parentPushedNewValue || !_focusNode.hasFocus || widget.readOnly)) {
       _ctrl.value = TextEditingValue(
         text: widget.value,
         selection: TextSelection.collapsed(offset: widget.value.length),
