@@ -12,6 +12,8 @@ import '../services/pref_service.dart';
 import '../services/api_service.dart';
 import '../utils/tag_scan_batcher.dart';
 import '../utils/app_dropdown.dart';
+import '../utils/app_dialogs.dart';
+import '../utils/barcode_scan_mixin.dart';
 import 'widgets/scan_bottom_bar.dart';
 
 class DesktopTag {
@@ -49,6 +51,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
   late final TagScanBatcher _tagBatcher;
   final List<DesktopTag> _pendingTags = [];
   Timer? _uiFlushTimer;
+  bool _assignRfidDialogOpen = false;
 
   String shortSerial(String? serial) {
     if (serial == null || serial.isEmpty) return 'A';
@@ -96,7 +99,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     
     // Subscribe to gun key triggers
     _triggerSubscription = _rfidService.triggerStream.listen((_) {
-      if (!mounted || _scanBusy) return;
+      if (!mounted || _scanBusy || _assignRfidDialogOpen) return;
       final now = DateTime.now().millisecondsSinceEpoch;
       if (now - _lastTriggerMs < 300) return;
       _lastTriggerMs = now;
@@ -564,60 +567,27 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     }
   }
 
-  void _showManualRfidDialog(int index) {
+  Future<void> _showManualRfidDialog(int index) async {
     final tag = _desktopScans[index];
     final s = context.sRead;
-    final controller = TextEditingController(text: tag.rfidCode == s.scanHere ? '' : tag.rfidCode);
-    
-    showAppDialog(
+    final initialRfid = tag.rfidCode == s.scanHere ? '' : tag.rfidCode;
+
+    await _stopScanning();
+    _assignRfidDialogOpen = true;
+    await showAppDialog<void>(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text(
-            s.assignRfidCode,
-            style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'EPC: ${tag.epc}',
-                style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[600]),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                decoration: InputDecoration(
-                  labelText: s.fieldRfidCode,
-                  border: const OutlineInputBorder(),
-                ),
-                style: GoogleFonts.poppins(fontSize: 14),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(s.cancel, style: GoogleFonts.poppins(color: Colors.grey[600])),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  tag.rfidCode = controller.text.trim();
-                });
-                Navigator.pop(context);
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF5231A7)),
-              child: Text(s.assign, style: GoogleFonts.poppins(color: Colors.white)),
-            ),
-          ],
-        );
-      },
+      barrierDismissible: false,
+      builder: (context) => _AssignRfidCodeDialog(
+        epc: tag.epc,
+        initialRfid: initialRfid,
+        onAssign: (rfid) {
+          setState(() {
+            tag.rfidCode = rfid.trim();
+          });
+        },
+      ),
     );
+    _assignRfidDialogOpen = false;
   }
 
   void _showToast(String message) {
@@ -842,6 +812,149 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
             ),
         ],
       ),
+    );
+  }
+}
+
+class _AssignRfidCodeDialog extends StatefulWidget {
+  final String epc;
+  final String initialRfid;
+  final ValueChanged<String> onAssign;
+
+  const _AssignRfidCodeDialog({
+    required this.epc,
+    required this.initialRfid,
+    required this.onAssign,
+  });
+
+  @override
+  State<_AssignRfidCodeDialog> createState() => _AssignRfidCodeDialogState();
+}
+
+class _AssignRfidCodeDialogState extends State<_AssignRfidCodeDialog> with BarcodeScanMixin {
+  late final TextEditingController _controller;
+  final FocusNode _focusNode = FocusNode();
+  StreamSubscription<void>? _barcodeTriggerSub;
+  StreamSubscription<void>? _uhfTriggerSub;
+  bool _barcodeScanActive = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialRfid);
+    bindBarcodeScanner();
+    _barcodeTriggerSub = barcodeRfid.barcodeTriggerStream.listen((_) {
+      if (!mounted) return;
+      setState(() => _barcodeScanActive = true);
+    });
+    _uhfTriggerSub = barcodeRfid.triggerStream.listen((_) {
+      if (!mounted) return;
+      unawaited(_startBarcodeScan(fromHardwareKey: true));
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+      unawaited(_startBarcodeScan());
+    });
+  }
+
+  Future<void> _startBarcodeScan({bool fromHardwareKey = false}) async {
+    if (!mounted) return;
+    setState(() => _barcodeScanActive = true);
+    _focusNode.requestFocus();
+    if (!fromHardwareKey) {
+      await barcodeRfid.startBarcodeScan();
+    }
+  }
+
+  @override
+  void onBarcodeScanned(String code) {
+    final trimmed = code.trim();
+    if (trimmed.isEmpty) return;
+    setState(() {
+      _controller.text = trimmed.toUpperCase();
+      _controller.selection = TextSelection.collapsed(offset: _controller.text.length);
+      _barcodeScanActive = false;
+    });
+    unawaited(barcodeRfid.stopBarcodeScan());
+  }
+
+  @override
+  void dispose() {
+    _barcodeTriggerSub?.cancel();
+    _uhfTriggerSub?.cancel();
+    unbindBarcodeScanner();
+    _focusNode.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.s;
+
+    return AlertDialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Text(
+        s.assignRfidCode,
+        style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'EPC: ${widget.epc}',
+            style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[600]),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controller,
+            focusNode: _focusNode,
+            decoration: InputDecoration(
+              labelText: s.fieldRfidCode,
+              border: OutlineInputBorder(
+                borderSide: BorderSide(
+                  color: _barcodeScanActive ? const Color(0xFF5231A7) : Colors.grey,
+                  width: _barcodeScanActive ? 1.5 : 1,
+                ),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(
+                  color: _barcodeScanActive ? const Color(0xFF5231A7) : Colors.grey,
+                  width: _barcodeScanActive ? 1.5 : 1,
+                ),
+              ),
+              focusedBorder: const OutlineInputBorder(
+                borderSide: BorderSide(color: Color(0xFF5231A7), width: 1.5),
+              ),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  Icons.qr_code_scanner,
+                  color: _barcodeScanActive ? const Color(0xFF5231A7) : Colors.grey,
+                ),
+                onPressed: () => unawaited(_startBarcodeScan()),
+              ),
+            ),
+            style: GoogleFonts.poppins(fontSize: 14),
+            textCapitalization: TextCapitalization.characters,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(s.cancel, style: GoogleFonts.poppins(color: Colors.grey[600])),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            widget.onAssign(_controller.text.trim().toUpperCase());
+            Navigator.pop(context);
+          },
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF5231A7)),
+          child: Text(s.assign, style: GoogleFonts.poppins(color: Colors.white)),
+        ),
+      ],
     );
   }
 }
