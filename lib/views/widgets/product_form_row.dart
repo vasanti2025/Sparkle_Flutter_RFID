@@ -22,6 +22,9 @@ class ProductFormRow extends StatefulWidget {
   final VoidCallback? onTapWhenEmpty;
   /// When set, shows clear (if value) or QR scan icon (if empty) on text fields.
   final VoidCallback? onScanTap;
+  /// Highlights the value box when this row is the active scan target.
+  final bool isScanActive;
+  final ValueChanged<bool>? onFocusChanged;
 
   const ProductFormRow({
     super.key,
@@ -37,13 +40,15 @@ class ProductFormRow extends StatefulWidget {
     this.hintText,
     this.onTapWhenEmpty,
     this.onScanTap,
+    this.isScanActive = false,
+    this.onFocusChanged,
   });
 
   @override
-  State<ProductFormRow> createState() => _ProductFormRowState();
+  State<ProductFormRow> createState() => ProductFormRowState();
 }
 
-class _ProductFormRowState extends State<ProductFormRow> {
+class ProductFormRowState extends State<ProductFormRow> {
   late TextEditingController _ctrl;
   final FocusNode _focusNode = FocusNode();
   final GlobalKey _dropdownKey = GlobalKey();
@@ -52,6 +57,16 @@ class _ProductFormRowState extends State<ProductFormRow> {
   void initState() {
     super.initState();
     _ctrl = TextEditingController(text: widget.value);
+    _focusNode.addListener(_notifyFocusChanged);
+  }
+
+  void requestFieldFocus() {
+    if (widget.readOnly || widget.disabled) return;
+    _focusNode.requestFocus();
+  }
+
+  void _notifyFocusChanged() {
+    widget.onFocusChanged?.call(_focusNode.hasFocus);
   }
 
   @override
@@ -67,6 +82,7 @@ class _ProductFormRowState extends State<ProductFormRow> {
 
   @override
   void dispose() {
+    _focusNode.removeListener(_notifyFocusChanged);
     _focusNode.dispose();
     _ctrl.dispose();
     super.dispose();
@@ -157,6 +173,9 @@ class _ProductFormRowState extends State<ProductFormRow> {
               decoration: BoxDecoration(
                 color: widget.disabled ? const Color(0xFFF5F5F5) : Colors.white,
                 borderRadius: BorderRadius.circular(6),
+                border: widget.isScanActive
+                    ? Border.all(color: const Color(0xFF5231A7), width: 1.5)
+                    : null,
               ),
               padding: const EdgeInsets.symmetric(horizontal: 8),
               alignment: Alignment.centerLeft,

@@ -23,10 +23,16 @@ class _AddProductScreenState extends State<AddProductScreen> with BarcodeScanMix
   final _rfidService = RfidService();
   StreamSubscription<String>? _tagSub;
   StreamSubscription<void>? _triggerSub;
+  StreamSubscription<void>? _barcodeFocusTriggerSub;
 
   final Map<String, String> _fields = {};
+  final GlobalKey<ProductFormRowState> _epcRowKey = GlobalKey<ProductFormRowState>();
+  final GlobalKey<ProductFormRowState> _rfidRowKey = GlobalKey<ProductFormRowState>();
   bool _isScanning = false;
   bool _isBulkScanning = false;
+  bool _isSingleScan = false;
+  bool _barcodeScanActive = false;
+  String? _focusedField;
   int _power = 5;
   late final TagScanBatcher _tagBatcher;
 
@@ -84,10 +90,11 @@ class _AddProductScreenState extends State<AddProductScreen> with BarcodeScanMix
     _tagBatcher = TagScanBatcher(
       onFlush: (tags) {
         if (!mounted || tags.isEmpty) return;
+        if (_focusedField == 'RFID Code') return;
         setState(() => _updateField('EPC', tags.last.trim().toUpperCase()));
         if (_isBulkScanning) return;
         unawaited(_rfidService.playBeep());
-        _stopScanning();
+        unawaited(_stopScanning());
       },
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -102,18 +109,46 @@ class _AddProductScreenState extends State<AddProductScreen> with BarcodeScanMix
     });
     _triggerSub = _rfidService.triggerStream.listen((_) {
       if (!mounted) return;
+      if (_focusedField == 'RFID Code') {
+        unawaited(_startRfidBarcodeScan());
+        return;
+      }
       if (_rfidService.isScanning) {
-        _stopScanning();
+        unawaited(_stopScanning());
       } else {
-        _startGscan();
+        unawaited(_startSingleScan());
       }
     });
     bindBarcodeScanner();
+    _barcodeFocusTriggerSub = barcodeRfid.barcodeTriggerStream.listen((_) {
+      if (!mounted || _focusedField != 'RFID Code') return;
+      setState(() => _barcodeScanActive = true);
+    });
+  }
+
+  void _setFocusedField(String? field) {
+    if (_focusedField == field) return;
+    setState(() => _focusedField = field);
+  }
+
+  Future<void> _startRfidBarcodeScan() async {
+    await _stopScanning();
+    if (!mounted) return;
+    setState(() => _barcodeScanActive = true);
+    _rfidRowKey.currentState?.requestFieldFocus();
+    await barcodeRfid.startBarcodeScan();
   }
 
   @override
   void onBarcodeScanned(String code) {
-    setState(() => _updateField('RFID Code', code));
+    if (_focusedField != 'RFID Code' && !_barcodeScanActive) return;
+    final trimmed = code.trim();
+    if (trimmed.isEmpty) return;
+    setState(() {
+      _updateField('RFID Code', trimmed.toUpperCase());
+      _barcodeScanActive = false;
+    });
+    unawaited(barcodeRfid.stopBarcodeScan());
   }
 
   @override
@@ -122,6 +157,7 @@ class _AddProductScreenState extends State<AddProductScreen> with BarcodeScanMix
     _tagBatcher.dispose();
     _tagSub?.cancel();
     _triggerSub?.cancel();
+    _barcodeFocusTriggerSub?.cancel();
     _rfidService.stopScanning();
     super.dispose();
   }
@@ -262,22 +298,27 @@ class _AddProductScreenState extends State<AddProductScreen> with BarcodeScanMix
       setState(() {
         _isScanning = false;
         _isBulkScanning = false;
+        _isSingleScan = false;
+        _barcodeScanActive = false;
       });
     }
   }
 
   Future<void> _startSingleScan() async {
-    if (_isScanning && !_isBulkScanning) {
+    if (_isScanning && _isSingleScan && !_isBulkScanning) {
       await _stopScanning();
       return;
     }
     if (_isScanning) await _rfidService.stopScanning();
+    _barcodeScanActive = false;
     _isBulkScanning = false;
+    _isSingleScan = true;
     final started = await _rfidService.startScanning(power: _power, playStartSound: false);
     if (mounted) {
       setState(() => _isScanning = started);
     }
     if (!started && mounted) {
+      setState(() => _isSingleScan = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(context.sRead.tr('failedToStartRfidScanner'))),
       );
@@ -290,12 +331,15 @@ class _AddProductScreenState extends State<AddProductScreen> with BarcodeScanMix
       return;
     }
     if (_isScanning) await _rfidService.stopScanning();
+    _barcodeScanActive = false;
+    _isSingleScan = false;
     _isBulkScanning = true;
     final started = await _rfidService.startScanning(power: _power);
     if (mounted) {
       setState(() => _isScanning = started);
     }
     if (!started && mounted) {
+      setState(() => _isBulkScanning = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(context.sRead.tr('failedToStartRfidScanner'))),
       );
@@ -307,10 +351,14 @@ class _AddProductScreenState extends State<AddProductScreen> with BarcodeScanMix
     setState(() {
       _fields.clear();
       _isBulkScanning = false;
+      _isSingleScan = false;
+      _barcodeScanActive = false;
+      _focusedField = null;
     });
   }
 
   Future<void> _save(SingleProductViewModel vm) async {
+    if (vm.saving) return;
     _recalculateNetWeight();
     final cat = vm.categoryByName(_get('Category'));
     final prod = vm.productByName(_get('Product'));
@@ -389,7 +437,7 @@ class _AddProductScreenState extends State<AddProductScreen> with BarcodeScanMix
       appBar: productGradientAppBar(context: context, title: s.tr('addSingleProduct')),
       body: Column(
         children: [
-          if (vm.loading) const LinearProgressIndicator(minHeight: 2),
+          if (vm.loading || vm.saving) const LinearProgressIndicator(minHeight: 2),
           Expanded(
             child: vm.categories.isEmpty && vm.error != null && !vm.loading
                 ? Center(
@@ -433,8 +481,13 @@ class _AddProductScreenState extends State<AddProductScreen> with BarcodeScanMix
                         hintText = s.tapToEnter;
                       }
 
+                      final isScanField = label == 'EPC' || label == 'RFID Code';
+                      final rowKey = label == 'EPC'
+                          ? _epcRowKey
+                          : (label == 'RFID Code' ? _rfidRowKey : null);
+
                       return ProductFormRow(
-                        key: ValueKey(label),
+                        key: rowKey ?? ValueKey(label),
                         label: _displayLabel(context, label),
                         value: _get(label),
                         isDropdown: isDropdown,
@@ -444,8 +497,20 @@ class _AddProductScreenState extends State<AddProductScreen> with BarcodeScanMix
                         keyboardType: _keyboardFor(label),
                         numericInput: _isNumericField(label),
                         hintText: hintText,
+                        isScanActive: isScanField &&
+                            (_focusedField == label ||
+                                (label == 'RFID Code' && _barcodeScanActive)),
+                        onFocusChanged: isScanField
+                            ? (hasFocus) {
+                                if (hasFocus) {
+                                  _setFocusedField(label);
+                                } else if (_focusedField == label) {
+                                  _setFocusedField(null);
+                                }
+                              }
+                            : null,
                         onScanTap: label == 'RFID Code'
-                            ? () => unawaited(startBarcodeFromIcon())
+                            ? () => unawaited(_startRfidBarcodeScan())
                             : null,
                         onTapWhenEmpty: isDropdown
                             ? () {
@@ -466,12 +531,12 @@ class _AddProductScreenState extends State<AddProductScreen> with BarcodeScanMix
                   ),
                 ),
                 ScanBottomBar(
-                  onSave: () => _save(vm),
+                  onSave: vm.saving ? () {} : () => _save(vm),
                   onList: () => Navigator.pushNamed(context, '/product_list'),
                   onScan: _startSingleScan,
                   onGscan: _startGscan,
                   onReset: _resetForm,
-                  isScanning: _isScanning && !_isBulkScanning,
+                  isScanning: _isScanning && _isSingleScan && !_isBulkScanning,
                   isBulkScanning: _isScanning && _isBulkScanning,
                 ),
               ],
