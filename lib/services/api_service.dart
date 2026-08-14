@@ -153,7 +153,7 @@ class ApiService {
       });
 
       final response = await _dio.post(
-        'api/ProductMaster/UploadImagesByClientCode ',
+        'api/ProductMaster/UploadImagesByClientCode',
         data: formData,
       );
 
