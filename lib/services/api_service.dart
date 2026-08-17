@@ -153,7 +153,7 @@ class ApiService {
       });
 
       final response = await _dio.post(
-        'api/ProductMaster/UploadImagesByClientCode ',
+        'api/ProductMaster/UploadImagesByClientCode',
         data: formData,
       );
 
@@ -602,20 +602,32 @@ class ApiService {
     }
   }
 
-  // Update quotation (note: server endpoint path is intentionally "Upadate")
+  // Update quotation — live API uses "UpdateQuotation"; some older backends
+  // still expose Sparkle's typo path "UpadateQuotation".
   Future<Map<String, dynamic>?> updateQuotation(Map<String, dynamic> request) async {
     try {
-      final response = await _dio.post(
-        'api/Order/UpadateQuotation',
-        data: request,
-      );
-      if (response.statusCode == 200 && response.data is Map<String, dynamic>) {
-        return response.data as Map<String, dynamic>;
-      }
-      return null;
+      return await _postQuotationUpdate('api/Order/UpdateQuotation', request);
     } on DioException catch (e) {
+      if (e.response?.statusCode == 404) {
+        try {
+          return await _postQuotationUpdate('api/Order/UpadateQuotation', request);
+        } on DioException catch (e2) {
+          throw Exception('Failed to update quotation: ${e2.message}');
+        }
+      }
       throw Exception('Failed to update quotation: ${e.message}');
     }
+  }
+
+  Future<Map<String, dynamic>?> _postQuotationUpdate(
+    String path,
+    Map<String, dynamic> request,
+  ) async {
+    final response = await _dio.post(path, data: request);
+    if (response.statusCode == 200 && response.data is Map<String, dynamic>) {
+      return response.data as Map<String, dynamic>;
+    }
+    return null;
   }
 
   // ---- Sample Out APIs ----------------------------------------------------

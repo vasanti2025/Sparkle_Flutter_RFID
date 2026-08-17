@@ -341,6 +341,7 @@ class QuotationViewModel extends ChangeNotifier {
 
   // ---- Build a quotation item JSON (matches the Kotlin AddQuotation body) --
   Map<String, dynamic> _quotationItemJson(OrderItem item, String clientCode) {
+    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
     return {
       'ItemCode': item.itemCode,
       'SKU': item.sku,
@@ -379,6 +380,7 @@ class QuotationViewModel extends ChangeNotifier {
       'Amount': item.itemAmt,
       'TotalItemAmount': item.itemAmt,
       'Description': item.remark,
+      'Remark': item.remark,
       'Image': item.image,
       'BranchId': int.tryParse(item.branchId) ?? 0,
       'BranchName': item.branchName,
@@ -387,13 +389,17 @@ class QuotationViewModel extends ChangeNotifier {
       'TIDNumber': item.tid,
       'RFIDCode': item.rfidCode,
       'ClientCode': clientCode,
-      'CreatedOn': DateFormat('yyyy-MM-dd').format(DateTime.now()),
+      'CreatedOn': today,
     };
   }
 
   // ---- Save / Update -------------------------------------------------------
   Future<Map<String, dynamic>?> submitQuotation() async {
     if (_selectedCustomer == null) {
+      throw Exception('Please select a customer first.');
+    }
+    final selectedCustId = _selectedCustomer!.id ?? 0;
+    if (selectedCustId <= 0) {
       throw Exception('Please select a customer first.');
     }
     if (_productList.isEmpty) {
@@ -406,6 +412,8 @@ class QuotationViewModel extends ChangeNotifier {
     try {
       final employee = _prefService.getEmployee();
       final clientCode = employee?.clientCode ?? '';
+      // Same branch resolution as quotation list / Sparkle (pref → default).
+      final branchId = _resolveBranchId(null, employee);
 
       // Always refresh the last quotation number before saving.
       final lastNoRes = await _apiService.getLastQuotationNo(clientCode);
@@ -415,19 +423,31 @@ class QuotationViewModel extends ChangeNotifier {
       }
       final nextNo = _isEditMode ? _editingQuotationNo : (_lastQuotationNo + 1).toString();
 
+      final custName =
+          '${_selectedCustomer!.firstName ?? ''} ${_selectedCustomer!.lastName ?? ''}'.trim();
       final items = _productList.map((it) => _quotationItemJson(it, clientCode)).toList();
       final totalGst = calculateGstAmount();
+      // Single quotation date only (list shows QuotationDate).
+      // Add → today; Update → keep existing QuotationDate when present.
+      final quotationDate = _isEditMode && _editingQuotationDate.isNotEmpty
+          ? _editingQuotationDate
+          : DateFormat('yyyy-MM-dd').format(DateTime.now());
 
       final payload = {
         if (_isEditMode) 'Id': _editingQuotationId,
         'ClientCode': clientCode,
-        'BranchId': employee?.defaultBranchId ?? 0,
-        'CustomerId': (_selectedCustomer!.id ?? 0).toString(),
-        'CustomerName': '${_selectedCustomer!.firstName ?? ''} ${_selectedCustomer!.lastName ?? ''}'.trim(),
+        'BranchId': branchId,
+        'CustomerId': selectedCustId.toString(),
+        'CustomerName': custName,
+        'FirstName': _selectedCustomer!.firstName ?? '',
+        'LastName': _selectedCustomer!.lastName ?? '',
+        'MobileNo': _selectedCustomer!.mobile ?? '',
+        'Mobile': _selectedCustomer!.mobile ?? '',
+        'Email': _selectedCustomer!.email ?? '',
         'QuotationNo': nextNo,
         'QuotationStatus': 'Delivered',
-        'Date': DateFormat('yyyy-MM-dd').format(DateTime.now()),
-        'QuotationDate': DateFormat('yyyy-MM-dd').format(DateTime.now()),
+        'Date': quotationDate,
+        'QuotationDate': quotationDate,
         'GST': _isGstChecked ? '3.0' : '0.0',
         'GSTApplied': _isGstChecked ? 'True' : 'False',
         'TotalAmount': getFinalTotal().toStringAsFixed(2),
@@ -441,6 +461,11 @@ class QuotationViewModel extends ChangeNotifier {
         'TotalDiamondAmount': _sum((it) => double.tryParse(it.diamondAmt) ?? 0.0).toStringAsFixed(2),
         'Qty': _productList.length.toString(),
         'EmployeeId': employee?.id ?? 0,
+        'Remark': _productList
+            .map((it) => it.remark.trim())
+            .where((r) => r.isNotEmpty)
+            .toSet()
+            .join(', '),
         'Customer': {
           'FirstName': _selectedCustomer!.firstName ?? '',
           'LastName': _selectedCustomer!.lastName ?? '',
@@ -449,7 +474,7 @@ class QuotationViewModel extends ChangeNotifier {
           'GstNo': _selectedCustomer!.gstNo ?? '',
           'PanNo': _selectedCustomer!.panNo ?? '',
           'ClientCode': _selectedCustomer!.clientCode ?? clientCode,
-          'Id': _selectedCustomer!.id ?? 0,
+          'Id': selectedCustId,
         },
         'QuotationItem': items,
       };
@@ -458,12 +483,27 @@ class QuotationViewModel extends ChangeNotifier {
           ? await _apiService.updateQuotation(payload)
           : await _apiService.addQuotation(payload);
 
+      // Keep customer + QuotationDate from payload when API omits/overwrites them.
+      final merged = <String, dynamic>{
+        ...payload,
+        if (response is Map<String, dynamic>) ...response,
+        'CustomerId': selectedCustId.toString(),
+        'CustomerName': custName,
+        'FirstName': _selectedCustomer!.firstName ?? '',
+        'LastName': _selectedCustomer!.lastName ?? '',
+        'Customer': payload['Customer'],
+        'BranchId': branchId,
+        'Date': quotationDate,
+        'QuotationDate': quotationDate,
+        'QuotationItem': items,
+        'Remark': payload['Remark'],
+      };
+
+      await _upsertQuotationInHistory(merged, clientCode, branchId);
+
       _isLoading = false;
       notifyListeners();
-      if (response is Map<String, dynamic>) {
-        return {...payload, ...response};
-      }
-      return payload;
+      return merged;
     } catch (e) {
       _isLoading = false;
       _errorMessage = e.toString();
@@ -485,12 +525,42 @@ class QuotationViewModel extends ChangeNotifier {
 
   int _editingQuotationId = 0;
   String _editingQuotationNo = '';
+  String _editingQuotationDate = '';
+
+  String _quotationCacheKey(String clientCode, int branchId) =>
+      'quotation_${clientCode}_$branchId';
+
+  Future<void> _upsertQuotationInHistory(
+    Map<String, dynamic> entry,
+    String clientCode,
+    int branchId,
+  ) async {
+    final key = _quotationCacheKey(clientCode, branchId);
+    final entryId = entry['Id'];
+    final entryNo = entry['QuotationNo']?.toString();
+    _quotationsHistory = [
+      entry,
+      ..._quotationsHistory.where((q) {
+        if (q is! Map) return true;
+        if (entryId != null && q['Id'] == entryId) return false;
+        if (entryNo != null &&
+            entryNo.isNotEmpty &&
+            q['QuotationNo']?.toString() == entryNo) {
+          return false;
+        }
+        return true;
+      }),
+    ];
+    _lastQuotationsFetchAt = null;
+    ListJsonCache.instance.clearMemory(key);
+    await ListJsonCache.instance.save(key, _quotationsHistory);
+  }
 
   Future<void> fetchQuotationsHistory({int? branchId, bool forceNetwork = false}) async {
     final employee = _prefService.getEmployee();
     final clientCode = employee?.clientCode ?? '';
     final resolvedBranchId = _resolveBranchId(branchId, employee);
-    final cacheKey = 'quotation_${clientCode}_$resolvedBranchId';
+    final cacheKey = _quotationCacheKey(clientCode, resolvedBranchId);
 
     // Instant: memory / disk cache first (Sparkle hasCached pattern).
     if (_quotationsHistory.isEmpty) {
@@ -512,6 +582,8 @@ class QuotationViewModel extends ChangeNotifier {
         _lastQuotationsFetchAt != null &&
         DateTime.now().difference(_lastQuotationsFetchAt!) <
             const Duration(minutes: 2)) {
+      await _enrichQuotationsCustomerNames(_quotationsHistory);
+      notifyListeners();
       return;
     }
 
@@ -524,17 +596,89 @@ class QuotationViewModel extends ChangeNotifier {
 
     try {
       final raw = await _apiService.getAllQuotations(clientCode, resolvedBranchId);
+      await _enrichQuotationsCustomerNames(raw);
       _quotationsHistory = raw;
       _lastQuotationsFetchAt = DateTime.now();
       await ListJsonCache.instance.save(cacheKey, raw);
     } catch (e) {
       if (!hasCached) {
         _errorMessage = e.toString();
+      } else {
+        await _enrichQuotationsCustomerNames(_quotationsHistory);
       }
     } finally {
       _isHistoryLoading = false;
       notifyListeners();
     }
+  }
+
+  /// When API returns CustomerId but empty Customer/CustomerName, fill from local customers.
+  Future<void> _enrichQuotationsCustomerNames(List<dynamic> rows) async {
+    final needsLookup = rows.any((q) {
+      if (q is! Map) return false;
+      final map = Map<String, dynamic>.from(q);
+      return _quotationDisplayName(map).isEmpty && _parsePositiveId(map['CustomerId']) > 0;
+    });
+    if (!needsLookup) return;
+
+    if (_customers.isEmpty) {
+      try {
+        final code = _prefService.getEmployee()?.clientCode ?? '';
+        if (code.isEmpty) return;
+        final rawCustomers = await _apiService.getAllCustomers(code);
+        _customers =
+            rawCustomers.map((c) => CustomerModel.fromJson(c as Map<String, dynamic>)).toList();
+      } catch (_) {
+        return;
+      }
+    }
+
+    final byId = <int, CustomerModel>{};
+    for (final c in _customers) {
+      final id = c.id ?? 0;
+      if (id > 0) byId[id] = c;
+    }
+
+    for (final q in rows) {
+      if (q is! Map) continue;
+      final map = q;
+      if (_quotationDisplayName(Map<String, dynamic>.from(map)).isNotEmpty) continue;
+      final cid = _parsePositiveId(map['CustomerId']);
+      if (cid <= 0) continue;
+      final c = byId[cid];
+      if (c == null) continue;
+      final name = '${c.firstName ?? ''} ${c.lastName ?? ''}'.trim();
+      if (name.isEmpty) continue;
+      map['CustomerName'] = name;
+      map['FirstName'] = c.firstName ?? '';
+      map['LastName'] = c.lastName ?? '';
+      map['Customer'] = {
+        'Id': c.id,
+        'FirstName': c.firstName ?? '',
+        'LastName': c.lastName ?? '',
+        'Mobile': c.mobile ?? '',
+        'Email': c.email ?? '',
+      };
+    }
+  }
+
+  static String _quotationDisplayName(Map<String, dynamic> q) {
+    final cust = q['Customer'];
+    if (cust is Map) {
+      final nested = '${cust['FirstName'] ?? ''} ${cust['LastName'] ?? ''}'.trim();
+      if (nested.isNotEmpty) return nested;
+    }
+    final top = q['CustomerName']?.toString().trim() ?? '';
+    if (top.isNotEmpty) return top;
+    return '${q['FirstName'] ?? ''} ${q['LastName'] ?? ''}'.trim();
+  }
+
+  static int _parsePositiveId(dynamic v) {
+    if (v == null) return 0;
+    if (v is int) return v > 0 ? v : 0;
+    if (v is num) return v.toInt() > 0 ? v.toInt() : 0;
+    final n = int.tryParse(v.toString().trim()) ?? 0;
+    return n > 0 ? n : 0;
   }
 
   /// Same as Sparkle QuotationViewModel.resolveBranchId:
@@ -551,15 +695,24 @@ class QuotationViewModel extends ChangeNotifier {
     _isEditMode = true;
     _editingQuotationId = quotation['Id'] as int? ?? 0;
     _editingQuotationNo = quotation['QuotationNo']?.toString() ?? '';
+    final rawDate = (quotation['QuotationDate'] ?? quotation['Date'] ?? quotation['CreatedOn'])
+        ?.toString()
+        .trim() ??
+        '';
+    if (rawDate.length >= 10) {
+      _editingQuotationDate = rawDate.substring(0, 10);
+    } else {
+      _editingQuotationDate = rawDate;
+    }
 
     final custJson = quotation['Customer'] as Map<String, dynamic>?;
     if (custJson != null) {
       _selectedCustomer = CustomerModel.fromJson(custJson);
     } else {
       _selectedCustomer = CustomerModel(
-        id: quotation['CustomerId'] as int?,
+        id: _parsePositiveId(quotation['CustomerId']),
         firstName: quotation['CustomerName']?.toString() ?? quotation['FirstName']?.toString() ?? '',
-        lastName: '',
+        lastName: quotation['LastName']?.toString() ?? '',
       );
     }
 
@@ -579,6 +732,7 @@ class QuotationViewModel extends ChangeNotifier {
     _isEditMode = false;
     _editingQuotationId = 0;
     _editingQuotationNo = '';
+    _editingQuotationDate = '';
     _selectedCustomer = null;
     _productList.clear();
     _isGstChecked = true;
