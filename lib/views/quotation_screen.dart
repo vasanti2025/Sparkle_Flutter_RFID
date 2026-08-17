@@ -231,6 +231,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
         branches: vm.branches,
         dailyRates: vm.dailyRates,
         title: context.sRead.quotationDetails,
+        showDates: false,
         onSave: (updated) => vm.updateItem(index, updated),
       ),
     );
@@ -251,6 +252,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
           branches: vm.branches,
           dailyRates: vm.dailyRates,
           title: s.quotationDetails,
+          showDates: false,
           onConfirm: (fields) {
             vm.updateAllItemsDetails(
               branchId: fields['branchId'],
@@ -264,8 +266,8 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
               screw: fields['screw'],
               polish: fields['polish'],
               wastage: fields['wastage'],
-              orderDate: fields['orderDate'],
-              deliverDate: fields['deliverDate'],
+              orderDate: fields['orderDate'] ?? '',
+              deliverDate: fields['deliverDate'] ?? '',
             );
           },
         );

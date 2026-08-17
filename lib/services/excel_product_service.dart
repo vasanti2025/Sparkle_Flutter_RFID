@@ -314,14 +314,13 @@ class ExcelProductService {
 
 
 
+  /// Matches Sparkle [BulkViewModel.convertToHex] / [ImportExcelViewModel.stringToHex]:
+  /// text → hex, then leading zeros until length % 4 == 0.
+  /// Example: `"18001"` → `"003138303031"`.
   static String stringToHex(String value) {
-
     final hex = utf8.encode(value.trim()).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-
     final paddedLen = ((hex.length + 3) ~/ 4) * 4;
-
     return hex.padLeft(paddedLen, '0').toUpperCase();
-
   }
 
 

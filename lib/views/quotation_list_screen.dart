@@ -27,9 +27,8 @@ class _QuotationListScreenState extends State<QuotationListScreen> {
       if (!mounted) return;
       runAfterRouteSettled(context, () {
         if (!mounted) return;
-        final employee = context.read<PrefService>().getEmployee();
         context.read<QuotationViewModel>().fetchQuotationsHistory(
-              branchId: employee?.defaultBranchId,
+              forceNetwork: true,
             );
       });
     });
@@ -57,17 +56,49 @@ class _QuotationListScreenState extends State<QuotationListScreen> {
 
   String _formatDate(dynamic raw) {
     if (raw == null) return '';
+    final text = raw.toString().trim();
+    if (text.isEmpty) return '';
     try {
-      return DateFormat('dd-MM-yyyy').format(DateTime.parse(raw.toString()));
+      return DateFormat('dd-MM-yyyy').format(DateTime.parse(text));
     } catch (_) {
-      return raw.toString();
+      // API sometimes returns already-formatted or date-only prefixes.
+      if (text.length >= 10 && text.contains('-')) {
+        try {
+          return DateFormat('dd-MM-yyyy').format(DateTime.parse(text.substring(0, 10)));
+        } catch (_) {}
+      }
+      return text;
     }
   }
 
-  String _customerName(Map<String, dynamic> q) {
-    if (q['CustomerName']?.toString().trim().isNotEmpty ?? false) {
-      return q['CustomerName'].toString();
+  /// Quotation list shows a single Date = QuotationDate.
+  String _quotationDate(Map<String, dynamic> q) {
+    return _formatDate(q['QuotationDate'] ?? q['Date'] ?? q['CreatedOn']);
+  }
+
+  /// Description column: item remarks / Description (Sparkle header_description).
+  String _description(Map<String, dynamic> q) {
+    final top = (q['Remark'] ?? q['Remarks'] ?? q['Description'])?.toString().trim() ?? '';
+    final parts = <String>{};
+    if (top.isNotEmpty) parts.add(top);
+    final items = q['QuotationItem'] as List? ?? [];
+    for (final it in items) {
+      if (it is! Map) continue;
+      final remark = (it['Remark'] ?? it['Description'] ?? it['Remarks'])?.toString().trim() ?? '';
+      if (remark.isNotEmpty) parts.add(remark);
     }
+    return parts.join(', ');
+  }
+
+  /// Same as Sparkle QuotationList / Order list: prefer nested Customer, then flat fields.
+  String _customerName(Map<String, dynamic> q) {
+    final cust = q['Customer'];
+    if (cust is Map) {
+      final nested = '${cust['FirstName'] ?? ''} ${cust['LastName'] ?? ''}'.trim();
+      if (nested.isNotEmpty) return nested;
+    }
+    final topName = q['CustomerName']?.toString().trim() ?? '';
+    if (topName.isNotEmpty) return topName;
     return '${q['FirstName'] ?? ''} ${q['LastName'] ?? ''}'.trim();
   }
 
@@ -78,8 +109,10 @@ class _QuotationListScreenState extends State<QuotationListScreen> {
     final query = _searchController.text.trim().toLowerCase();
 
     final filtered = vm.quotationsHistory.where((q) {
-      final qNo = q['QuotationNo']?.toString().toLowerCase() ?? '';
-      final custName = (q['CustomerName']?.toString() ?? q['FirstName']?.toString() ?? '').toLowerCase();
+      if (q is! Map) return false;
+      final map = Map<String, dynamic>.from(q);
+      final qNo = map['QuotationNo']?.toString().toLowerCase() ?? '';
+      final custName = _customerName(map).toLowerCase();
       return qNo.contains(query) || custName.contains(query);
     }).toList()
       ..sort((a, b) => ((b['Id'] as int?) ?? 0).compareTo((a['Id'] as int?) ?? 0));
@@ -194,14 +227,6 @@ class _QuotationListScreenState extends State<QuotationListScreen> {
           valueBuilder: (i) => (list[i] as Map)['QuotationNo']?.toString() ?? '-',
         ),
         SpreadsheetColumnDef(
-          header: s.date,
-          width: 90,
-          valueBuilder: (i) {
-            final q = list[i] as Map<String, dynamic>;
-            return _formatDate(q['QuotationDate'] ?? q['CreatedOn'] ?? q['Date']);
-          },
-        ),
-        SpreadsheetColumnDef(
           header: s.customerName,
           width: 150,
           alignLeft: true,
@@ -210,6 +235,18 @@ class _QuotationListScreenState extends State<QuotationListScreen> {
             final name = _customerName(list[i] as Map<String, dynamic>);
             return name.isEmpty ? s.walkInCustomer : name;
           },
+        ),
+        SpreadsheetColumnDef(
+          header: s.description,
+          width: 140,
+          alignLeft: true,
+          maxLines: 2,
+          valueBuilder: (i) => _description(list[i] as Map<String, dynamic>),
+        ),
+        SpreadsheetColumnDef(
+          header: s.date,
+          width: 100,
+          valueBuilder: (i) => _quotationDate(list[i] as Map<String, dynamic>),
         ),
         SpreadsheetColumnDef(
           header: s.qty,

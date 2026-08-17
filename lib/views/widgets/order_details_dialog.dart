@@ -15,6 +15,10 @@ class OrderDetailsDialog extends StatefulWidget {
   final Function(OrderItem) onSave;
   /// Dialog header title. Defaults to Custom Order Fields.
   final String? title;
+  /// Days added to today when item has no deliver date. Order uses 7; quotation uses 0.
+  final int defaultDeliverOffsetDays;
+  /// When false, Order Date / Delivery Date rows are hidden (quotation).
+  final bool showDates;
 
   const OrderDetailsDialog({
     super.key,
@@ -23,6 +27,8 @@ class OrderDetailsDialog extends StatefulWidget {
     required this.dailyRates,
     required this.onSave,
     this.title,
+    this.defaultDeliverOffsetDays = 7,
+    this.showDates = true,
   });
 
   @override
@@ -106,7 +112,11 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 
     // Dates setup
     _orderDate = item.orderDate.isEmpty ? DateFormat('yyyy-MM-dd').format(DateTime.now()) : item.orderDate;
-    _deliverDate = item.deliverDate.isEmpty ? DateFormat('yyyy-MM-dd').format(DateTime.now().add(const Duration(days: 7))) : item.deliverDate;
+    _deliverDate = item.deliverDate.isEmpty
+        ? DateFormat('yyyy-MM-dd').format(
+            DateTime.now().add(Duration(days: widget.defaultDeliverOffsetDays)),
+          )
+        : item.deliverDate;
 
     // Add recalculation listeners
     _totalWtCtrl.addListener(_onFieldChanged);
@@ -437,9 +447,11 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                     _buildFieldRow(s.finePercent, _finePerCtrl),
                     _buildFieldRow(s.wastagePercent, _wastageCtrl),
 
-                    // Dates Pickers
-                    _buildDateRow(s.orderDate, _orderDate, () => _selectDate(context, true)),
-                    _buildDateRow(s.deliveryDate, _deliverDate, () => _selectDate(context, false)),
+                    // Dates Pickers (hidden for quotation)
+                    if (widget.showDates) ...[
+                      _buildDateRow(s.orderDate, _orderDate, () => _selectDate(context, true)),
+                      _buildDateRow(s.deliveryDate, _deliverDate, () => _selectDate(context, false)),
+                    ],
 
                     _buildFieldRow(s.qty, _qtyCtrl),
                     _buildFieldRow(s.hallmarkAmt, _hallmarkAmtCtrl),

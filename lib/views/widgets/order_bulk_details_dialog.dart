@@ -10,6 +10,10 @@ class OrderBulkDetailsDialog extends StatefulWidget {
   final Function(Map<String, dynamic> result) onConfirm;
   /// Dialog header title. Defaults to Order Details.
   final String? title;
+  /// Days added to today for default deliver date. Order uses 7; quotation uses 0.
+  final int defaultDeliverOffsetDays;
+  /// When false, Order Date / Delivery Date rows are hidden (quotation).
+  final bool showDates;
 
   const OrderBulkDetailsDialog({
     super.key,
@@ -17,6 +21,8 @@ class OrderBulkDetailsDialog extends StatefulWidget {
     required this.dailyRates,
     required this.onConfirm,
     this.title,
+    this.defaultDeliverOffsetDays = 7,
+    this.showDates = true,
   });
 
   @override
@@ -41,12 +47,16 @@ class _OrderBulkDetailsDialogState extends State<OrderBulkDetailsDialog> {
   String _polishType = 'High Polish';
 
   // Date states
-  String _orderDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
-  String _deliverDate = DateFormat('yyyy-MM-dd').format(DateTime.now().add(const Duration(days: 7)));
+  late String _orderDate;
+  late String _deliverDate;
 
   @override
   void initState() {
     super.initState();
+    _orderDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    _deliverDate = DateFormat('yyyy-MM-dd').format(
+      DateTime.now().add(Duration(days: widget.defaultDeliverOffsetDays)),
+    );
     if (widget.branches.isNotEmpty) {
       final firstBranch = widget.branches.first;
       _selectedBranchId = (firstBranch['Id'] ?? 0).toString();
@@ -238,14 +248,14 @@ class _OrderBulkDetailsDialogState extends State<OrderBulkDetailsDialog> {
 
                     // Wastage %
                     _buildFieldRow(s.wastagePercent, _wastageCtrl, hint: s.enterWastage, isNumber: true),
-                    const SizedBox(height: 8),
-
-                    // Order Date
-                    _buildDateRow(s.orderDate, _orderDate, () => _selectDate(context, true)),
-                    const SizedBox(height: 8),
-
-                    // Deliver Date
-                    _buildDateRow(s.deliveryDate, _deliverDate, () => _selectDate(context, false)),
+                    if (widget.showDates) ...[
+                      const SizedBox(height: 8),
+                      // Order Date
+                      _buildDateRow(s.orderDate, _orderDate, () => _selectDate(context, true)),
+                      const SizedBox(height: 8),
+                      // Deliver Date
+                      _buildDateRow(s.deliveryDate, _deliverDate, () => _selectDate(context, false)),
+                    ],
                   ],
                 ),
               ),

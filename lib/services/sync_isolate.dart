@@ -274,18 +274,16 @@ class SyncIsolate {
         }
       }
     } else {
+      // Single-use: same as Sparkle BulkViewModel.convertToHex(itemCode)
+      // e.g. "18001" → "003138303031" (ASCII hex + leading "00" until len % 4 == 0)
       if (bulkItem.itemCode.isNotEmpty) {
-        final hexValue = utf8
-            .encode(bulkItem.itemCode)
-            .map((c) => c.toRadixString(16).padLeft(2, '0'))
-            .join()
-            .toUpperCase();
+        final hexValue = _convertToHex(bulkItem.itemCode);
         return BulkItem(
           id: bulkItem.id,
           bulkItemId: bulkItem.bulkItemId,
           productName: bulkItem.productName,
           itemCode: bulkItem.itemCode,
-          rfid: bulkItem.itemCode,
+          rfid: '', // Sparkle: KEEP BLANK for single-use
           grossWeight: bulkItem.grossWeight,
           stoneWeight: bulkItem.stoneWeight,
           diamondWeight: bulkItem.diamondWeight,
@@ -346,6 +344,19 @@ class SyncIsolate {
     }
 
     return bulkItem;
+  }
+
+  /// Matches Sparkle [BulkViewModel.convertToHex]:
+  /// ASCII/UTF-8 char → 2-digit hex, then prepend `"00"` until length % 4 == 0.
+  /// Example: `"18001"` → `"003138303031"`.
+  static String _convertToHex(String input) {
+    final hex = utf8
+        .encode(input.trim())
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join()
+        .toUpperCase();
+    final paddedLen = ((hex.length + 3) ~/ 4) * 4;
+    return hex.padLeft(paddedLen, '0');
   }
 }
 
