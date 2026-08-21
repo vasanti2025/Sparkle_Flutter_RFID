@@ -123,7 +123,7 @@ class Clients {
       paymentStatus: json['PaymentStatus'] as String?,
       labelFormat: json['LabelFormat'] as String?,
       invoiceFormat: json['InvoiceFormat'] as String?,
-      rfidType: json['RfidType'] as String?,
+      rfidType: json['RfidType']?.toString() ?? json['rfidType']?.toString(),
       id: json['Id'] as int? ?? 0,
       createdOn: json['CreatedOn'] as String?,
       lastUpdated: json['LastUpdated'] as String?,

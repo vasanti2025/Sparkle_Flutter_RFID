@@ -465,20 +465,47 @@ class DbService {
     String filterType,
     String filterValue,
   ) {
+    // Inventory multi-select joins values with Unit Separator (\u001F).
+    final values = filterValue
+        .split('\u001F')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    if (values.isEmpty) return (where: null, args: null);
+
     final typeLower = filterType.toLowerCase();
+    final placeholders = List.filled(values.length, '?').join(',');
+
     if (typeLower == 'counter') {
-      return (where: 'counterName = ?', args: [filterValue]);
+      return (
+        where: values.length == 1
+            ? 'counterName = ?'
+            : 'counterName IN ($placeholders)',
+        args: values,
+      );
     }
     if (typeLower == 'box') {
-      return (where: 'boxName = ?', args: [filterValue]);
+      return (
+        where: values.length == 1
+            ? 'boxName = ?'
+            : 'boxName IN ($placeholders)',
+        args: values,
+      );
     }
     if (typeLower == 'branch') {
-      return (where: 'branchName = ?', args: [filterValue]);
+      return (
+        where: values.length == 1
+            ? 'branchName = ?'
+            : 'branchName IN ($placeholders)',
+        args: values,
+      );
     }
     if (typeLower == 'exhibition') {
       return (
-        where: "branchName = ? AND LOWER(branchType) = 'exhibition'",
-        args: [filterValue],
+        where: values.length == 1
+            ? "branchName = ? AND LOWER(branchType) = 'exhibition'"
+            : "branchName IN ($placeholders) AND LOWER(branchType) = 'exhibition'",
+        args: values,
       );
     }
     return (where: null, args: null);
@@ -610,20 +637,39 @@ class DbService {
     });
   }
 
-  // Fast Bulk Insert of BulkItem using Transaction and Batch
-  Future<void> insertBulkItemsInBatch(List<BulkItem> items) async {
+  // Fast Bulk Insert of BulkItem using Transaction and Batch (chunked for large imports).
+  Future<void> insertBulkItemsInBatch(
+    List<BulkItem> items, {
+    void Function(int done, int total)? onProgress,
+    int chunkSize = 400,
+  }) async {
+    if (items.isEmpty) {
+      invalidateBulkCache();
+      return;
+    }
     final db = await database;
-    await db.transaction((txn) async {
-      final batch = txn.batch();
-      for (final item in items) {
-        batch.insert(
-          'bulk_items',
-          item.toMap(),
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
-      await batch.commit(noResult: true);
-    });
+    final total = items.length;
+    final size = chunkSize <= 0 ? 400 : chunkSize;
+    var done = 0;
+    for (var i = 0; i < items.length; i += size) {
+      final end = (i + size > items.length) ? items.length : i + size;
+      final slice = items.sublist(i, end);
+      await db.transaction((txn) async {
+        final batch = txn.batch();
+        for (final item in slice) {
+          batch.insert(
+            'bulk_items',
+            item.toMap(),
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+        await batch.commit(noResult: true);
+      });
+      done = end;
+      onProgress?.call(done, total);
+      // Yield so UI progress can paint during large imports.
+      await Future<void>.delayed(Duration.zero);
+    }
     invalidateBulkCache();
   }
 

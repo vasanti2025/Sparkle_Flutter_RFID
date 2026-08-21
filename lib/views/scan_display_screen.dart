@@ -919,7 +919,11 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                 const SizedBox(height: 16),
                 _buildInfoRow(s.productName, item.productName),
                 _buildInfoRow(s.itemCode, item.itemCode),
-                _buildInfoRow('${s.lblRfid} / ${s.colEpc}', item.epc.isNotEmpty ? item.epc : item.rfid),
+                _buildInfoRow(s.fieldRfidCode, item.rfid),
+                _buildInfoRow(
+                  s.colEpc,
+                  item.tid.trim().isNotEmpty ? item.tid.trim() : item.epc,
+                ),
                 _buildInfoRow(s.lblGrossWt, item.grossWeight),
                 _buildInfoRow(s.lblNetWt, item.netWeight),
                 _buildInfoRow(s.fieldCategory, item.category),
@@ -1312,7 +1316,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                   : Text(
                       _filterType == 'Scan Display'
                           ? s.scanDisplay
-                          : (_filterValue.isNotEmpty ? _filterValue : s.inventory),
+                          : (_filterValue.isNotEmpty
+                              ? _filterValue.replaceAll('\u001F', ', ')
+                              : s.inventory),
                       style: AppFonts.poppins(
                         color: Colors.white,
                         fontWeight: FontWeight.w600,

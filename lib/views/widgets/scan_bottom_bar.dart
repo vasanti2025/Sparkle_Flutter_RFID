@@ -171,6 +171,8 @@ class ScanBottomBar extends StatelessWidget {
   final bool isEditMode;
   final bool isScreen;
   final bool isBulkScanning;
+  /// When false, Save/List buttons are hidden (Product List).
+  final bool showSaveAndList;
 
   const ScanBottomBar({
     super.key,
@@ -183,6 +185,7 @@ class ScanBottomBar extends StatelessWidget {
     this.isEditMode = false,
     this.isScreen = false,
     this.isBulkScanning = false,
+    this.showSaveAndList = true,
   });
 
   @override
@@ -199,16 +202,20 @@ class ScanBottomBar extends StatelessWidget {
     final bool showStopGscan = isBulkScanning;
 
     return _buildBottomBarLayout(
-      leftButton1: _buildBarButton(
-        icon: saveIcon,
-        label: saveText,
-        onTap: onSave,
-      ),
-      leftButton2: _buildBarButton(
-        icon: Icons.list,
-        label: s.listBtn,
-        onTap: onList,
-      ),
+      leftButton1: showSaveAndList
+          ? _buildBarButton(
+              icon: saveIcon,
+              label: saveText,
+              onTap: onSave,
+            )
+          : const SizedBox(width: 64),
+      leftButton2: showSaveAndList
+          ? _buildBarButton(
+              icon: Icons.list,
+              label: s.listBtn,
+              onTap: onList,
+            )
+          : const SizedBox(width: 64),
       centerButton: _buildOverlappingScanButton(
         isScanning: isScanning,
         onTap: onScan,

@@ -141,9 +141,10 @@ class BulkItem {
       'stoneAmount': stoneAmount,
       'diamondAmount': diamondAmount,
       'sku': sku,
-      'epc': epc,
+      // Empty string breaks UNIQUE(epc) — only one '' row can insert; use NULL like Room.
+      'epc': epc.trim().isEmpty ? null : epc.trim(),
       'vendor': vendor,
-      'tid': tid,
+      'tid': tid.trim().isEmpty ? null : tid.trim(),
       'box': box,
       'designCode': designCode,
       'productCode': productCode,
@@ -190,7 +191,7 @@ class BulkItem {
       bulkItemId: (map['bulkItemId'] as num?)?.toInt() ?? 0,
       productName: map['productName'] as String? ?? '',
       itemCode: map['itemCode'] as String? ?? '',
-      rfid: map['rfid'] as String? ?? '',
+      rfid: map['rfid']?.toString() ?? '',
       grossWeight: map['grossWeight'] as String? ?? '',
       stoneWeight: map['stoneWeight'] as String? ?? '',
       diamondWeight: map['diamondWeight'] as String? ?? '',
@@ -205,9 +206,9 @@ class BulkItem {
       stoneAmount: map['stoneAmount'] as String? ?? '',
       diamondAmount: map['diamondAmount'] as String? ?? '',
       sku: map['sku'] as String? ?? '',
-      epc: map['epc'] as String? ?? '',
+      epc: map['epc']?.toString() ?? '',
       vendor: map['vendor'] as String? ?? '',
-      tid: map['tid'] as String? ?? '',
+      tid: map['tid']?.toString() ?? '',
       box: map['box'] as String? ?? '',
       designCode: map['designCode'] as String? ?? '',
       productCode: map['productCode'] as String? ?? '',
@@ -247,41 +248,90 @@ class BulkItem {
     );
   }
 
+  /// Safe API string read — case-insensitive keys, non-string values OK
+  /// (ASP.NET may send PascalCase or camelCase; Gson SerializedName is exact).
+  static String apiString(Map<String, dynamic> json, List<String> keys) {
+    String? pick(dynamic v) {
+      if (v == null) return null;
+      final s = v.toString().trim();
+      if (s.isEmpty || s.toLowerCase() == 'null') return null;
+      return s;
+    }
+
+    for (final key in keys) {
+      if (!json.containsKey(key)) continue;
+      final s = pick(json[key]);
+      if (s != null) return s;
+    }
+
+    // Case-insensitive fallback (e.g. rfidCode / tidNumber / RFIDCODE).
+    final lower = <String, dynamic>{
+      for (final e in json.entries) e.key.toLowerCase(): e.value,
+    };
+    for (final key in keys) {
+      final s = pick(lower[key.toLowerCase()]);
+      if (s != null) return s;
+    }
+    return '';
+  }
+
   // Map API Response item to BulkItem model
+  // Mirrors Sparkle [LabelItemsMapper.toBulkItem].
   factory BulkItem.fromApi(Map<String, dynamic> json) {
-    final itemCode = json['ItemCode'] as String? ?? '';
-    final rfidCode = json['RFIDCode'] as String? ?? '';
-    final tidNumber = json['TIDNumber'] as String? ?? '';
-    
-    // Prioritize tidNumber for epc, fallback to rfidCode
-    final epc = tidNumber.isNotEmpty ? tidNumber : (rfidCode.isNotEmpty ? rfidCode : '');
+    final itemCode = apiString(json, ['ItemCode', 'itemCode']);
+    // Exact RFID from API (never invent / never blank when server sent it).
+    final rfidCode = apiString(json, [
+      'RFIDCode',
+      'RfidCode',
+      'rfidCode',
+      'RFID',
+      'rfid',
+      'RfidBarcode',
+      'rfidBarcode',
+    ]);
+    // TID/EPC from API only — do NOT copy RFID into epc (causes UNIQUE collisions at 10k scale).
+    final tidNumber = apiString(json, [
+      'TIDNumber',
+      'TidNumber',
+      'tidNumber',
+      'TidValue',
+      'tidValue',
+      'TID',
+      'tid',
+      'EPC',
+      'Epc',
+      'epc',
+      'EpcValue',
+      'epcValue',
+    ]);
+    final epc = tidNumber;
 
     return BulkItem(
-      bulkItemId: json['Id'] as int? ?? 0,
-      productName: json['ProductName'] as String? ?? '',
+      bulkItemId: int.tryParse(json['Id']?.toString() ?? json['id']?.toString() ?? '') ?? 0,
+      productName: apiString(json, ['ProductName', 'productName']),
       itemCode: itemCode,
       rfid: rfidCode,
-      grossWeight: json['GrossWt'] as String? ?? '',
-      stoneWeight: json['TotalStoneWeight'] as String? ?? '',
-      diamondWeight: json['TotalDiamondWeight'] as String? ?? '',
-      netWeight: json['NetWt'] as String? ?? '',
-      category: json['CategoryName'] as String? ?? '',
-      design: json['DesignName'] as String? ?? '',
-      purity: json['PurityName'] as String? ?? '',
-      makingPerGram: json['MakingPerGram'] as String? ?? '',
-      makingPercent: json['MakingPercentage'] as String? ?? '',
-      fixMaking: json['MakingFixedAmt'] as String? ?? '',
-      fixWastage: json['MakingFixedWastage'] as String? ?? '',
-      stoneAmount: json['TotalStoneAmount'] as String? ?? '',
-      diamondAmount: json['TotalDiamondAmount'] as String? ?? '',
-      sku: json['SKU'] as String? ?? '',
+      grossWeight: apiString(json, ['GrossWt', 'grossWt']),
+      stoneWeight: apiString(json, ['TotalStoneWeight', 'totalStoneWeight']),
+      diamondWeight: apiString(json, ['TotalDiamondWeight', 'totalDiamondWeight']),
+      netWeight: apiString(json, ['NetWt', 'netWt']),
+      category: apiString(json, ['CategoryName', 'categoryName']),
+      design: apiString(json, ['DesignName', 'designName']),
+      purity: apiString(json, ['PurityName', 'purityName']),
+      makingPerGram: apiString(json, ['MakingPerGram', 'makingPerGram']),
+      makingPercent: apiString(json, ['MakingPercentage', 'makingPercentage']),
+      fixMaking: apiString(json, ['MakingFixedAmt', 'makingFixedAmt']),
+      fixWastage: apiString(json, ['MakingFixedWastage', 'makingFixedWastage']),
+      stoneAmount: apiString(json, ['TotalStoneAmount', 'totalStoneAmount']),
+      diamondAmount: apiString(json, ['TotalDiamondAmount', 'totalDiamondAmount']),
+      sku: apiString(json, ['SKU', 'sku']),
       epc: epc,
-      vendor: json['VendorName'] as String? ?? '',
+      vendor: apiString(json, ['VendorName', 'vendorName']),
       tid: tidNumber,
       box: '',
       designCode: '',
-      productCode: json['ProductCode'] as String? ?? '',
-      imageUrl: json['Images'] as String? ?? '',
+      productCode: apiString(json, ['ProductCode', 'productCode']),
+      imageUrl: apiString(json, ['Images', 'image', 'Image', 'images']),
       totalQty: int.tryParse(json['Quantity']?.toString() ?? '') ?? 0,
       pcs: int.tryParse(json['Pieces']?.toString() ?? '') ?? 0,
       matchedPcs: 0,
@@ -295,25 +345,25 @@ class BulkItem {
       matchedQty: 0,
       unmatchedGrossWt: 0.0,
       mrp: double.tryParse(json['MRP']?.toString() ?? '') ?? 0.0,
-      counterName: json['CounterName'] as String? ?? '',
+      counterName: apiString(json, ['CounterName', 'counterName']),
       counterId: int.tryParse(json['CounterId']?.toString() ?? '') ?? 0,
       boxId: int.tryParse(json['BoxId']?.toString() ?? '') ?? 0,
-      boxName: json['BoxName'] as String? ?? '',
-      branchId: json['BranchId'] as int? ?? 0,
-      branchName: json['BranchName'] as String? ?? '',
-      packetId: json['PacketId'] as int? ?? 0,
-      packetName: json['PacketName'] as String? ?? '',
+      boxName: apiString(json, ['BoxName', 'boxName']),
+      branchId: int.tryParse(json['BranchId']?.toString() ?? '') ?? 0,
+      branchName: apiString(json, ['BranchName', 'branchName']),
+      packetId: int.tryParse(json['PacketId']?.toString() ?? '') ?? 0,
+      packetName: apiString(json, ['PacketName', 'packetName']),
       scannedStatus: '',
-      categoryId: json['CategoryId'] as int? ?? 0,
-      productId: json['ProductId'] as int? ?? 0,
-      branchType: json['BranchType'] as String? ?? '',
-      designId: json['DesignId'] as int? ?? 0,
+      categoryId: int.tryParse(json['CategoryId']?.toString() ?? '') ?? 0,
+      productId: int.tryParse(json['ProductId']?.toString() ?? '') ?? 0,
+      branchType: apiString(json, ['BranchType', 'branchType']),
+      designId: int.tryParse(json['DesignId']?.toString() ?? '') ?? 0,
       isScanned: 0,
       totalWt: double.tryParse(json['TotalWeight']?.toString() ?? '') ?? 0.0,
-      categoryWt: json['WeightCategory'] as String? ?? '',
-      skuId: json['SKUId'] as int? ?? 0,
-      purityId: json['PurityId'] as int? ?? 0,
-      status: json['Status'] as String? ?? '',
+      categoryWt: apiString(json, ['WeightCategory', 'weightCategory']),
+      skuId: int.tryParse(json['SKUId']?.toString() ?? '') ?? 0,
+      purityId: int.tryParse(json['PurityId']?.toString() ?? '') ?? 0,
+      status: apiString(json, ['Status', 'status']),
     );
   }
 

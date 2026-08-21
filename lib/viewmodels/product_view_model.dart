@@ -50,10 +50,13 @@ class ProductViewModel extends ChangeNotifier {
   bool _hasReachedEnd = false;
   int _offset = 0;
   static const int _pageSize = 50;
+  int _filteredTotalCount = 0;
 
   List<BulkItem> get products => _products;
   bool get isListLoading => _isListLoading;
   bool get hasReachedEnd => _hasReachedEnd;
+  /// Full filtered stock count for toolbar (list still loads 50 at a time).
+  int get filteredTotalCount => _filteredTotalCount;
 
   // Search and Filter variables
   String _searchQuery = '';
@@ -308,6 +311,10 @@ class ProductViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
+      if (_offset == 0) {
+        await _refreshFilteredTotalCount();
+      }
+
       final items = await _dbService.getMinimalItemsPagedFiltered(
         _pageSize,
         _offset,
@@ -335,12 +342,28 @@ class ProductViewModel extends ChangeNotifier {
     }
   }
 
+  Future<void> _refreshFilteredTotalCount() async {
+    try {
+      _filteredTotalCount = await _dbService.getTotalItemCountFiltered(
+        searchQuery: _searchQuery,
+        sku: _selectedSku,
+        category: _selectedCategory,
+        productName: _selectedProduct,
+        design: _selectedDesign,
+        purity: _selectedPurity,
+      );
+    } catch (_) {
+      _filteredTotalCount = _products.length;
+    }
+  }
+
   // Clear list and restart pagination
   Future<void> refreshList() async {
     _products.clear();
     _offset = 0;
     _hasReachedEnd = false;
     _isListLoading = false;
+    _filteredTotalCount = 0;
     notifyListeners();
     await loadNextPage();
   }
@@ -392,6 +415,7 @@ class ProductViewModel extends ChangeNotifier {
         
         // Remove from memory list and notify
         _products.removeWhere((item) => item.bulkItemId == bulkItemId);
+        if (_filteredTotalCount > 0) _filteredTotalCount--;
         notifyListeners();
         return true;
       } else {

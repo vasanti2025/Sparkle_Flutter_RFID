@@ -8,6 +8,7 @@ import '../services/excel_product_service.dart';
 import '../viewmodels/product_view_model.dart';
 import '../viewmodels/bulk_product_view_model.dart';
 import 'import_excel_flow.dart';
+import 'sync_sheet_flow.dart';
 
 class ProductManagementScreen extends StatefulWidget {
   const ProductManagementScreen({super.key});
@@ -248,6 +249,8 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                                       Navigator.pushNamed(context, '/bulk_product');
                                     } else if (action == 'import_excel') {
                                       ImportExcelFlow.start(context);
+                                    } else if (action == 'sync_sheet') {
+                                      SyncSheetFlow.start(context);
                                     } else if (action == 'export_excel') {
                                       _exportExcel(context);
                                     } else {

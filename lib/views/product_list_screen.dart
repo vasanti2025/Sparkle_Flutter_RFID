@@ -10,7 +10,6 @@ import '../viewmodels/product_view_model.dart';
 import '../theme/list_text_styles.dart';
 import '../utils/app_dropdown.dart';
 import '../utils/product_image.dart';
-import 'widgets/scan_bottom_bar.dart';
 
 class ProductListScreen extends StatefulWidget {
   const ProductListScreen({super.key});
@@ -28,7 +27,6 @@ class _ProductListScreenState extends State<ProductListScreen> {
   
   bool _isGridView = false;
   bool _isExportingPdf = false;
-  bool _isScanning = false;
 
   @override
   void initState() {
@@ -325,87 +323,84 @@ class _ProductListScreenState extends State<ProductListScreen> {
         s.colDiamondWt, s.colNetWt, s.fieldCategory, s.fieldDesign, s.fieldPurity, s.colSku, s.colEpc, s.colVendor
       ];
 
-      final chunks = <List<BulkItem>>[];
-      for (var i = 0; i < list.length; i += 40) {
-        chunks.add(list.sublist(i, i + 40 > list.length ? list.length : i + 40));
-      }
+      final data = List.generate(list.length, (index) {
+        final item = list[index];
+        return [
+          '${index + 1}',
+          item.productName,
+          item.itemCode,
+          item.rfid,
+          item.grossWeight,
+          item.stoneWeight,
+          item.diamondWeight,
+          item.netWeight,
+          item.category,
+          item.design,
+          item.purity,
+          item.sku,
+          item.epc,
+          item.vendor,
+        ];
+      });
 
-      for (var pageIndex = 0; pageIndex < chunks.length; pageIndex++) {
-        final chunk = chunks[pageIndex];
-
-        doc.addPage(
-          pw.Page(
-            pageFormat: pageFormat,
-            margin: const pw.EdgeInsets.all(15),
-            build: (pw.Context context) {
-              return pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
+      // MultiPage auto-splits the table — avoids blank pages from fixed Page + overflow.
+      doc.addPage(
+        pw.MultiPage(
+          pageFormat: pageFormat,
+          margin: const pw.EdgeInsets.all(15),
+          maxPages: 2000,
+          header: (context) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Center(
+                child: pw.Text(
+                  s.labelledStockReport,
+                  style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
+                ),
+              ),
+              pw.SizedBox(height: 5),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Center(
-                    child: pw.Text(
-                      s.labelledStockReport,
-                      style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
-                    ),
-                  ),
-                  pw.SizedBox(height: 5),
-                  pw.Row(
-                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                    children: [
-                      pw.Text(s.totalItems(list.length), style: const pw.TextStyle(fontSize: 8)),
-                      pw.Text(s.pageOf(pageIndex + 1, chunks.length), style: const pw.TextStyle(fontSize: 8)),
-                    ],
-                  ),
-                  pw.SizedBox(height: 8),
-                  pw.TableHelper.fromTextArray(
-                    headers: headers,
-                    data: List.generate(chunk.length, (index) {
-                      final item = chunk[index];
-                      final srNo = pageIndex * 40 + index + 1;
-                      return [
-                        '$srNo',
-                        item.productName,
-                        item.itemCode,
-                        item.rfid,
-                        item.grossWeight,
-                        item.stoneWeight,
-                        item.diamondWeight,
-                        item.netWeight,
-                        item.category,
-                        item.design,
-                        item.purity,
-                        item.sku,
-                        item.epc,
-                        item.vendor,
-                      ];
-                    }),
-                    headerStyle: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: PdfColors.white),
-                    headerDecoration: const pw.BoxDecoration(color: PdfColors.black),
-                    cellStyle: const pw.TextStyle(fontSize: 6),
-                    cellAlignment: pw.Alignment.center,
-                    cellPadding: const pw.EdgeInsets.all(3),
-                    columnWidths: {
-                      0: const pw.FixedColumnWidth(25), 
-                      1: const pw.FixedColumnWidth(70), 
-                      2: const pw.FixedColumnWidth(55), 
-                      3: const pw.FixedColumnWidth(55), 
-                      4: const pw.FixedColumnWidth(40), 
-                      5: const pw.FixedColumnWidth(40), 
-                      6: const pw.FixedColumnWidth(40), 
-                      7: const pw.FixedColumnWidth(40), 
-                      8: const pw.FixedColumnWidth(50), 
-                      9: const pw.FixedColumnWidth(50), 
-                      10: const pw.FixedColumnWidth(40), 
-                      11: const pw.FixedColumnWidth(45), 
-                      12: const pw.FixedColumnWidth(85), 
-                      13: const pw.FixedColumnWidth(55), 
-                    },
+                  pw.Text(s.totalItems(list.length), style: const pw.TextStyle(fontSize: 8)),
+                  pw.Text(
+                    s.pageOf(context.pageNumber, context.pagesCount),
+                    style: const pw.TextStyle(fontSize: 8),
                   ),
                 ],
-              );
-            },
+              ),
+              pw.SizedBox(height: 8),
+            ],
           ),
-        );
-      }
+          build: (context) => [
+            pw.TableHelper.fromTextArray(
+              headers: headers,
+              data: data,
+              headerStyle: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: PdfColors.white),
+              headerDecoration: const pw.BoxDecoration(color: PdfColors.black),
+              cellStyle: const pw.TextStyle(fontSize: 6),
+              cellAlignment: pw.Alignment.center,
+              cellPadding: const pw.EdgeInsets.all(3),
+              columnWidths: {
+                0: const pw.FixedColumnWidth(25),
+                1: const pw.FixedColumnWidth(70),
+                2: const pw.FixedColumnWidth(55),
+                3: const pw.FixedColumnWidth(55),
+                4: const pw.FixedColumnWidth(40),
+                5: const pw.FixedColumnWidth(40),
+                6: const pw.FixedColumnWidth(40),
+                7: const pw.FixedColumnWidth(40),
+                8: const pw.FixedColumnWidth(50),
+                9: const pw.FixedColumnWidth(50),
+                10: const pw.FixedColumnWidth(40),
+                11: const pw.FixedColumnWidth(45),
+                12: const pw.FixedColumnWidth(85),
+                13: const pw.FixedColumnWidth(55),
+              },
+            ),
+          ],
+        ),
+      );
 
       await Printing.layoutPdf(
         onLayout: (PdfPageFormat format) async => doc.save(),
@@ -455,7 +450,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
               onPressed: () => Navigator.pop(context),
             ),
             title: Text(
-              s.productListCount(products.length),
+              s.productListCount(viewModel.filteredTotalCount),
               style: GoogleFonts.poppins(
                 color: Colors.white,
                 fontWeight: FontWeight.w600,
@@ -569,28 +564,6 @@ class _ProductListScreenState extends State<ProductListScreen> {
             ),
           ],
         ),
-      ),
-      bottomNavigationBar: ScanBottomBar(
-        onSave: () {},
-        onList: () {},
-        onScan: () {
-          setState(() {
-            _isScanning = !_isScanning;
-          });
-        },
-        onGscan: () {
-          setState(() {
-            _isScanning = !_isScanning;
-          });
-        },
-        onReset: () {
-          setState(() {
-            _searchController.clear();
-            viewModel.updateSearchQuery('');
-            viewModel.resetFilters();
-          });
-        },
-        isScanning: _isScanning,
       ),
     );
   }
@@ -855,7 +828,11 @@ class _ProductListScreenState extends State<ProductListScreen> {
                 const SizedBox(height: 16),
                 _buildInfoRow(s.productName, item.productName),
                 _buildInfoRow(s.itemCode, item.itemCode),
-                _buildInfoRow(s.lblRfid, item.rfid),
+                _buildInfoRow(s.fieldRfidCode, item.rfid),
+                _buildInfoRow(
+                  s.colEpc,
+                  item.tid.trim().isNotEmpty ? item.tid.trim() : item.epc,
+                ),
                 _buildInfoRow(s.lblGrossWt, item.grossWeight),
                 _buildInfoRow(s.lblStoneWt, item.stoneWeight),
                 _buildInfoRow(s.lblDiamondWt, item.diamondWeight),

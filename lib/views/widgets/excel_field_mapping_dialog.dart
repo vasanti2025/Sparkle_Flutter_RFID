@@ -42,7 +42,13 @@ class _ExcelFieldMappingDialogState extends State<ExcelFieldMappingDialog> {
   }
 
   void _onFieldSelected(String fieldKey, String value) {
-    setState(() => _mapping[fieldKey] = value);
+    setState(() {
+      if (value.isEmpty) {
+        _mapping.remove(fieldKey);
+      } else {
+        _mapping[fieldKey] = value;
+      }
+    });
   }
 
   @override
@@ -211,17 +217,25 @@ class _MappingFieldRow extends StatelessWidget {
                 value: selected.isNotEmpty ? selected : null,
                 hint: Text(s.mapColumn, style: _ExcelFieldMappingDialogState._hintStyle, overflow: TextOverflow.ellipsis),
                 icon: const Icon(Icons.arrow_drop_down, size: 18),
-                items: options
-                    .map(
-                      (c) => DropdownMenuItem(
-                        value: c,
-                        child: Text(c, style: _ExcelFieldMappingDialogState._labelStyle, overflow: TextOverflow.ellipsis),
+                items: [
+                  // Allow clearing a mapped column (not mandatory once selected).
+                  if (selected.isNotEmpty)
+                    DropdownMenuItem<String>(
+                      value: '',
+                      child: Text(
+                        s.mapColumn,
+                        style: _ExcelFieldMappingDialogState._hintStyle,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    )
-                    .toList(),
-                onChanged: (v) {
-                  if (v != null) onSelected(v);
-                },
+                    ),
+                  ...options.map(
+                    (c) => DropdownMenuItem(
+                      value: c,
+                      child: Text(c, style: _ExcelFieldMappingDialogState._labelStyle, overflow: TextOverflow.ellipsis),
+                    ),
+                  ),
+                ],
+                onChanged: (v) => onSelected(v ?? ''),
               ),
             ),
           ),

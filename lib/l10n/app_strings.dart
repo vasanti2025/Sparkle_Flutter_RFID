@@ -50,6 +50,9 @@ class AppStrings {
   String get configureApiUrl => _t('configureApiUrl');
   String get sheetUrl => _t('sheetUrl');
   String get setGoogleSheetUrl => _t('setGoogleSheetUrl');
+  String get pleaseAddValidSheetUrl => _t('pleaseAddValidSheetUrl');
+  String get failedToFetchSheetHeaders => _t('failedToFetchSheetHeaders');
+  String get fetchingSheetHeaders => _t('fetchingSheetHeaders');
   String get stockTransferUrl => _t('stockTransferUrl');
   String get stockTransferApiUrl => _t('stockTransferApiUrl');
   String get clearData => _t('clearData');
@@ -178,6 +181,8 @@ class AppStrings {
   String get itemDetails => _t('itemDetails');
   String get rfidCode => _t('rfidCode');
   String get pleaseSelectSampleOutNoFirst => _t('pleaseSelectSampleOutNoFirst');
+  String get selectAll => _t('selectAll');
+  String get pleaseSelectAtLeastOne => _t('pleaseSelectAtLeastOne');
   String get customerProfile => _t('customerProfile');
   String get customerAddedSuccessfully => _t('customerAddedSuccessfully');
   String get customerAddedOffline => _t('customerAddedOffline');
@@ -778,6 +783,9 @@ class AppStrings {
       'customApiSaved': 'Custom API saved successfully',
       'sheetUrl': 'Sheet URL',
       'setGoogleSheetUrl': 'Set Google Sheet URL',
+      'pleaseAddValidSheetUrl': 'Please add a valid Sheet URL / ID in Settings',
+      'failedToFetchSheetHeaders': 'Failed to fetch or parse sheet headers',
+      'fetchingSheetHeaders': 'Fetching sheet headers…',
       'stockTransferUrl': 'Stock Transfer URL',
       'stockTransferApiUrl': 'Stock Transfer API URL',
       'clearData': 'Clear Data',
@@ -977,6 +985,8 @@ class AppStrings {
       'camera': 'Camera',
       'gallery': 'Gallery',
       'selectLabel': 'Select {label}',
+      'selectAll': 'Select All',
+      'pleaseSelectAtLeastOne': 'Please select at least one option',
       'addLabel': 'Add {label}',
       'pleaseSelectSampleOutNoFirst': 'Please select Sample Out No first',
       'customerProfile': 'Customer Profile',
@@ -1428,6 +1438,9 @@ class AppStrings {
       'customApiSaved': 'कस्टम API सफलतापूर्वक सेव हो गया',
       'sheetUrl': 'शीट URL',
       'setGoogleSheetUrl': 'Google Sheet URL सेट करें',
+      'pleaseAddValidSheetUrl': 'कृपया सेटिंग्स में मान्य Sheet URL / ID जोड़ें',
+      'failedToFetchSheetHeaders': 'शीट हेडर प्राप्त या पार्स नहीं हो सके',
+      'fetchingSheetHeaders': 'शीट हेडर प्राप्त हो रहे हैं…',
       'stockTransferUrl': 'स्टॉक ट्रांसफर URL',
       'stockTransferApiUrl': 'स्टॉक ट्रांसफर API URL',
       'clearData': 'डेटा साफ़ करें',
@@ -1628,6 +1641,8 @@ class AppStrings {
       'camera': 'कैमरा',
       'gallery': 'गैलरी',
       'selectLabel': '{label} चुनें',
+      'selectAll': 'सभी चुनें',
+      'pleaseSelectAtLeastOne': 'कृपया कम से कम एक विकल्प चुनें',
       'addLabel': '{label} जोड़ें',
       'customerOrdersList': 'ग्राहक ऑर्डर सूची',
       'deleteOrder': 'ऑर्डर हटाएं',
@@ -1916,6 +1931,9 @@ class AppStrings {
       'customApiSaved': 'تم حفظ API المخصص بنجاح',
       'sheetUrl': 'رابط Sheet',
       'setGoogleSheetUrl': 'تعيين رابط Google Sheet',
+      'pleaseAddValidSheetUrl': 'يرجى إضافة رابط / معرف Sheet صالح في الإعدادات',
+      'failedToFetchSheetHeaders': 'فشل جلب أو تحليل رؤوس الورقة',
+      'fetchingSheetHeaders': 'جاري جلب رؤوس الورقة…',
       'stockTransferUrl': 'رابط نقل المخزون',
       'stockTransferApiUrl': 'رابط API لنقل المخزون',
       'clearData': 'مسح البيانات',
@@ -2116,6 +2134,8 @@ class AppStrings {
       'camera': 'الكاميرا',
       'gallery': 'المعرض',
       'selectLabel': 'اختر {label}',
+      'selectAll': 'تحديد الكل',
+      'pleaseSelectAtLeastOne': 'يرجى تحديد خيار واحد على الأقل',
       'addLabel': 'إضافة {label}',
       'customerOrdersList': 'قائمة طلبات العملاء',
       'deleteOrder': 'حذف الطلب',

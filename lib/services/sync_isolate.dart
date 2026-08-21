@@ -23,10 +23,15 @@ class SyncIsolate {
     final List<int> branchIds = List<int>.from(params['branchIds']);
     final String token = params['tokenStr'];
     final String dbPath = params['dbPath'];
-    final String tagType =
+    final String tagTypeRaw =
         (params['tagType'] as String? ?? 'webreusable').trim().toLowerCase();
+    // Sparkle compares to "webreusable"; also accept Web_Reusable / reusable.
+    final String tagType = tagTypeRaw.replaceAll(RegExp(r'[\s_-]+'), '');
+    final bool isWebReusable =
+        tagType == 'webreusable' || tagType.contains('reusable');
     final bool allowSingleAndWebReusable =
         params['allowSingleAndWebReusable'] as bool? ?? true;
+    final usedEpcSet = <String>{};
 
     if (rootToken != null) {
       BackgroundIsolateBinaryMessenger.ensureInitialized(rootToken);
@@ -63,13 +68,23 @@ class SyncIsolate {
 
       await _configureBulkInsertPragmas(db);
 
-      // Kotlin clears only bulk_items before streaming stock data.
-      sendPort.send({'status': 'init', 'message': 'Clearing old stock data...'});
-      await db.delete('bulk_items');
-
       httpClient = HttpClient();
       httpClient.connectionTimeout = const Duration(seconds: 60);
       httpClient.idleTimeout = const Duration(minutes: 10);
+
+      // Sparkle login syncs GetAllRFID first so Barcode↔TID lookup works during mapping.
+      sendPort.send({'status': 'rfid', 'message': 'Syncing RFID tags...'});
+      await _syncRfidTagsFromServer(
+        httpClient: httpClient,
+        baseUrl: baseUrl,
+        clientCode: clientCode,
+        token: token,
+        db: db,
+      );
+
+      // Kotlin clears only bulk_items before streaming stock data.
+      sendPort.send({'status': 'init', 'message': 'Clearing old stock data...'});
+      await db.delete('bulk_items');
 
       sendPort.send({
         'status': 'downloading',
@@ -136,17 +151,25 @@ class SyncIsolate {
         onItemFound: (itemJson) async {
           processedCount++;
 
-          final mapped = await _mapServerItem(
-            db: db!,
-            rfidLookup: rfidLookup,
-            itemJson: itemJson,
-            tagType: tagType,
-            allowSingleAndWebReusable: allowSingleAndWebReusable,
-            skippedItemCodes: skippedItemCodes,
-          );
-          if (mapped != null) {
-            queue.add(mapped);
-            syncedCount++;
+          try {
+            final mapped = await _mapServerItem(
+              db: db!,
+              rfidLookup: rfidLookup,
+              itemJson: itemJson,
+              isWebReusable: isWebReusable,
+              allowSingleAndWebReusable: allowSingleAndWebReusable,
+              usedEpcSet: usedEpcSet,
+              skippedItemCodes: skippedItemCodes,
+            );
+            if (mapped != null) {
+              queue.add(mapped);
+              syncedCount++;
+            }
+          } catch (_) {
+            final code = BulkItem.apiString(itemJson, ['ItemCode', 'itemCode']);
+            if (skippedItemCodes.length < _maxSkipped) {
+              skippedItemCodes.add('$code - Mapping failed');
+            }
           }
 
           if (queue.length >= _batchSize) {
@@ -206,6 +229,8 @@ class SyncIsolate {
     if (items.isEmpty) return;
     final batch = db.batch();
     for (final item in items) {
+      // NEVER use REPLACE here — UNIQUE(epc) + REPLACE deletes the other row
+      // (wipes RFID items when hex EPCs collide, and vice versa) on 10k syncs.
       batch.insert(
         'bulk_items',
         item.toMap(),
@@ -215,20 +240,89 @@ class SyncIsolate {
     await batch.commit(noResult: true);
   }
 
+  static Future<void> _syncRfidTagsFromServer({
+    required HttpClient httpClient,
+    required String baseUrl,
+    required String clientCode,
+    required String token,
+    required Database db,
+  }) async {
+    if (clientCode.trim().isEmpty) return;
+    try {
+      final url = Uri.parse('${baseUrl}api/ProductMaster/GetAllRFID');
+      final request = await httpClient.postUrl(url);
+      request.headers.contentType = ContentType.json;
+      if (token.isNotEmpty) {
+        request.headers.set('Authorization', 'Bearer $token');
+      }
+      request.write(jsonEncode({'ClientCode': clientCode}));
+      final response = await request.close();
+      if (response.statusCode != 200) return;
+
+      final body = await response.transform(utf8.decoder).join();
+      final decoded = jsonDecode(body);
+      if (decoded is! List) return;
+
+      final batch = <Map<String, dynamic>>[];
+      for (final raw in decoded) {
+        if (raw is! Map) continue;
+        final map = Map<String, dynamic>.from(raw);
+        final barcode = BulkItem.apiString(map, ['BarcodeNumber', 'barcodeNumber', 'RFIDCode']);
+        final tid = BulkItem.apiString(map, ['TidValue', 'TIDNumber', 'TidNumber', 'EPC']);
+        if (barcode.isEmpty) continue;
+        batch.add({
+          'BarcodeNumber': barcode,
+          'TidValue': tid,
+          'ClientCode': BulkItem.apiString(map, ['ClientCode']),
+          'CreatedOn': BulkItem.apiString(map, ['CreatedOn']),
+          'LastUpdated': BulkItem.apiString(map, ['LastUpdated']),
+          'StatusType': (map['StatusType'] == true || map['StatusType'] == 1) ? 1 : 0,
+        });
+        if (batch.length >= 500) {
+          final b = db.batch();
+          for (final row in batch) {
+            b.insert('rfid_tags', row, conflictAlgorithm: ConflictAlgorithm.replace);
+          }
+          await b.commit(noResult: true);
+          batch.clear();
+        }
+      }
+      if (batch.isNotEmpty) {
+        final b = db.batch();
+        for (final row in batch) {
+          b.insert('rfid_tags', row, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+        await b.commit(noResult: true);
+      }
+    } catch (_) {
+      // RFID sheet sync is best-effort; stock sync must continue.
+    }
+  }
+
+  /// Per-item dual mapping for mixed ~10k stock (both flows in one sync):
+  /// 1) API RFIDCode present → keep RFID, EPC from TIDNumber or rfid_tags lookup
+  /// 2) API RFIDCode null    → EPC/TID = convertToHex(itemCode), RFID blank
+  /// Global tagType must NOT wipe RFID when the API sent RFIDCode.
   static Future<BulkItem?> _mapServerItem({
     required Database db,
     required _RfidLookupCache rfidLookup,
     required Map<String, dynamic> itemJson,
-    required String tagType,
+    required bool isWebReusable,
     required bool allowSingleAndWebReusable,
+    required Set<String> usedEpcSet,
     required List<String> skippedItemCodes,
   }) async {
-    final status = itemJson['Status'] as String? ?? '';
-    final itemCode = itemJson['ItemCode'] as String? ?? '';
-    final categoryId = itemJson['CategoryId'] as int?;
-    final categoryName = itemJson['CategoryName'] as String? ?? '';
-    final productId = itemJson['ProductId'] as int?;
-    final productName = itemJson['ProductName'] as String? ?? '';
+    // Tag-type flags kept for isolate API; mapping is per-item so both flows
+    // work in the same ~10k sync (RFID present vs RFID null→hex).
+    // ignore: unnecessary_statements
+    (isWebReusable, allowSingleAndWebReusable);
+
+    final status = BulkItem.apiString(itemJson, ['Status', 'status']);
+    final itemCode = BulkItem.apiString(itemJson, ['ItemCode', 'itemCode']);
+    final categoryId = _apiInt(itemJson, ['CategoryId', 'categoryId']);
+    final categoryName = BulkItem.apiString(itemJson, ['CategoryName', 'categoryName']);
+    final productId = _apiInt(itemJson, ['ProductId', 'productId']);
+    final productName = BulkItem.apiString(itemJson, ['ProductName', 'productName']);
 
     void addSkipped(String reason) {
       if (skippedItemCodes.length < _maxSkipped) {
@@ -254,125 +348,179 @@ class SyncIsolate {
     }
 
     final bulkItem = BulkItem.fromApi(itemJson);
+    final apiRfid = bulkItem.rfid.trim();
+    final apiTid = bulkItem.tid.trim();
 
-    if (tagType == 'webreusable') {
-      final hasItemCode = bulkItem.itemCode.isNotEmpty;
-      final hasRfid = bulkItem.rfid.isNotEmpty;
-      final hasEpcOrTid = bulkItem.epc.isNotEmpty || bulkItem.tid.isNotEmpty;
+    String rfid;
+    String epc;
+    String tid;
 
-      if (!hasItemCode ||
-          (!allowSingleAndWebReusable && !hasRfid) ||
-          (allowSingleAndWebReusable && !hasRfid && !hasEpcOrTid)) {
-        addSkipped('No RFID/EPC/TID');
-        return null;
-      }
-
-      if (bulkItem.rfid.isNotEmpty && bulkItem.epc.isEmpty) {
-        final lookupEpc = await rfidLookup.lookup(db, bulkItem.rfid);
+    if (apiRfid.isNotEmpty) {
+      // -------- Approach 1: RFID present (never clear, never force itemCode hex) --------
+      rfid = apiRfid;
+      tid = apiTid;
+      epc = apiTid;
+      if (epc.isEmpty) {
+        final lookupEpc = await rfidLookup.lookup(db, apiRfid);
         if (lookupEpc != null && lookupEpc.isNotEmpty) {
-          bulkItem.epc = lookupEpc;
+          epc = lookupEpc;
+          tid = lookupEpc;
         }
       }
     } else {
-      // Single-use: same as Sparkle BulkViewModel.convertToHex(itemCode)
-      // e.g. "18001" → "003138303031" (ASCII hex + leading "00" until len % 4 == 0)
-      if (bulkItem.itemCode.isNotEmpty) {
-        final hexValue = _convertToHex(bulkItem.itemCode);
-        return BulkItem(
-          id: bulkItem.id,
-          bulkItemId: bulkItem.bulkItemId,
-          productName: bulkItem.productName,
-          itemCode: bulkItem.itemCode,
-          rfid: '', // Sparkle: KEEP BLANK for single-use
-          grossWeight: bulkItem.grossWeight,
-          stoneWeight: bulkItem.stoneWeight,
-          diamondWeight: bulkItem.diamondWeight,
-          netWeight: bulkItem.netWeight,
-          category: bulkItem.category,
-          design: bulkItem.design,
-          purity: bulkItem.purity,
-          makingPerGram: bulkItem.makingPerGram,
-          makingPercent: bulkItem.makingPercent,
-          fixMaking: bulkItem.fixMaking,
-          fixWastage: bulkItem.fixWastage,
-          stoneAmount: bulkItem.stoneAmount,
-          diamondAmount: bulkItem.diamondAmount,
-          sku: bulkItem.sku,
-          epc: hexValue,
-          vendor: bulkItem.vendor,
-          tid: hexValue,
-          box: bulkItem.box,
-          designCode: bulkItem.designCode,
-          productCode: bulkItem.productCode,
-          imageUrl: bulkItem.imageUrl,
-          totalQty: bulkItem.totalQty,
-          pcs: bulkItem.pcs,
-          matchedPcs: bulkItem.matchedPcs,
-          totalGwt: bulkItem.totalGwt,
-          matchGwt: bulkItem.matchGwt,
-          totalStoneWt: bulkItem.totalStoneWt,
-          matchStoneWt: bulkItem.matchStoneWt,
-          totalNetWt: bulkItem.totalNetWt,
-          matchNetWt: bulkItem.matchNetWt,
-          unmatchedQty: bulkItem.unmatchedQty,
-          matchedQty: bulkItem.matchedQty,
-          unmatchedGrossWt: bulkItem.unmatchedGrossWt,
-          mrp: bulkItem.mrp,
-          counterName: bulkItem.counterName,
-          counterId: bulkItem.counterId,
-          boxId: bulkItem.boxId,
-          boxName: bulkItem.boxName,
-          branchId: bulkItem.branchId,
-          branchName: bulkItem.branchName,
-          packetId: bulkItem.packetId,
-          packetName: bulkItem.packetName,
-          scannedStatus: bulkItem.scannedStatus,
-          categoryId: bulkItem.categoryId,
-          productId: bulkItem.productId,
-          branchType: bulkItem.branchType,
-          designId: bulkItem.designId,
-          isScanned: bulkItem.isScanned,
-          totalWt: bulkItem.totalWt,
-          categoryWt: bulkItem.categoryWt,
-          skuId: bulkItem.skuId,
-          purityId: bulkItem.purityId,
-          status: bulkItem.status,
-        );
-      }
-      addSkipped('ItemCode blank for single-use tag');
-      return null;
+      // -------- Approach 2: RFID null → itemCode hex (Sparkle convertToHex) --------
+      rfid = '';
+      epc = _convertToHex(itemCode);
+      tid = epc;
     }
 
-    return bulkItem;
+    // RFID row with no EPC yet: store empty (NULL in DB — multiple NULLs OK).
+    // Do NOT invent itemCode hex here (that breaks Approach 1).
+    if (epc.trim().isEmpty) {
+      return _withEpcTidRfid(bulkItem, rfid: rfid, epc: '', tid: tid);
+    }
+
+    // UNIQUE(epc): uniquify collisions instead of REPLACE/skip (keeps all ~10k rows).
+    epc = _uniqueEpc(epc, bulkItem.bulkItemId, itemCode, usedEpcSet);
+    if (tid.isEmpty) tid = epc;
+
+    return _withEpcTidRfid(bulkItem, rfid: rfid, epc: epc, tid: tid);
   }
 
-  /// Matches Sparkle [BulkViewModel.convertToHex]:
-  /// ASCII/UTF-8 char → 2-digit hex, then prepend `"00"` until length % 4 == 0.
+  /// Ensure epc is unique in this sync so SQLite UNIQUE + IGNORE does not drop rows.
+  static String _uniqueEpc(
+    String epc,
+    int bulkItemId,
+    String itemCode,
+    Set<String> usedEpcSet,
+  ) {
+    var value = epc.trim();
+    var key = value.toUpperCase();
+    if (!usedEpcSet.contains(key)) {
+      usedEpcSet.add(key);
+      return value;
+    }
+    final suffix = bulkItemId != 0 ? bulkItemId : usedEpcSet.length + 1;
+    value = '$value#$suffix';
+    usedEpcSet.add(value.toUpperCase());
+    return value;
+  }
+
+  static BulkItem _withEpcTidRfid(
+    BulkItem item, {
+    required String rfid,
+    required String epc,
+    required String tid,
+  }) {
+    return BulkItem(
+      id: item.id,
+      bulkItemId: item.bulkItemId,
+      productName: item.productName,
+      itemCode: item.itemCode,
+      rfid: rfid,
+      grossWeight: item.grossWeight,
+      stoneWeight: item.stoneWeight,
+      diamondWeight: item.diamondWeight,
+      netWeight: item.netWeight,
+      category: item.category,
+      design: item.design,
+      purity: item.purity,
+      makingPerGram: item.makingPerGram,
+      makingPercent: item.makingPercent,
+      fixMaking: item.fixMaking,
+      fixWastage: item.fixWastage,
+      stoneAmount: item.stoneAmount,
+      diamondAmount: item.diamondAmount,
+      sku: item.sku,
+      epc: epc,
+      vendor: item.vendor,
+      tid: tid,
+      box: item.box,
+      designCode: item.designCode,
+      productCode: item.productCode,
+      imageUrl: item.imageUrl,
+      totalQty: item.totalQty,
+      pcs: item.pcs,
+      matchedPcs: item.matchedPcs,
+      totalGwt: item.totalGwt,
+      matchGwt: item.matchGwt,
+      totalStoneWt: item.totalStoneWt,
+      matchStoneWt: item.matchStoneWt,
+      totalNetWt: item.totalNetWt,
+      matchNetWt: item.matchNetWt,
+      unmatchedQty: item.unmatchedQty,
+      matchedQty: item.matchedQty,
+      unmatchedGrossWt: item.unmatchedGrossWt,
+      mrp: item.mrp,
+      counterName: item.counterName,
+      counterId: item.counterId,
+      boxId: item.boxId,
+      boxName: item.boxName,
+      branchId: item.branchId,
+      branchName: item.branchName,
+      packetId: item.packetId,
+      packetName: item.packetName,
+      scannedStatus: item.scannedStatus,
+      categoryId: item.categoryId,
+      productId: item.productId,
+      branchType: item.branchType,
+      designId: item.designId,
+      isScanned: item.isScanned,
+      totalWt: item.totalWt,
+      categoryWt: item.categoryWt,
+      skuId: item.skuId,
+      purityId: item.purityId,
+      status: item.status,
+    );
+  }
+
+  static int? _apiInt(Map<String, dynamic> json, List<String> keys) {
+    for (final key in keys) {
+      if (json.containsKey(key)) {
+        final v = int.tryParse(json[key]?.toString() ?? '');
+        if (v != null) return v;
+      }
+    }
+    final lower = <String, dynamic>{
+      for (final e in json.entries) e.key.toLowerCase(): e.value,
+    };
+    for (final key in keys) {
+      final v = int.tryParse(lower[key.toLowerCase()]?.toString() ?? '');
+      if (v != null) return v;
+    }
+    return null;
+  }
+
+  /// Matches Sparkle [BulkViewModel.convertToHex] exactly:
+  /// each char → 2-digit hex, then prepend "00" until length % 4 == 0.
   /// Example: `"18001"` → `"003138303031"`.
   static String _convertToHex(String input) {
-    final hex = utf8
-        .encode(input.trim())
-        .map((b) => b.toRadixString(16).padLeft(2, '0'))
-        .join()
-        .toUpperCase();
-    final paddedLen = ((hex.length + 3) ~/ 4) * 4;
-    return hex.padLeft(paddedLen, '0');
+    final buf = StringBuffer();
+    for (final unit in input.trim().codeUnits) {
+      buf.write(unit.toRadixString(16).padLeft(2, '0').toUpperCase());
+    }
+    var hex = buf.toString();
+    while (hex.length % 4 != 0) {
+      hex = '00$hex';
+    }
+    return hex;
   }
 }
 
-/// LRU cache for RFID barcode -> TID lookups (avoids loading all RFID into RAM).
+/// LRU cache for RFID barcode <-> TID lookups (avoids loading all RFID into RAM).
 class _RfidLookupCache {
   _RfidLookupCache({required int maxEntries}) : _maxEntries = maxEntries;
 
   final int _maxEntries;
-  final Map<String, String> _cache = {};
+  final Map<String, String> _barcodeToTid = {};
+  final Map<String, String> _tidToBarcode = {};
 
   Future<String?> lookup(Database db, String rfid) async {
     final key = rfid.trim().toUpperCase();
     if (key.isEmpty) return null;
 
-    final cached = _cache[key];
-    if (cached != null) return cached;
+    final cached = _barcodeToTid[key];
+    if (cached != null) return cached.isEmpty ? null : cached;
 
     final rows = await db.query(
       'rfid_tags',
@@ -385,11 +533,42 @@ class _RfidLookupCache {
         ? ''
         : (rows.first['TidValue'] as String? ?? '').trim().toUpperCase();
 
-    if (_cache.length >= _maxEntries) {
-      _cache.remove(_cache.keys.first);
-    }
-    _cache[key] = tid;
+    _put(_barcodeToTid, key, tid);
+    if (tid.isNotEmpty) _put(_tidToBarcode, tid, key);
     return tid.isEmpty ? null : tid;
+  }
+
+  /// Sparkle BulkItemDao.getItemCodeByEpc — TidValue → BarcodeNumber.
+  Future<String?> lookupBarcodeByTid(Database db, String tid) async {
+    final key = tid.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
+    if (key.isEmpty) return null;
+
+    final cached = _tidToBarcode[key];
+    if (cached != null) return cached.isEmpty ? null : cached;
+
+    final rows = await db.query(
+      'rfid_tags',
+      columns: ['BarcodeNumber'],
+      where: 'UPPER(TRIM(TidValue)) = ?',
+      whereArgs: [tid.trim().toUpperCase()],
+      limit: 1,
+    );
+    final barcode = rows.isEmpty
+        ? ''
+        : (rows.first['BarcodeNumber'] as String? ?? '').trim();
+
+    _put(_tidToBarcode, key, barcode);
+    if (barcode.isNotEmpty) {
+      _put(_barcodeToTid, barcode.toUpperCase(), key);
+    }
+    return barcode.isEmpty ? null : barcode;
+  }
+
+  void _put(Map<String, String> map, String key, String value) {
+    if (map.length >= _maxEntries) {
+      map.remove(map.keys.first);
+    }
+    map[key] = value;
   }
 }
 
@@ -431,7 +610,7 @@ class _StreamingJsonParser {
         }
       }
 
-      final itemsIndex = _headerBuffer.indexOf(RegExp(r'"Items"\s*:\s*\['));
+      final itemsIndex = _headerBuffer.indexOf(RegExp(r'"(Items|items)"\s*:\s*\['));
       if (itemsIndex != -1) {
         _inItemsArray = true;
         final startIndex = _headerBuffer.indexOf('[', itemsIndex) + 1;

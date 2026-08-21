@@ -65,68 +65,41 @@ class ParsedExcelWorkbook {
 
 
   static ParsedExcelWorkbook parse(List<int> bytes) {
-
     final excel = Excel.decodeBytes(bytes);
-
     if (excel.tables.isEmpty) {
-
       return const ParsedExcelWorkbook(headers: [], headerIndexMap: {}, rows: []);
-
     }
-
-
 
     final sheet = excel.tables.values.first;
-
     if (sheet.rows.isEmpty) {
-
       return const ParsedExcelWorkbook(headers: [], headerIndexMap: {}, rows: []);
-
     }
-
-
 
     final headerRow = sheet.rows.first;
-
     final headers = <String>[];
-
     final headerIndexMap = <String, int>{};
-
     for (var i = 0; i < headerRow.length; i++) {
-
       final raw = ExcelProductService._cellToString(headerRow[i]?.value).trim();
-
       if (raw.isEmpty) continue;
-
       headers.add(raw);
-
       headerIndexMap[raw.toLowerCase()] = i;
-
     }
-
-
 
     final rows = <List<String>>[];
-
     for (var rowIndex = 1; rowIndex < sheet.rows.length; rowIndex++) {
-
       final row = sheet.rows[rowIndex];
-
       if (row.isEmpty) continue;
-
       rows.add(List.generate(row.length, (i) => ExcelProductService._cellToString(row[i]?.value).trim()));
-
     }
 
-
-
     return ParsedExcelWorkbook(headers: headers, headerIndexMap: headerIndexMap, rows: rows);
-
   }
 
+  /// Decode Excel off the UI isolate (large files).
+  static Future<ParsedExcelWorkbook> parseAsync(List<int> bytes) {
+    return compute(_parseExcelBytesInBackground, bytes);
+  }
 }
-
-
 
 class ExcelImportBuildResult {
 
@@ -181,17 +154,35 @@ class _ExcelImportArgs {
 
 
 ExcelImportBuildResult _buildImportItemsInBackground(_ExcelImportArgs args) {
-
   return ExcelProductService.buildItemsFromWorkbook(
-
     workbook: args.workbook,
-
     fieldMapping: args.fieldMapping,
-
     rfidMap: args.rfidMap,
-
   );
+}
 
+class _SheetImportArgs {
+  final List<Map<String, String>> rows;
+  final Map<String, String> fieldMapping;
+  final Map<String, String> rfidMap;
+
+  const _SheetImportArgs({
+    required this.rows,
+    required this.fieldMapping,
+    required this.rfidMap,
+  });
+}
+
+ExcelImportBuildResult _buildSheetItemsInBackground(_SheetImportArgs args) {
+  return ExcelProductService.buildItemsFromSheetRows(
+    rows: args.rows,
+    fieldMapping: args.fieldMapping,
+    rfidMap: args.rfidMap,
+  );
+}
+
+ParsedExcelWorkbook _parseExcelBytesInBackground(List<int> bytes) {
+  return ParsedExcelWorkbook.parse(bytes);
 }
 
 
@@ -480,79 +471,165 @@ class ExcelProductService {
 
 
     return ExcelImportBuildResult(
-
       itemMaps: itemMaps,
-
       totalRows: total,
-
       importedRows: imported,
-
       failedRows: failed,
-
     );
-
   }
 
-
-
-  static Future<ImportProgress> importMappedData({
-
-    required ParsedExcelWorkbook workbook,
-
+  /// Same mapping rules as Excel, but for Google Sheet CSV row maps (Sparkle).
+  static ExcelImportBuildResult buildItemsFromSheetRows({
+    required List<Map<String, String>> rows,
     required Map<String, String> fieldMapping,
-
-    required DbService dbService,
-
     required Map<String, String> rfidMap,
+  }) {
+    final failed = <String>[];
+    var imported = 0;
+    final total = rows.length;
+    final itemMaps = <Map<String, dynamic>>[];
 
-    void Function(ImportProgress progress)? onProgress,
+    // fieldKey -> excel/sheet column name (as stored in mapping dialog).
+    final colByField = <String, String>{};
+    for (final e in fieldMapping.entries) {
+      final field = e.key.trim().toLowerCase();
+      final col = e.value.trim();
+      if (field.isEmpty || col.isEmpty) continue;
+      colByField[field] = col;
+    }
 
-  }) async {
+    String cell(Map<String, String> row, String fieldKey) {
+      final col = colByField[fieldKey];
+      if (col == null || col.isEmpty) return '';
+      return row[col]?.trim() ?? '';
+    }
 
-    final buildResult = await compute(
+    for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+      final row = rows[rowIndex];
+      try {
+        final itemCode = cell(row, 'itemcode');
+        final rfid = cell(row, 'rfid');
+        var epcVal = cell(row, 'epc');
+        if (epcVal.isEmpty) {
+          epcVal = syncAndMapRow(rfid, rfidMap);
+        }
+        if (epcVal.isEmpty && rfid.isEmpty && itemCode.isNotEmpty) {
+          epcVal = stringToHex(itemCode);
+        }
+        if (epcVal.isEmpty) {
+          epcVal = 'TEMP-${DateTime.now().millisecondsSinceEpoch}-$rowIndex';
+        }
 
-      _buildImportItemsInBackground,
+        final item = BulkItem.local(
+          category: cell(row, 'category'),
+          productName: cell(row, 'productname'),
+          design: cell(row, 'design'),
+          itemCode: itemCode,
+          rfid: rfid,
+          epc: epcVal,
+          tid: epcVal,
+          grossWeight: cell(row, 'grossweight'),
+          stoneWeight: cell(row, 'stoneweight'),
+          diamondWeight: cell(row, 'diamondweight'),
+          netWeight: cell(row, 'netweight'),
+          purity: cell(row, 'purity'),
+          makingPerGram: cell(row, 'makingpergram'),
+          makingPercent: cell(row, 'makingpercent'),
+          fixMaking: cell(row, 'fixmaking'),
+          fixWastage: cell(row, 'fixwastage'),
+          stoneAmount: cell(row, 'stoneamount'),
+          diamondAmount: cell(row, 'diamondamount'),
+          sku: cell(row, 'sku'),
+          vendor: cell(row, 'vendor'),
+          counterName: cell(row, 'countername'),
+          branchName: cell(row, 'branchname'),
+          boxName: cell(row, 'boxname'),
+        );
 
-      _ExcelImportArgs(workbook: workbook, fieldMapping: fieldMapping, rfidMap: rfidMap),
+        if (item.itemCode.isEmpty && item.epc.isEmpty) continue;
+        itemMaps.add(item.toMap());
+        imported++;
+      } catch (_) {
+        failed.add('Row ${rowIndex + 2}');
+      }
+    }
 
+    return ExcelImportBuildResult(
+      itemMaps: itemMaps,
+      totalRows: total,
+      importedRows: imported,
+      failedRows: failed,
     );
+  }
 
-
-
+  static Future<ImportProgress> _persistImportResult({
+    required ExcelImportBuildResult buildResult,
+    required DbService dbService,
+    void Function(ImportProgress progress)? onProgress,
+  }) async {
     onProgress?.call(ImportProgress(
-
       totalFields: buildResult.totalRows,
-
-      importedFields: buildResult.importedRows,
-
+      importedFields: 0,
       failedFields: buildResult.failedRows,
-
     ));
-
-
 
     await dbService.clearAllItems();
 
     if (buildResult.itemMaps.isNotEmpty) {
-
       final items = buildResult.itemMaps.map(BulkItem.fromMap).toList();
-
-      await dbService.insertBulkItemsInBatch(items);
-
+      await dbService.insertBulkItemsInBatch(
+        items,
+        onProgress: (done, total) {
+          onProgress?.call(ImportProgress(
+            totalFields: buildResult.totalRows,
+            importedFields: done,
+            failedFields: buildResult.failedRows,
+          ));
+        },
+      );
     }
 
-
-
     return ImportProgress(
-
       totalFields: buildResult.totalRows,
-
       importedFields: buildResult.importedRows,
-
       failedFields: buildResult.failedRows,
-
     );
+  }
 
+  static Future<ImportProgress> importMappedData({
+    required ParsedExcelWorkbook workbook,
+    required Map<String, String> fieldMapping,
+    required DbService dbService,
+    required Map<String, String> rfidMap,
+    void Function(ImportProgress progress)? onProgress,
+  }) async {
+    final buildResult = await compute(
+      _buildImportItemsInBackground,
+      _ExcelImportArgs(workbook: workbook, fieldMapping: fieldMapping, rfidMap: rfidMap),
+    );
+    return _persistImportResult(
+      buildResult: buildResult,
+      dbService: dbService,
+      onProgress: onProgress,
+    );
+  }
+
+  static Future<ImportProgress> importMappedSheetData({
+    required List<Map<String, String>> rows,
+    required Map<String, String> fieldMapping,
+    required DbService dbService,
+    required Map<String, String> rfidMap,
+    void Function(ImportProgress progress)? onProgress,
+  }) async {
+    final buildResult = await compute(
+      _buildSheetItemsInBackground,
+      _SheetImportArgs(rows: rows, fieldMapping: fieldMapping, rfidMap: rfidMap),
+    );
+    return _persistImportResult(
+      buildResult: buildResult,
+      dbService: dbService,
+      onProgress: onProgress,
+    );
   }
 
 

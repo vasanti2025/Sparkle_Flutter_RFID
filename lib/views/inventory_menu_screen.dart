@@ -4,6 +4,9 @@ import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
 import '../viewmodels/product_view_model.dart';
 
+/// Joins multi-selected inventory filter names for scan display / DB IN clause.
+const String kInventoryFilterSeparator = '\u001F';
+
 class InventoryMenuScreen extends StatefulWidget {
   const InventoryMenuScreen({super.key});
 
@@ -14,19 +17,19 @@ class InventoryMenuScreen extends StatefulWidget {
 class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
   bool _isLoading = false;
 
-  void _showSelectionDialog({
+  void _showMultiSelectionDialog({
     required String title,
     required List<String> items,
-    required Function(String) onSelect,
+    required void Function(List<String> selected) onConfirm,
   }) {
     showAppDialog(
       context: context,
       barrierDismissible: true,
       builder: (context) {
-        return _SelectionDialog(
+        return _MultiSelectionDialog(
           title: title,
           items: items,
-          onSelect: onSelect,
+          onConfirm: onConfirm,
         );
       },
     );
@@ -34,7 +37,7 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
 
   void _handleMenuClick(String key, ProductViewModel viewModel, dynamic s) async {
     if (key == 'Scan Display') {
-      _navigateToScanDisplay('Scan Display', 'Scan Display');
+      _navigateToScanDisplay('Scan Display', const ['Scan Display']);
       return;
     }
 
@@ -47,10 +50,10 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
         if (list.isEmpty) {
           _showToast(s.noCountersFound);
         } else {
-          _showSelectionDialog(
+          _showMultiSelectionDialog(
             title: s.counter,
             items: list,
-            onSelect: (val) => _navigateToScanDisplay('Counter', val),
+            onConfirm: (vals) => _navigateToScanDisplay('Counter', vals),
           );
         }
       } else if (key == 'Scan Box') {
@@ -59,10 +62,10 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
         if (list.isEmpty) {
           _showToast(s.noBoxesFound);
         } else {
-          _showSelectionDialog(
+          _showMultiSelectionDialog(
             title: s.box,
             items: list,
-            onSelect: (val) => _navigateToScanDisplay('Box', val),
+            onConfirm: (vals) => _navigateToScanDisplay('Box', vals),
           );
         }
       } else if (key == 'Scan Branch') {
@@ -71,10 +74,10 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
         if (list.isEmpty) {
           _showToast(s.noBranchesFound);
         } else {
-          _showSelectionDialog(
+          _showMultiSelectionDialog(
             title: s.branch,
             items: list,
-            onSelect: (val) => _navigateToScanDisplay('Branch', val),
+            onConfirm: (vals) => _navigateToScanDisplay('Branch', vals),
           );
         }
       } else if (key == 'Exhibition') {
@@ -83,10 +86,10 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
         if (list.isEmpty) {
           _showToast(s.noExhibitionsFound);
         } else {
-          _showSelectionDialog(
+          _showMultiSelectionDialog(
             title: s.exhibition,
             items: list,
-            onSelect: (val) => _navigateToScanDisplay('Exhibition', val),
+            onConfirm: (vals) => _navigateToScanDisplay('Exhibition', vals),
           );
         }
       }
@@ -97,13 +100,13 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
     }
   }
 
-  void _navigateToScanDisplay(String filterType, String filterValue) {
+  void _navigateToScanDisplay(String filterType, List<String> filterValues) {
     Navigator.pushNamed(
       context,
       '/scan_display',
       arguments: {
         'filterType': filterType,
-        'filterValue': filterValue,
+        'filterValue': filterValues.join(kInventoryFilterSeparator),
       },
     );
   }
@@ -234,23 +237,65 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
   }
 }
 
-class _SelectionDialog extends StatefulWidget {
+class _MultiSelectionDialog extends StatefulWidget {
   final String title;
   final List<String> items;
-  final Function(String) onSelect;
+  final void Function(List<String> selected) onConfirm;
 
-  const _SelectionDialog({
+  const _MultiSelectionDialog({
     required this.title,
     required this.items,
-    required this.onSelect,
+    required this.onConfirm,
   });
 
   @override
-  State<_SelectionDialog> createState() => _SelectionDialogState();
+  State<_MultiSelectionDialog> createState() => _MultiSelectionDialogState();
 }
 
-class _SelectionDialogState extends State<_SelectionDialog> {
-  bool _expanded = false;
+class _MultiSelectionDialogState extends State<_MultiSelectionDialog> {
+  bool _expanded = true;
+  final Set<String> _selected = {};
+
+  bool get _allSelected =>
+      widget.items.isNotEmpty && _selected.length == widget.items.length;
+
+  void _toggleSelectAll(bool? checked) {
+    setState(() {
+      if (checked == true) {
+        _selected
+          ..clear()
+          ..addAll(widget.items);
+      } else {
+        _selected.clear();
+      }
+    });
+  }
+
+  void _toggleItem(String item, bool? checked) {
+    setState(() {
+      if (checked == true) {
+        _selected.add(item);
+      } else {
+        _selected.remove(item);
+      }
+    });
+  }
+
+  void _onOk() {
+    final s = context.sRead;
+    if (_selected.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(s.pleaseSelectAtLeastOne, style: AppFonts.poppins()),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+    final selected = widget.items.where(_selected.contains).toList();
+    Navigator.pop(context);
+    widget.onConfirm(selected);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -338,33 +383,81 @@ class _SelectionDialogState extends State<_SelectionDialog> {
                                   color: const Color(0xFFF5F3F3),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
-                                constraints: const BoxConstraints(maxHeight: 250),
-                                child: ListView.builder(
-                                  shrinkWrap: true,
-                                  padding: EdgeInsets.zero,
-                                  itemCount: widget.items.length,
-                                  itemBuilder: (context, index) {
-                                    final item = widget.items[index];
-                                    return InkWell(
-                                      onTap: () {
-                                        Navigator.pop(context);
-                                        widget.onSelect(item);
-                                      },
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          vertical: 12,
-                                          horizontal: 16,
-                                        ),
-                                        child: Text(
-                                          item,
-                                          style: AppFonts.poppins(
-                                            fontSize: 14,
-                                            color: const Color(0xFF3B363E),
-                                          ),
+                                constraints: const BoxConstraints(maxHeight: 280),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    CheckboxListTile(
+                                      dense: true,
+                                      controlAffinity: ListTileControlAffinity.leading,
+                                      activeColor: const Color(0xFF5231A7),
+                                      title: Text(
+                                        s.selectAll,
+                                        style: AppFonts.poppins(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                          color: const Color(0xFF3B363E),
                                         ),
                                       ),
-                                    );
-                                  },
+                                      value: _allSelected,
+                                      onChanged: _toggleSelectAll,
+                                    ),
+                                    const Divider(height: 1),
+                                    Flexible(
+                                      child: ListView.builder(
+                                        shrinkWrap: true,
+                                        padding: EdgeInsets.zero,
+                                        itemCount: widget.items.length,
+                                        itemBuilder: (context, index) {
+                                          final item = widget.items[index];
+                                          final checked = _selected.contains(item);
+                                          return CheckboxListTile(
+                                            dense: true,
+                                            controlAffinity:
+                                                ListTileControlAffinity.leading,
+                                            activeColor: const Color(0xFF5231A7),
+                                            title: Text(
+                                              item,
+                                              style: AppFonts.poppins(
+                                                fontSize: 14,
+                                                color: const Color(0xFF3B363E),
+                                              ),
+                                            ),
+                                            value: checked,
+                                            onChanged: (v) => _toggleItem(item, v),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                width: double.infinity,
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(8),
+                                    gradient: const LinearGradient(
+                                      colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                                    ),
+                                  ),
+                                  child: TextButton(
+                                    onPressed: _onOk,
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: Colors.white,
+                                      backgroundColor: Colors.transparent,
+                                      shadowColor: Colors.transparent,
+                                      padding: const EdgeInsets.symmetric(vertical: 12),
+                                    ),
+                                    child: Text(
+                                      s.ok,
+                                      style: AppFonts.poppins(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 15,
+                                      ),
+                                    ),
+                                  ),
                                 ),
                               ),
                             ],
