@@ -67,6 +67,32 @@ class MemoryPrefStore implements PrefStore {
     });
   }
 
+  /// Loads persisted prefs over bootstrap seed — disk is source of truth on cold start.
+  void importFromSharedPreferences(SharedPreferences prefs) {
+    for (final key in prefs.getKeys()) {
+      final str = prefs.getString(key);
+      if (str != null) {
+        put(key, str);
+        continue;
+      }
+      final boolVal = prefs.getBool(key);
+      if (boolVal != null) {
+        put(key, boolVal);
+        continue;
+      }
+      final intVal = prefs.getInt(key);
+      if (intVal != null) {
+        put(key, intVal);
+        continue;
+      }
+      final doubleVal = prefs.getDouble(key);
+      if (doubleVal != null) {
+        put(key, doubleVal);
+        continue;
+      }
+    }
+  }
+
   @override
   String? getString(String key) {
     final v = _data[key];

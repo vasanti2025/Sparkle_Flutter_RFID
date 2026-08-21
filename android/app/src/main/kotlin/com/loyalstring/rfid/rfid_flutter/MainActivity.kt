@@ -123,7 +123,7 @@ class MainActivity : FlutterActivity() {
             }
             snap
         } catch (_: Throwable) {
-            hashMapOf("logged_in" to false)
+            hashMapOf<String, Any?>()
         }
     }
 

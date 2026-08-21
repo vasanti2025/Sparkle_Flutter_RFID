@@ -76,14 +76,36 @@ class PrefService {
 
   void applyNativeSnapshot(Map<String, dynamic> snapshot) {
     final mem = _store;
-    if (mem is MemoryPrefStore) {
-      mem.applySnapshot(snapshot);
+    if (mem is! MemoryPrefStore) return;
+
+    final sanitized = Map<String, dynamic>.from(snapshot);
+    // Never downgrade an already-restored session from a partial/error snapshot.
+    if (sanitized['logged_in'] == false && (mem.getBool(_keyLoggedIn) ?? false)) {
+      sanitized.remove('logged_in');
     }
+    final snapshotToken = sanitized['token']?.toString() ?? '';
+    if (snapshotToken.isEmpty) {
+      final existingToken = mem.getString(_keyToken) ?? '';
+      if (existingToken.isNotEmpty) sanitized.remove('token');
+    }
+    final snapshotEmployee = sanitized['employee']?.toString() ?? '';
+    if (snapshotEmployee.isEmpty) {
+      final existingEmployee = mem.getString(_keyEmployee) ?? '';
+      if (existingEmployee.isNotEmpty) sanitized.remove('employee');
+    }
+
+    mem.applySnapshot(sanitized);
   }
+
+  /// True when the user should stay on dashboard without re-entering credentials.
+  bool hasValidSession() => isLoggedIn() && getEmployee() != null;
 
   Future<void> upgradeToSharedPreferences(SharedPreferences prefs) async {
     if (_store is MemoryPrefStore) {
-      await (_store as MemoryPrefStore).mergeInto(prefs);
+      final mem = _store as MemoryPrefStore;
+      // Disk wins over bootstrap defaults; then persist any in-session memory edits.
+      mem.importFromSharedPreferences(prefs);
+      await mem.mergeInto(prefs);
     }
     _store = SharedPrefStore(prefs);
     _initFuture = Future.value(this);
@@ -375,6 +397,13 @@ class PrefService {
   String getDeviceId() => _store.getString(keyDeviceId) ?? '';
 
   Future<void> logout() async {
+    // Clear login flag first so a killed mid-logout process cannot autologin.
+    await _store.remove(_keyLoggedIn);
+    await _store.remove(_keyToken);
+    await _store.remove(_keyEmployee);
+    await _store.remove('client');
+    await _store.remove(_keyBranchId);
+    await _store.remove(keyBranchIds);
     await _store.remove(_keyUserId);
     if (!isRememberMe()) {
       await _store.remove(_keyUsername);
@@ -383,12 +412,6 @@ class PrefService {
       await _store.remove(_keyOrg);
     }
     // Custom API URL is a persistent setting and should not be removed on logout
-    await _store.remove(_keyLoggedIn);
-    await _store.remove(_keyToken);
-    await _store.remove(_keyEmployee);
-    await _store.remove('client');
-    await _store.remove(_keyBranchId);
-    await _store.remove(keyBranchIds);
   }
 
   Future<void> clearAll() async {

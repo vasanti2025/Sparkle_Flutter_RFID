@@ -283,7 +283,6 @@ class _FaceLoginScreenState extends State<FaceLoginScreen>
     await pref.saveToken('face_login_token');
     await pref.saveEmployee(employee);
     await pref.setUserId(employee.id);
-    await pref.setLoggedIn(true);
     await pref.saveBranchId(employee.defaultBranchId);
     if (employee.clients != null) {
       await pref.saveClient(employee.clients!);
@@ -302,6 +301,8 @@ class _FaceLoginScreenState extends State<FaceLoginScreen>
       branchId: employee.defaultBranchId,
       organisationName: employee.clients?.organisationName ?? '',
     );
+
+    await pref.setLoggedIn(true);
 
     // Save permitted branches + start product sync (same as password login).
     try {
