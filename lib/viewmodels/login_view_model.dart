@@ -225,7 +225,6 @@ class LoginViewModel extends ChangeNotifier {
     await _prefService.saveToken(response.token ?? '');
     await _prefService.saveEmployee(employee);
     await _prefService.setUserId(employee.id);
-    await _prefService.setLoggedIn(true);
     // Exact Sparkle MainActivity: saveBranchId(defaultBranchId) — used by AddStockTransfer.
     await _prefService.saveBranchId(employee.defaultBranchId);
     if (client != null) {
@@ -244,6 +243,9 @@ class LoginViewModel extends ChangeNotifier {
       branchId: employee.defaultBranchId,
       organisationName: client?.organisationName ?? '',
     );
+
+    // Mark session active only after token + employee are persisted.
+    await _prefService.setLoggedIn(true);
 
     _username = username;
     _password = password;

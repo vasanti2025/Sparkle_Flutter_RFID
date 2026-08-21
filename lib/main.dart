@@ -66,10 +66,12 @@ class _BootstrapAppState extends State<_BootstrapApp> {
   DbService? _dbService;
   bool _fullReady = false;
   bool _warmScheduled = false;
+  late bool _sessionLoggedIn;
 
   @override
   void initState() {
     super.initState();
+    _sessionLoggedIn = widget.initialLoggedIn;
     _prefService = PrefService.bootstrapQuick(
       loggedIn: widget.initialLoggedIn,
       username: widget.savedUsername,
@@ -87,10 +89,39 @@ class _BootstrapAppState extends State<_BootstrapApp> {
       final snapshot = await BootstrapChannel.getSnapshot();
       if (snapshot != null && snapshot.isNotEmpty) {
         _prefService.applyNativeSnapshot(snapshot);
-        _refreshViewModelsAfterHydrate();
       }
 
-      unawaited(PrefService.init().then((_) => _refreshViewModelsAfterHydrate()));
+      await PrefService.init();
+      var resolvedLoggedIn = _prefService.hasValidSession();
+
+      if (!resolvedLoggedIn &&
+          _prefService.isRememberMe() &&
+          _prefService.getSavedUsername().isNotEmpty &&
+          _prefService.getSavedPassword().isNotEmpty) {
+        for (var i = 0; i < 20 && appNavigatorKey.currentContext == null; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        final ctx = appNavigatorKey.currentContext;
+        if (ctx != null && ctx.mounted) {
+          try {
+            final ok = await ctx.read<LoginViewModel>().login(
+              ctx,
+              username: _prefService.getSavedUsername(),
+              password: _prefService.getSavedPassword(),
+            );
+            if (ok) {
+              resolvedLoggedIn = _prefService.hasValidSession();
+            }
+          } catch (e) {
+            debugPrint('Silent autologin failed: $e');
+          }
+        }
+      }
+
+      if (mounted && resolvedLoggedIn != _sessionLoggedIn) {
+        setState(() => _sessionLoggedIn = resolvedLoggedIn);
+      }
+      _refreshViewModelsAfterHydrate();
 
       if (!_warmScheduled) {
         _warmScheduled = true;
@@ -133,7 +164,7 @@ class _BootstrapAppState extends State<_BootstrapApp> {
       prefService: _prefService,
       onDbReady: (db) => _dbService = db,
       child: _ExtendedProvidersLoader(
-        loggedIn: widget.initialLoggedIn,
+        loggedIn: _sessionLoggedIn,
       ),
     );
   }
