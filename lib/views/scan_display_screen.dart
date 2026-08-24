@@ -75,7 +75,12 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   StreamSubscription? _tagsSubscription;
   StreamSubscription? _triggerSubscription;
   bool _isScanning = false;
+  /// Blocks re-entrant start while 10k EPC prep / hardware handoff is in flight.
+  bool _scanStartInProgress = false;
   int _selectedPower = 30; // Default power level
+  /// Scope size / matched count for O(1) auto-stop on large catalogs.
+  int _scanScopeItemCount = 0;
+  int _scanMatchedItemCount = 0;
 
   // Drawer / overlay menu and unlabelled items
   bool _showMenu = false;
@@ -201,12 +206,20 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   }
 
   List<String> _matchKeysForItem(ScannedBulkItem item) {
-    final keys = <String>[];
-    final epc = item.epc.trim().toUpperCase();
-    final rfid = item.rfid.trim().toUpperCase();
-    if (epc.isNotEmpty) keys.add(epc);
-    if (rfid.isNotEmpty && rfid != epc) keys.add(rfid);
-    return keys;
+    // Include EPC + RFID. If a past sync stored "EPC#id" for UNIQUE, also
+    // register the base EPC so hardware tags still match without re-sync.
+    final keys = <String>{};
+    void addKey(String raw) {
+      final v = raw.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
+      if (v.isEmpty) return;
+      keys.add(v);
+      final hash = v.indexOf('#');
+      if (hash > 0) keys.add(v.substring(0, hash));
+    }
+
+    addKey(item.epc);
+    addKey(item.rfid);
+    return keys.toList();
   }
 
   String _statusForItem(ScannedBulkItem item) {
@@ -218,11 +231,13 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   void _registerMatchForItem(ScannedBulkItem item, String scannedTag) {
     final wasMatched = item.currentScannedStatus == 'Matched';
-    _matchedEpcSet.add(scannedTag.trim().toUpperCase());
+    _matchedEpcSet.add(scannedTag.trim().toUpperCase().replaceAll(RegExp(r'\s+'), ''));
     for (final key in _matchKeysForItem(item)) {
       _matchedEpcSet.add(key);
     }
     if (!wasMatched) {
+      item.currentScannedStatus = 'Matched';
+      _scanMatchedItemCount++;
       unawaited(_rfidService.playBeep());
     }
   }
@@ -233,11 +248,22 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     }
   }
 
+  /// Full status sync is O(n); avoid on every tag tick when catalog is large.
+  void _syncItemStatusesFromMatchedSetChunked() {
+    if (_scannedItems.length <= 2500) {
+      _syncItemStatusesFromMatchedSet();
+      return;
+    }
+    // Large catalog: _registerMatchForItem already sets currentScannedStatus.
+    // Skipping O(n) walks keeps the UART inventory session alive under 10k load.
+  }
+
   void _buildLookupMaps() {
     _epcToMasterIndex.clear();
     for (int i = 0; i < _scannedItems.length; i++) {
-      _indexTagKey(_epcToMasterIndex, _scannedItems[i].epc, i);
-      _indexTagKey(_epcToMasterIndex, _scannedItems[i].rfid, i);
+      for (final key in _matchKeysForItem(_scannedItems[i])) {
+        _epcToMasterIndex[key] = i;
+      }
     }
     _lookupMapsReady = true;
   }
@@ -246,8 +272,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     _epcToMasterIndex.clear();
     const chunk = 2000;
     for (int i = 0; i < _scannedItems.length; i++) {
-      _indexTagKey(_epcToMasterIndex, _scannedItems[i].epc, i);
-      _indexTagKey(_epcToMasterIndex, _scannedItems[i].rfid, i);
+      for (final key in _matchKeysForItem(_scannedItems[i])) {
+        _epcToMasterIndex[key] = i;
+      }
       if (i > 0 && i % chunk == 0) {
         await Future<void>.delayed(Duration.zero);
         if (!mounted) return;
@@ -280,11 +307,6 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         if (!mounted) return;
       }
     }
-  }
-
-  void _indexTagKey(Map<String, int> map, String value, int index) {
-    final key = value.trim().toUpperCase();
-    if (key.isNotEmpty) map[key] = index;
   }
 
   int _viewStateHash() {
@@ -330,21 +352,24 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   void _scheduleScanUiUpdate() {
     final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastScanUiUpdateMs >= 80) {
+    // Larger catalogs: less frequent full UI rebuilds (Sparkle throttles ~80ms;
+    // 10k status walks need more breathing room or the UART session drops).
+    final minInterval = _scannedItems.length > 2500 ? 200 : 80;
+    if (now - _lastScanUiUpdateMs >= minInterval) {
       _lastScanUiUpdateMs = now;
       _scanUiFlushTimer?.cancel();
       _scanUiFlushTimer = null;
-      _syncItemStatusesFromMatchedSet();
+      _syncItemStatusesFromMatchedSetChunked();
       _cachedViewHash = 0;
       if (mounted) setState(() {});
       _checkAutoStopScan();
     } else {
       _scanUiFlushTimer ??= Timer(
-        Duration(milliseconds: (80 - (now - _lastScanUiUpdateMs)).clamp(1, 80)),
+        Duration(milliseconds: (minInterval - (now - _lastScanUiUpdateMs)).clamp(1, minInterval)),
         () {
           _scanUiFlushTimer = null;
           _lastScanUiUpdateMs = DateTime.now().millisecondsSinceEpoch;
-          _syncItemStatusesFromMatchedSet();
+          _syncItemStatusesFromMatchedSetChunked();
           _cachedViewHash = 0;
           if (mounted) setState(() {});
           _checkAutoStopScan();
@@ -366,6 +391,16 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       }
       return;
     }
+
+    // O(1) path for ~10k — avoid scope.every on every UI tick.
+    if (_scanScopeItemCount > 0 &&
+        _scanMatchedItemCount >= _scanScopeItemCount) {
+      _stopScanning();
+      _showToast(context.sRead.allItemsMatchedScanStopped);
+      return;
+    }
+
+    if (_scannedItems.length > 2500) return;
 
     final scope = _getDisplayScopeItems();
     if (scope.isEmpty) return;
@@ -437,7 +472,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     final route = ModalRoute.of(context);
     if (route != null && !route.isCurrent) return;
 
-    final scannedEpc = tag.trim().toUpperCase();
+    final scannedEpc = tag.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
     if (scannedEpc.isEmpty) return;
 
     if (_filteredDbEpcSet.contains(scannedEpc)) {
@@ -462,9 +497,12 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   void _toggleScanning() {
     final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastTriggerMs < 300) return;
+    // Longer debounce while a 10k start is in progress (trigger often double-fires).
+    final debounceMs = _scanStartInProgress ? 800 : 300;
+    if (now - _lastTriggerMs < debounceMs) return;
     _lastTriggerMs = now;
 
+    if (_scanStartInProgress) return;
     if (_isScanning) {
       _stopScanning();
     } else {
@@ -473,74 +511,111 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   }
 
   void _startScanning() async {
-    if (_isScanning) return;
+    // Re-entry while awaiting 10k EPC prep killed the live session (~2s later)
+    // via a second stop+start that then showed "Failed to start RFID scanner".
+    if (_isScanning || _scanStartInProgress) return;
     if (_isLoadingItems) {
       _showToast(context.sRead.pleaseWaitItemsLoading);
       return;
     }
+    _scanStartInProgress = true;
 
-    if (!_lookupMapsReady) {
-      _buildLookupMaps();
-    }
-    // Kotlin: setFilteredItems(displayItems) — use full nav scope, not tab-filtered.
-    if (_selectedMenu == 'UNLABELLED') {
-      _filteredDbEpcSet = {};
-    } else {
-      _setFilteredItemsForScan(_getDisplayScopeItems());
-    }
+    try {
+      if (!_lookupMapsReady) {
+        await _buildLookupMapsChunked();
+        if (!mounted) return;
+      }
 
-    final displayScope = _getDisplayScopeItems();
-    if (displayScope.isEmpty && _selectedMenu != 'UNLABELLED') {
-      _showToast(context.sRead.noItemsInCurrentScope);
-      return;
-    }
-    if (_filteredDbEpcSet.isEmpty &&
-        _selectedMenu != 'UNLABELLED' &&
-        displayScope.isNotEmpty) {
-      _showToast(context.sRead.noRfidEpcInScope);
-      return;
-    }
-    if (displayScope.isNotEmpty &&
-        displayScope.every((i) => i.currentScannedStatus == 'Matched') &&
-        _selectedMenu != 'UNLABELLED') {
-      _showToast(context.sRead.allItemsAlreadyMatched);
-      return;
-    }
+      final displayScope = _getDisplayScopeItems();
+      if (displayScope.isEmpty && _selectedMenu != 'UNLABELLED') {
+        _showToast(context.sRead.noItemsInCurrentScope);
+        return;
+      }
 
-    // Kotlin sets isScanning=true BEFORE hardware start.
-    setState(() => _isScanning = true);
-    _trayScanSession.reset();
-    unawaited(_rfidService.startInventorySound());
+      // Sparkle: if EPC set already warm from load, start hardware immediately.
+      // Only block on a full rebuild when the set is empty.
+      if (_selectedMenu == 'UNLABELLED') {
+        _filteredDbEpcSet = {};
+      } else if (_filteredDbEpcSet.isEmpty) {
+        await _setFilteredItemsForScanChunked(displayScope);
+        if (!mounted) return;
+      } else {
+        // Refresh scope keys in background — do not delay UART start.
+        unawaited(_setFilteredItemsForScanChunked(displayScope));
+      }
 
-    if (_rfidService.isScanning) {
-      await _rfidService.stopScanning();
-    }
-    await _rfidService.clearSearchTags();
-    await _rfidService.setInventoryScanMode(true);
-    await _rfidService.setInventoryScopeEpcsBatched(_filteredDbEpcSet.toList());
+      if (_filteredDbEpcSet.isEmpty &&
+          _selectedMenu != 'UNLABELLED' &&
+          displayScope.isNotEmpty) {
+        _showToast(context.sRead.noRfidEpcInScope);
+        return;
+      }
 
-    final started = await _rfidService.startScanning(
-      power: _selectedPower,
-      inventory: true,
-      simulatedScopeTags: _filteredDbEpcSet.toList(),
-    );
+      var alreadyMatched = 0;
+      var scopeWithTags = 0;
+      for (final item in displayScope) {
+        final keys = _matchKeysForItem(item);
+        if (keys.isEmpty) continue;
+        scopeWithTags++;
+        if (item.currentScannedStatus == 'Matched') alreadyMatched++;
+      }
+      if (scopeWithTags > 0 &&
+          alreadyMatched >= scopeWithTags &&
+          _selectedMenu != 'UNLABELLED') {
+        _showToast(context.sRead.allItemsAlreadyMatched);
+        return;
+      }
 
-    if (!mounted) return;
-    if (!started) {
-      setState(() => _isScanning = false);
-      await _rfidService.stopInventorySound();
-      await _rfidService.haltScan();
-      _showToast(context.sRead.failedToStartRfidScanner);
+      _scanScopeItemCount = scopeWithTags;
+      _scanMatchedItemCount = alreadyMatched;
+
+      // Claim the session BEFORE any await so a second trigger cannot start again.
+      if (mounted) setState(() => _isScanning = true);
+      _trayScanSession.reset();
+      unawaited(_rfidService.startInventorySound());
+
+      if (_rfidService.isScanning) {
+        await _rfidService.stopScanning();
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+      }
+      await _rfidService.clearSearchTags();
+      await _rfidService.setInventoryScanMode(true);
+      await _rfidService.clearInventoryScope();
+
+      var started = await _rfidService.startScanning(
+        power: _selectedPower,
+        inventory: true,
+      );
+      if (!started && mounted) {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+        await _rfidService.prepareForScan();
+        started = await _rfidService.startScanning(
+          power: _selectedPower,
+          inventory: true,
+        );
+      }
+
+      if (!mounted) return;
+      if (!started) {
+        setState(() => _isScanning = false);
+        await _rfidService.stopInventorySound();
+        await _rfidService.haltScan();
+        _showToast(context.sRead.failedToStartRfidScanner);
+      }
+    } finally {
+      _scanStartInProgress = false;
     }
   }
 
   void _stopScanning() async {
-    if (!_isScanning) return;
+    if (!_isScanning && !_scanStartInProgress) return;
+    _scanStartInProgress = false;
     _trayScanSession.reset();
     await _rfidService.stopScanning();
     await _rfidService.haltScan();
     _scanUiFlushTimer?.cancel();
     _scanUiFlushTimer = null;
+    // Full reconcile once on stop (not per-tag) so save/resume stay accurate.
     _syncItemStatusesFromMatchedSet();
     if (mounted) {
       setState(() {
@@ -732,7 +807,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   // Navigation scope (drill-down + search) — mirrors Kotlin navFilteredItems / scannedItemsSequence base.
   List<ScannedBulkItem> _getNavScopeItems() {
-    _syncItemStatusesFromMatchedSet();
+    // Do NOT sync all item statuses here — with ~10k rows that blocks the UI
+    // isolate and makes startScanning fail ("Failed to start RFID scanner").
+    // Statuses are kept current by _scheduleScanUiUpdate / stop / save paths.
     var list = _scannedItems;
 
     if (_searchQuery.isNotEmpty) {

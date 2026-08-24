@@ -571,7 +571,22 @@ class HardwareControllerImpl(
             } else if (playStartSound) {
                 playSound(1, 0)
             }
-            val started = uhf().startInventory()
+            var started = uhf().startInventory()
+            // Large Flutter catalogs can delay the Dart→native handoff; one quick
+            // retry after stop covers transient Chainway "already running" failures.
+            if (!started) {
+                try {
+                    uhf().stopInventory()
+                } catch (_: Throwable) {
+                }
+                try {
+                    Thread.sleep(120)
+                } catch (_: InterruptedException) {
+                }
+                drainStaleBuffer()
+                uhf().prepareScan(power)
+                started = uhf().startInventory()
+            }
             if (started) {
                 isScanning = true
                 startPollingThread(inventory, useTray = false)
@@ -860,9 +875,9 @@ class HardwareControllerImpl(
     private fun shouldEmitTagToFlutter(cleanEpc: String, rssi: String = ""): Boolean {
         if (!trayModeEnabled && !r6ModeEnabled) {
             if (inventoryScanMode) {
-                if (inventoryScopeEpcs.isNotEmpty() && !inventoryScopeEpcs.contains(cleanEpc)) {
-                    return false
-                }
+                // Sparkle BulkViewModel: all inventory tags flow to the app;
+                // matching uses filteredDbEpcSet in Flutter. Native scope filtering
+                // dropped every tag when DB EPC ≠ chip EPC (looked like scan broken).
             } else {
                 when {
                     searchTags.isNotEmpty() -> if (!searchTags.contains(cleanEpc)) return false

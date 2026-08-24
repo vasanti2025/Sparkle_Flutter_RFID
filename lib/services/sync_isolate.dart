@@ -365,6 +365,10 @@ class SyncIsolate {
         if (lookupEpc != null && lookupEpc.isNotEmpty) {
           epc = lookupEpc;
           tid = lookupEpc;
+        } else {
+          // Sparkle: epc = tid ?: rfid — needed so inventory scope matches
+          // tags whose EPC bank holds the barcode when TID is absent.
+          epc = apiRfid;
         }
       }
     } else {
@@ -380,30 +384,16 @@ class SyncIsolate {
       return _withEpcTidRfid(bulkItem, rfid: rfid, epc: '', tid: tid);
     }
 
-    // UNIQUE(epc): uniquify collisions instead of REPLACE/skip (keeps all ~10k rows).
-    epc = _uniqueEpc(epc, bulkItem.bulkItemId, itemCode, usedEpcSet);
+    // UNIQUE(epc): never append "#id" — that breaks RFID scan matching.
+    // First row keeps the real EPC; duplicates keep the item with blank EPC.
+    final epcKey = epc.trim().toUpperCase();
+    if (usedEpcSet.contains(epcKey)) {
+      return _withEpcTidRfid(bulkItem, rfid: rfid, epc: '', tid: tid);
+    }
+    usedEpcSet.add(epcKey);
     if (tid.isEmpty) tid = epc;
 
     return _withEpcTidRfid(bulkItem, rfid: rfid, epc: epc, tid: tid);
-  }
-
-  /// Ensure epc is unique in this sync so SQLite UNIQUE + IGNORE does not drop rows.
-  static String _uniqueEpc(
-    String epc,
-    int bulkItemId,
-    String itemCode,
-    Set<String> usedEpcSet,
-  ) {
-    var value = epc.trim();
-    var key = value.toUpperCase();
-    if (!usedEpcSet.contains(key)) {
-      usedEpcSet.add(key);
-      return value;
-    }
-    final suffix = bulkItemId != 0 ? bulkItemId : usedEpcSet.length + 1;
-    value = '$value#$suffix';
-    usedEpcSet.add(value.toUpperCase());
-    return value;
   }
 
   static BulkItem _withEpcTidRfid(
