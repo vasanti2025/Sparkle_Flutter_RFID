@@ -7,10 +7,12 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../l10n/l10n_extension.dart';
 import '../models/bulk_item.dart';
+import '../models/inventory_group_aggregate.dart';
 import '../viewmodels/product_view_model.dart';
 import '../viewmodels/dashboard_view_model.dart';
 import '../services/pref_service.dart';
 import '../services/rfid_service.dart';
+import '../services/db_service.dart';
 import '../services/email_service.dart';
 import '../utils/product_image.dart';
 import '../utils/tray_scan_auto_stop.dart';
@@ -72,10 +74,23 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   // RFID scan states
   final RfidService _rfidService = RfidService();
+  final DbService _dbService = DbService();
   StreamSubscription? _tagsSubscription;
   StreamSubscription? _triggerSubscription;
   bool _isScanning = false;
+  bool _isPreparingScan = false;
   int _selectedPower = 30; // Default power level
+
+  // Large catalog (2L–10L): DB-backed scan, no full RAM load.
+  bool _largeCatalogMode = false;
+  int _totalCatalogCount = 0;
+  int _largeModeMatchedCount = 0;
+  List<InventoryGroupAggregate>? _cachedAggregateRows;
+  List<ScannedBulkItem> _pagedDesignItems = [];
+  int _designItemsOffset = 0;
+  bool _designItemsLoading = false;
+  bool _designItemsHasMore = true;
+  static const int _designPageSize = 100;
 
   // Drawer / overlay menu and unlabelled items
   bool _showMenu = false;
@@ -148,30 +163,69 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     super.dispose();
   }
 
+  String? get _menuFilterType =>
+      _filterType == 'Scan Display' ? null : _filterType;
+
+  String? get _menuFilterValue =>
+      _filterType == 'Scan Display' ? null : _filterValue;
+
+  String? get _scanStatusFilter {
+    if (_selectedMenu == 'MATCHED') return 'matched';
+    if (_selectedMenu == 'UNMATCHED') return 'unmatched';
+    return null;
+  }
+
   Future<void> _loadItems() async {
     setState(() => _isLoadingItems = true);
 
     final viewModel = Provider.of<ProductViewModel>(context, listen: false);
-    final String? filterType =
-        _filterType == 'Scan Display' ? null : _filterType;
-    final String? filterValue =
-        _filterType == 'Scan Display' ? null : _filterValue;
+    final String? filterType = _menuFilterType;
+    final String? filterValue = _menuFilterValue;
+
+    final total = await viewModel.getScanDisplayItemCount(
+      filterType: filterType,
+      filterValue: filterValue,
+    );
+
+    if (!mounted) return;
+
+    if (total >= kLargeInventoryCatalogThreshold) {
+      await _dbService.resetScannedFlagsInScope(
+        filterType: filterType,
+        filterValue: filterValue,
+      );
+      _largeCatalogMode = true;
+      _totalCatalogCount = total;
+      _largeModeMatchedCount = 0;
+      _pagedDesignItems = [];
+      _designItemsOffset = 0;
+      _designItemsHasMore = true;
+      setState(() {
+        _scannedItems = [];
+        _isLoadingItems = false;
+        _lookupMapsReady = true;
+        _matchedEpcSet.clear();
+        _unlabelledEpcs.clear();
+      });
+      await _refreshDisplayCacheLarge();
+      if (!mounted) return;
+      unawaited(_rfidService.prepareForScan());
+      return;
+    }
+
+    _largeCatalogMode = false;
+    _totalCatalogCount = total;
 
     final list = await viewModel.loadScanDisplayItems(
       filterType: filterType,
       filterValue: filterValue,
-      onProgress: (loaded, total) {
-        // Keep splash/spinner responsive while large catalogs load.
-        if (!mounted || total <= 0) return;
-        if (loaded == total || loaded % 4000 == 0) {
-          // Avoid setState every page — only tick occasionally.
-        }
+      onProgress: (loaded, progressTotal) {
+        if (!mounted || progressTotal <= 0) return;
       },
     );
 
     if (!mounted) return;
 
-    // Build scanned wrappers in chunks so we don't freeze on huge lists.
     final scanned = <ScannedBulkItem>[];
     const chunk = 1500;
     for (var i = 0; i < list.length; i += chunk) {
@@ -195,17 +249,21 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       if (!mounted) return;
       await _setFilteredItemsForScanChunked();
       if (!mounted) return;
-      // Warm UART while user reviews the list — first Scan tap starts faster.
       unawaited(_rfidService.prepareForScan());
     });
   }
 
+  String _normalizeScanKey(String raw) =>
+      raw.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
+
   List<String> _matchKeysForItem(ScannedBulkItem item) {
     final keys = <String>[];
-    final epc = item.epc.trim().toUpperCase();
-    final rfid = item.rfid.trim().toUpperCase();
+    final epc = _normalizeScanKey(item.epc);
+    final rfid = _normalizeScanKey(item.rfid);
+    final itemCode = _normalizeScanKey(item.itemCode);
     if (epc.isNotEmpty) keys.add(epc);
     if (rfid.isNotEmpty && rfid != epc) keys.add(rfid);
+    if (itemCode.isNotEmpty && !keys.contains(itemCode)) keys.add(itemCode);
     return keys;
   }
 
@@ -218,10 +276,11 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   void _registerMatchForItem(ScannedBulkItem item, String scannedTag) {
     final wasMatched = item.currentScannedStatus == 'Matched';
-    _matchedEpcSet.add(scannedTag.trim().toUpperCase());
+    _matchedEpcSet.add(_normalizeScanKey(scannedTag));
     for (final key in _matchKeysForItem(item)) {
       _matchedEpcSet.add(key);
     }
+    item.currentScannedStatus = 'Matched';
     if (!wasMatched) {
       unawaited(_rfidService.playBeep());
     }
@@ -283,7 +342,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   }
 
   void _indexTagKey(Map<String, int> map, String value, int index) {
-    final key = value.trim().toUpperCase();
+    final key = _normalizeScanKey(value);
     if (key.isNotEmpty) map[key] = index;
   }
 
@@ -300,7 +359,107 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       _selectedDesigns.length,
       _matchedEpcSet.length,
       _scannedItems.length,
+      _largeCatalogMode,
+      _largeModeMatchedCount,
+      _totalCatalogCount,
+      _pagedDesignItems.length,
+      _cachedAggregateRows?.length ?? 0,
     );
+  }
+
+  Future<void> _refreshDisplayCacheLarge() async {
+    if (!_largeCatalogMode) return;
+
+    final filterType = _menuFilterType;
+    final filterValue = _menuFilterValue;
+    final scanStatus = _scanStatusFilter;
+
+    if (_currentLevel == 'DesignItems' || _selectedMenu == 'UNLABELLED') {
+      await _loadDesignItemsPage(reset: true);
+      final items = _selectedMenu == 'UNLABELLED'
+          ? _getFilteredScopeItems()
+          : _pagedDesignItems;
+      _cachedFilteredItems = items;
+      _cachedGroupedMap = {};
+      _cachedTotalCount = items.length;
+      _cachedMatchedCount =
+          items.where((i) => i.currentScannedStatus == 'Matched').length;
+      _cachedTotalGrossWt = 0;
+      _cachedTotalMatchedWt = 0;
+      for (final item in items) {
+        final gw = double.tryParse(item.grossWeight) ?? 0.0;
+        _cachedTotalGrossWt += gw;
+        if (item.currentScannedStatus == 'Matched') {
+          _cachedTotalMatchedWt += gw;
+        }
+      }
+    } else {
+      final groupColumn = _currentLevel == 'Category'
+          ? 'category'
+          : _currentLevel == 'Product'
+              ? 'productName'
+              : 'design';
+      _cachedAggregateRows = await _dbService.getInventoryGroupAggregates(
+        groupColumn: groupColumn,
+        filterType: filterType,
+        filterValue: filterValue,
+        categories: _selectedCategories,
+        products: _selectedProducts,
+        designs: _selectedDesigns,
+        searchQuery: _searchQuery,
+        scanStatus: scanStatus,
+      );
+      _cachedFilteredItems = const [];
+      _cachedGroupedMap = {};
+      _cachedTotalCount = _cachedAggregateRows!
+          .fold<int>(0, (sum, row) => sum + row.totalQty);
+      _cachedMatchedCount = _cachedAggregateRows!
+          .fold<int>(0, (sum, row) => sum + row.matchedQty);
+      _cachedTotalGrossWt = _cachedAggregateRows!
+          .fold<double>(0, (sum, row) => sum + row.totalGwt);
+      _cachedTotalMatchedWt = _cachedAggregateRows!
+          .fold<double>(0, (sum, row) => sum + row.matchedGwt);
+    }
+
+    _cachedViewHash = _viewStateHash();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _loadDesignItemsPage({required bool reset}) async {
+    if (!_largeCatalogMode || _designItemsLoading) return;
+    if (reset) {
+      _designItemsOffset = 0;
+      _designItemsHasMore = true;
+      _pagedDesignItems = [];
+    }
+    if (!_designItemsHasMore) return;
+
+    _designItemsLoading = true;
+    final batch = await _dbService.getInventoryScopeItemsPaged(
+      _designPageSize,
+      _designItemsOffset,
+      filterType: _menuFilterType,
+      filterValue: _menuFilterValue,
+      categories: _selectedCategories,
+      products: _selectedProducts,
+      designs: _selectedDesigns,
+      searchQuery: _searchQuery,
+      scanStatus: _scanStatusFilter,
+    );
+
+    final wrapped = batch
+        .map(
+          (item) => ScannedBulkItem(
+            item,
+            item.isScanned == 1 ? 'Matched' : 'Unmatched',
+          ),
+        )
+        .toList();
+
+    _designItemsOffset += batch.length;
+    _designItemsHasMore = batch.length >= _designPageSize;
+    _pagedDesignItems = reset ? wrapped : [..._pagedDesignItems, ...wrapped];
+    _designItemsLoading = false;
   }
 
   void _refreshDisplayCache() {
@@ -323,30 +482,45 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   void _ensureDisplayCache() {
     final hash = _viewStateHash();
-    if (_cachedFilteredItems == null || _cachedGroupedMap == null || hash != _cachedViewHash) {
+    if (_cachedFilteredItems == null ||
+        _cachedGroupedMap == null ||
+        hash != _cachedViewHash) {
+      if (_largeCatalogMode) {
+        unawaited(_refreshDisplayCacheLarge());
+        return;
+      }
       _refreshDisplayCache();
     }
   }
 
-  void _scheduleScanUiUpdate() {
+  void _scheduleScanUiUpdate({bool largeCatalogMatch = false}) {
     final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastScanUiUpdateMs >= 80) {
+    if (largeCatalogMatch) {
+      _largeModeMatchedCount++;
+    }
+    if (now - _lastScanUiUpdateMs >= 120) {
       _lastScanUiUpdateMs = now;
       _scanUiFlushTimer?.cancel();
       _scanUiFlushTimer = null;
-      _syncItemStatusesFromMatchedSet();
       _cachedViewHash = 0;
-      if (mounted) setState(() {});
+      if (_largeCatalogMode) {
+        unawaited(_refreshDisplayCacheLarge());
+      } else if (mounted) {
+        setState(() {});
+      }
       _checkAutoStopScan();
     } else {
       _scanUiFlushTimer ??= Timer(
-        Duration(milliseconds: (80 - (now - _lastScanUiUpdateMs)).clamp(1, 80)),
+        Duration(milliseconds: (120 - (now - _lastScanUiUpdateMs)).clamp(1, 120)),
         () {
           _scanUiFlushTimer = null;
           _lastScanUiUpdateMs = DateTime.now().millisecondsSinceEpoch;
-          _syncItemStatusesFromMatchedSet();
           _cachedViewHash = 0;
-          if (mounted) setState(() {});
+          if (_largeCatalogMode) {
+            unawaited(_refreshDisplayCacheLarge());
+          } else if (mounted) {
+            setState(() {});
+          }
           _checkAutoStopScan();
         },
       );
@@ -359,7 +533,6 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     final route = ModalRoute.of(context);
     if (route != null && !route.isCurrent) return;
 
-    // Tray: stop once every tag physically on the tray is matched (not full list).
     if (_rfidService.trayReaderActive) {
       if (_trayScanSession.shouldStop(_matchedEpcSet)) {
         _stopScanning();
@@ -367,10 +540,40 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       return;
     }
 
+    if (_largeCatalogMode) {
+      unawaited(_checkAutoStopScanLarge());
+      return;
+    }
+
     final scope = _getDisplayScopeItems();
     if (scope.isEmpty) return;
     final allMatched = scope.every((i) => i.currentScannedStatus == 'Matched');
     if (allMatched) {
+      _stopScanning();
+      _showToast(context.sRead.allItemsMatchedScanStopped);
+    }
+  }
+
+  Future<void> _checkAutoStopScanLarge() async {
+    if (!_isScanning || !mounted) return;
+    final total = await _dbService.countItemsInInventoryScope(
+      filterType: _menuFilterType,
+      filterValue: _menuFilterValue,
+      categories: _selectedCategories,
+      products: _selectedProducts,
+      designs: _selectedDesigns,
+      searchQuery: _searchQuery,
+    );
+    final matched = await _dbService.countScannedInInventoryScope(
+      filterType: _menuFilterType,
+      filterValue: _menuFilterValue,
+      categories: _selectedCategories,
+      products: _selectedProducts,
+      designs: _selectedDesigns,
+      searchQuery: _searchQuery,
+    );
+    if (!mounted || !_isScanning) return;
+    if (total > 0 && matched >= total) {
       _stopScanning();
       _showToast(context.sRead.allItemsMatchedScanStopped);
     }
@@ -431,13 +634,18 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   }
 
   void _onTagScanned(String tag) {
-    // Only handle tags while this screen owns the scan session.
-    if (!_isScanning) return;
+    if (_isPreparingScan) return;
+    if (!_isScanning && !_rfidService.isScanning) return;
     if (!mounted) return;
     final route = ModalRoute.of(context);
     if (route != null && !route.isCurrent) return;
 
-    final scannedEpc = tag.trim().toUpperCase();
+    if (_largeCatalogMode) {
+      unawaited(_onTagScannedLarge(tag));
+      return;
+    }
+
+    final scannedEpc = _normalizeScanKey(tag);
     if (scannedEpc.isEmpty) return;
 
     if (_filteredDbEpcSet.contains(scannedEpc)) {
@@ -460,12 +668,68 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     }
   }
 
+  Future<void> _onTagScannedLarge(String tag) async {
+    if (_isPreparingScan || (!_isScanning && !_rfidService.isScanning) || !mounted) {
+      return;
+    }
+
+    final scannedEpc = _normalizeScanKey(tag);
+    if (scannedEpc.isEmpty) return;
+
+    try {
+      final item = await _dbService.findBulkItemInScanScope(
+        scannedEpc,
+        filterType: _menuFilterType,
+        filterValue: _menuFilterValue,
+        categories: _selectedCategories,
+        products: _selectedProducts,
+        designs: _selectedDesigns,
+      );
+
+      if (!mounted) return;
+      if (_isPreparingScan || (!_isScanning && !_rfidService.isScanning)) return;
+
+      if (item != null) {
+        if (_rfidService.trayReaderActive) {
+          _trayScanSession.recordInScopeTag(scannedEpc);
+        }
+        final wasMatched = item.isScanned == 1;
+        await _dbService.markBulkItemScanned(item.bulkItemId);
+        _matchedEpcSet.add(scannedEpc);
+        for (final key in [item.epc, item.rfid, item.itemCode]) {
+          final normalized = _normalizeScanKey(key);
+          if (normalized.isNotEmpty) _matchedEpcSet.add(normalized);
+        }
+        if (!wasMatched) {
+          unawaited(_rfidService.playBeep());
+        }
+        _scheduleScanUiUpdate(largeCatalogMatch: !wasMatched);
+
+        // Keep visible design rows in sync without reloading full catalog.
+        for (final row in _pagedDesignItems) {
+          if (row.originalBulkItem.bulkItemId == item.bulkItemId) {
+            row.currentScannedStatus = 'Matched';
+            break;
+          }
+        }
+        return;
+      }
+
+      if (!_unlabelledEpcs.contains(scannedEpc)) {
+        _unlabelledEpcs.add(scannedEpc);
+        _scheduleScanUiUpdate();
+      }
+    } catch (_) {
+      // Ignore lookup errors during high-rate scan bursts.
+    }
+  }
+
   void _toggleScanning() {
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastTriggerMs < 300) return;
     _lastTriggerMs = now;
 
-    if (_isScanning) {
+    if (_isScanning || _isPreparingScan) {
       _stopScanning();
     } else {
       _startScanning();
@@ -473,23 +737,34 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   }
 
   void _startScanning() async {
-    if (_isScanning) return;
+    if (_isScanning || _isPreparingScan) return;
     if (_isLoadingItems) {
       _showToast(context.sRead.pleaseWaitItemsLoading);
       return;
     }
 
-    if (!_lookupMapsReady) {
-      _buildLookupMaps();
+    if (_largeCatalogMode) {
+      await _startScanningLarge();
+      return;
     }
-    // Kotlin: setFilteredItems(displayItems) — use full nav scope, not tab-filtered.
-    if (_selectedMenu == 'UNLABELLED') {
-      _filteredDbEpcSet = {};
-    } else {
-      _setFilteredItemsForScan(_getDisplayScopeItems());
+
+    if (!_lookupMapsReady) {
+      if (_scannedItems.length > 3000) {
+        await _buildLookupMapsChunked();
+      } else {
+        _buildLookupMaps();
+      }
     }
 
     final displayScope = _getDisplayScopeItems();
+    if (_selectedMenu == 'UNLABELLED') {
+      _filteredDbEpcSet = {};
+    } else if (_scannedItems.length > 3000) {
+      await _setFilteredItemsForScanChunked(displayScope);
+    } else {
+      _setFilteredItemsForScan(displayScope);
+    }
+
     if (displayScope.isEmpty && _selectedMenu != 'UNLABELLED') {
       _showToast(context.sRead.noItemsInCurrentScope);
       return;
@@ -507,27 +782,112 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       return;
     }
 
-    // Kotlin sets isScanning=true BEFORE hardware start.
-    setState(() => _isScanning = true);
+    await _beginHardwareScan();
+  }
+
+  Future<void> _startScanningLarge() async {
+    if (_selectedMenu == 'UNLABELLED') {
+      await _beginHardwareScan(skipScopeUpload: true);
+      return;
+    }
+
+    final total = await _dbService.countItemsInInventoryScope(
+      filterType: _menuFilterType,
+      filterValue: _menuFilterValue,
+      categories: _selectedCategories,
+      products: _selectedProducts,
+      designs: _selectedDesigns,
+      searchQuery: _searchQuery,
+    );
+    if (!mounted) return;
+    if (total == 0) {
+      _showToast(context.sRead.noItemsInCurrentScope);
+      return;
+    }
+
+    final matched = await _dbService.countScannedInInventoryScope(
+      filterType: _menuFilterType,
+      filterValue: _menuFilterValue,
+      categories: _selectedCategories,
+      products: _selectedProducts,
+      designs: _selectedDesigns,
+      searchQuery: _searchQuery,
+    );
+    if (!mounted) return;
+    if (matched >= total) {
+      _showToast(context.sRead.allItemsAlreadyMatched);
+      return;
+    }
+
+    _filteredDbEpcSet = {};
+    // Inventory always filters in Dart — native emits all tags (avoids key mismatch).
+    await _beginHardwareScan(skipScopeUpload: true);
+  }
+
+  Future<void> _beginHardwareScan({bool skipScopeUpload = true}) async {
+    if (!mounted) return;
+    setState(() => _isPreparingScan = true);
     _trayScanSession.reset();
     unawaited(_rfidService.startInventorySound());
 
-    if (_rfidService.isScanning) {
-      await _rfidService.stopScanning();
-    }
-    await _rfidService.clearSearchTags();
-    await _rfidService.setInventoryScanMode(true);
-    await _rfidService.setInventoryScopeEpcsBatched(_filteredDbEpcSet.toList());
+    try {
+      if (_rfidService.isScanning) {
+        await _rfidService.stopScanning();
+      }
+      await _rfidService.clearSearchTags();
+      await _rfidService.setInventoryScanMode(true);
 
-    final started = await _rfidService.startScanning(
-      power: _selectedPower,
-      inventory: true,
-      simulatedScopeTags: _filteredDbEpcSet.toList(),
-    );
+      var prepared = await _rfidService.prepareForScan();
+      if (!prepared) {
+        prepared = await _rfidService.prepareForScan();
+      }
+      if (!prepared) {
+        if (!mounted) return;
+        setState(() => _isPreparingScan = false);
+        await _rfidService.stopInventorySound();
+        await _rfidService.haltScan();
+        _showToast(context.sRead.failedToStartRfidScanner);
+        return;
+      }
 
-    if (!mounted) return;
-    if (!started) {
-      setState(() => _isScanning = false);
+      if (!skipScopeUpload) {
+        await _rfidService.setInventoryScopeEpcsBatched(_filteredDbEpcSet.toList());
+      } else {
+        await _rfidService.clearInventoryScope();
+      }
+
+      // stopScanning() clears native scanningPermitted — re-arm right before start.
+      await _rfidService.permitScanSession();
+
+      final started = await _rfidService.startScanning(
+        power: _selectedPower,
+        inventory: true,
+        skipPrepare: true,
+      );
+
+      if (!mounted) return;
+      if (!started) {
+        setState(() {
+          _isPreparingScan = false;
+          _isScanning = false;
+        });
+        await _rfidService.stopInventorySound();
+        await _rfidService.haltScan();
+        _showToast(context.sRead.failedToStartRfidScanner);
+        return;
+      }
+
+      setState(() {
+        _isPreparingScan = false;
+        _isScanning = true;
+      });
+    } catch (e) {
+      debugPrint('Inventory scan start failed: $e');
+      if (!mounted) return;
+      setState(() {
+        _isPreparingScan = false;
+        _isScanning = false;
+      });
       await _rfidService.stopInventorySound();
       await _rfidService.haltScan();
       _showToast(context.sRead.failedToStartRfidScanner);
@@ -535,22 +895,58 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   }
 
   void _stopScanning() async {
-    if (!_isScanning) return;
+    if (!_isScanning && !_isPreparingScan) return;
     _trayScanSession.reset();
     await _rfidService.stopScanning();
     await _rfidService.haltScan();
     _scanUiFlushTimer?.cancel();
     _scanUiFlushTimer = null;
-    _syncItemStatusesFromMatchedSet();
+    if (!_largeCatalogMode) {
+      _syncItemStatusesFromMatchedSet();
+    } else {
+      _cachedViewHash = 0;
+      unawaited(_refreshDisplayCacheLarge());
+    }
     if (mounted) {
       setState(() {
         _isScanning = false;
+        _isPreparingScan = false;
       });
     }
   }
 
-  void _resetScanning() {
+  void _resetScanning() async {
     _stopScanning();
+    if (_largeCatalogMode) {
+      await _dbService.resetScannedFlagsInScope(
+        filterType: _menuFilterType,
+        filterValue: _menuFilterValue,
+      );
+      _largeModeMatchedCount = 0;
+      _matchedEpcSet.clear();
+      _unlabelledEpcs.clear();
+      _pagedDesignItems = [];
+      _designItemsOffset = 0;
+      _designItemsHasMore = true;
+      setState(() {
+        _selectedCategories.clear();
+        _selectedProducts.clear();
+        _selectedDesigns.clear();
+        _selectedMenu = 'ALL';
+        _currentLevel = 'Category';
+        _selectedCategory = null;
+        _selectedProduct = null;
+        _selectedDesign = null;
+        _searchQuery = '';
+        _showSearchInput = false;
+        _searchController.clear();
+        _cachedViewHash = 0;
+      });
+      await _refreshDisplayCacheLarge();
+      _showToast(context.sRead.scanResetSuccessful);
+      return;
+    }
+
     setState(() {
       _matchedEpcSet.clear();
       for (var item in _scannedItems) {
@@ -596,7 +992,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   void _saveScanResults() async {
     _stopScanning();
-    _syncItemStatusesFromMatchedSet();
+    if (!_largeCatalogMode) {
+      _syncItemStatusesFromMatchedSet();
+    }
     setState(() => _isSaving = true);
 
     final viewModel = Provider.of<ProductViewModel>(context, listen: false);
@@ -609,7 +1007,43 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       return;
     }
 
-    // 1. Prepare local update payload (Kotlin uses tagKey = epc ?: rfid)
+    if (_largeCatalogMode) {
+      final uploadItemsPayload = <Map<String, dynamic>>[];
+      await _dbService.forEachBulkItemInInventoryScope(
+        filterType: _menuFilterType,
+        filterValue: _menuFilterValue,
+        onChunk: (chunk) async {
+          final finalItems = chunk.map((item) {
+            final map = item.toMap();
+            final isMatched = item.isScanned == 1;
+            map['isScanned'] = isMatched ? 1 : 0;
+            map['scannedStatus'] = isMatched ? 'Matched' : 'Unmatched';
+            return BulkItem.fromMap(map);
+          }).toList();
+          await viewModel.saveScanResults(finalItems);
+          for (final item in chunk) {
+            uploadItemsPayload.add(_uploadPayloadForItem(
+              item,
+              item.isScanned == 1,
+            ));
+          }
+        },
+      );
+
+      if (!mounted) return;
+      final success = await viewModel.uploadVerification(
+        clientCode: employee.clientCode!,
+        items: uploadItemsPayload,
+      );
+      setState(() => _isSaving = false);
+      if (success) {
+        _showToast(context.sRead.stockVerificationUploaded);
+      } else {
+        _showToast(context.sRead.verificationUploadFailed(viewModel.errorMessage ?? ''));
+      }
+      return;
+    }
+
     final finalItems = _scannedItems.map((item) {
       final map = item.originalBulkItem.toMap();
       final isMatched = _matchKeysForItem(item)
@@ -619,41 +1053,14 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       return BulkItem.fromMap(map);
     }).toList();
 
-    // 2. Prepare upload payload
     final uploadItemsPayload = _scannedItems.map((item) {
-      final double grossWt = double.tryParse(item.grossWeight) ?? 0.0;
-      final double netWt = double.tryParse(item.netWeight) ?? 0.0;
       final isMatched = _matchKeysForItem(item)
           .any((key) => _matchedEpcSet.contains(key));
-      final String status = isMatched ? 'match' : 'unmatch';
-
-      return {
-        'ItemCode': item.itemCode,
-        'Status': status,
-        'GrossWeight': grossWt,
-        'NetWeight': netWt,
-        'Quantity': 1,
-        'CounterName': item.counterName,
-        'CategoryName': item.category,
-        'ProductName': item.productName,
-        'DesignName': item.design,
-        'PurityName': item.purity,
-        'CompanyName': '',
-        'BranchName': item.branchName,
-        'CounterId': item.counterId,
-        'CategoryId': item.categoryId,
-        'ProductId': item.productId,
-        'DesignId': item.designId,
-        'PurityId': 0,
-        'CompanyId': 0,
-        'BranchId': item.branchId,
-      };
+      return _uploadPayloadForItem(item.originalBulkItem, isMatched);
     }).toList();
 
-    // 3. Save locally in SQLite
     await viewModel.saveScanResults(finalItems);
 
-    // 4. Call stock verification API
     final success = await viewModel.uploadVerification(
       clientCode: employee.clientCode!,
       items: uploadItemsPayload,
@@ -666,6 +1073,32 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     } else {
       _showToast(context.sRead.verificationUploadFailed(viewModel.errorMessage ?? ''));
     }
+  }
+
+  Map<String, dynamic> _uploadPayloadForItem(BulkItem item, bool isMatched) {
+    final double grossWt = double.tryParse(item.grossWeight) ?? 0.0;
+    final double netWt = double.tryParse(item.netWeight) ?? 0.0;
+    return {
+      'ItemCode': item.itemCode,
+      'Status': isMatched ? 'match' : 'unmatch',
+      'GrossWeight': grossWt,
+      'NetWeight': netWt,
+      'Quantity': 1,
+      'CounterName': item.counterName,
+      'CategoryName': item.category,
+      'ProductName': item.productName,
+      'DesignName': item.design,
+      'PurityName': item.purity,
+      'CompanyName': '',
+      'BranchName': item.branchName,
+      'CounterId': item.counterId,
+      'CategoryId': item.categoryId,
+      'ProductId': item.productId,
+      'DesignId': item.designId,
+      'PurityId': 0,
+      'CompanyId': 0,
+      'BranchId': item.branchId,
+    };
   }
 
   void _showToast(String message) {
@@ -732,7 +1165,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   // Navigation scope (drill-down + search) — mirrors Kotlin navFilteredItems / scannedItemsSequence base.
   List<ScannedBulkItem> _getNavScopeItems() {
-    _syncItemStatusesFromMatchedSet();
+    if (!_largeCatalogMode) {
+      _syncItemStatusesFromMatchedSet();
+    }
     var list = _scannedItems;
 
     if (_searchQuery.isNotEmpty) {
@@ -841,6 +1276,13 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         list = list.where((i) => i.epc.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
       }
       return list;
+    }
+
+    if (_largeCatalogMode &&
+        (_currentLevel == 'DesignItems' ||
+            _selectedMenu == 'MATCHED' ||
+            _selectedMenu == 'UNMATCHED')) {
+      return _pagedDesignItems;
     }
 
     var list = _getNavScopeItems();
@@ -1253,8 +1695,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   Widget build(BuildContext context) {
     final s = context.s;
     _ensureDisplayCache();
-    final filteredItems = _cachedFilteredItems!;
-    final groupedMap = _cachedGroupedMap!;
+    final filteredItems = _cachedFilteredItems ?? const <ScannedBulkItem>[];
+    final groupedMap = _cachedGroupedMap ?? const <String, List<ScannedBulkItem>>{};
 
     final totalCount = _cachedTotalCount;
     final matchedCount = _cachedMatchedCount;
@@ -1444,7 +1886,11 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                                             _selectedMenu = 'MATCHED';
                                             _currentLevel = 'DesignItems';
                                             _showMenu = false;
+                                            _cachedViewHash = 0;
                                           });
+                                          if (_largeCatalogMode) {
+                                            unawaited(_refreshDisplayCacheLarge());
+                                          }
                                         },
                                       ),
                                       const SizedBox(height: 8),
@@ -1457,7 +1903,11 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                                             _selectedMenu = 'UNMATCHED';
                                             _currentLevel = 'DesignItems';
                                             _showMenu = false;
+                                            _cachedViewHash = 0;
                                           });
+                                          if (_largeCatalogMode) {
+                                            unawaited(_refreshDisplayCacheLarge());
+                                          }
                                         },
                                       ),
                                       const SizedBox(height: 8),
@@ -1526,36 +1976,81 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     List<ScannedBulkItem> filteredItems,
     Map<String, List<ScannedBulkItem>> groupedMap,
   ) {
-    if (_isLoadingItems && _scannedItems.isEmpty) {
+    if (_isLoadingItems && _scannedItems.isEmpty && !_largeCatalogMode) {
       return const Center(
         child: CircularProgressIndicator(color: Color(0xFF5231A7)),
       );
     }
 
-    if (_scannedItems.isEmpty &&
+    if (_isLoadingItems && _largeCatalogMode && _totalCatalogCount == 0) {
+      return const Center(
+        child: CircularProgressIndicator(color: Color(0xFF5231A7)),
+      );
+    }
+
+    if (!_largeCatalogMode &&
+        _scannedItems.isEmpty &&
         _unlabelledEpcs.isEmpty &&
         !_isLoadingItems) {
       return _buildEmptyState();
     }
 
-    final showLoaderOverlay =
-        (_isLoadingItems || _isSaving) && _scannedItems.isNotEmpty;
+    if (_largeCatalogMode &&
+        _totalCatalogCount == 0 &&
+        _unlabelledEpcs.isEmpty &&
+        !_isLoadingItems) {
+      return _buildEmptyState();
+    }
+
+    final useAggregateList = _largeCatalogMode &&
+        _currentLevel != 'DesignItems' &&
+        _selectedMenu != 'UNLABELLED';
+    final aggregateRows = _cachedAggregateRows ?? const <InventoryGroupAggregate>[];
+
+    final showLoaderOverlay = (_isLoadingItems || _isSaving) &&
+        (_scannedItems.isNotEmpty || _largeCatalogMode);
+
+    final itemCount = useAggregateList
+        ? aggregateRows.length
+        : (_currentLevel == 'DesignItems' || _selectedMenu == 'UNLABELLED'
+            ? filteredItems.length
+            : groupedMap.length);
 
     return Stack(
       children: [
-        ListView.builder(
-          itemCount: _currentLevel == 'DesignItems' || _selectedMenu == 'UNLABELLED'
-              ? filteredItems.length
-              : groupedMap.length,
-          itemBuilder: (context, index) {
-            if (_currentLevel == 'DesignItems' || _selectedMenu == 'UNLABELLED') {
-              final item = filteredItems[index];
-              return _buildDesignItemRow(item);
-            } else {
+        NotificationListener<ScrollNotification>(
+          onNotification: (notification) {
+            if (!_largeCatalogMode) return false;
+            if (_currentLevel != 'DesignItems' && _selectedMenu != 'UNLABELLED') {
+              return false;
+            }
+            if (notification.metrics.pixels >=
+                    notification.metrics.maxScrollExtent - 240 &&
+                !_designItemsLoading &&
+                _designItemsHasMore) {
+              unawaited(_loadDesignItemsPage(reset: false).then((_) {
+                if (mounted) {
+                  _cachedViewHash = 0;
+                  unawaited(_refreshDisplayCacheLarge());
+                }
+              }));
+            }
+            return false;
+          },
+          child: ListView.builder(
+            itemCount: itemCount,
+            itemBuilder: (context, index) {
+              if (useAggregateList) {
+                return _buildAggregateGroupRow(aggregateRows[index]);
+              }
+              if (_currentLevel == 'DesignItems' || _selectedMenu == 'UNLABELLED') {
+                final item = filteredItems[index];
+                return _buildDesignItemRow(item);
+              }
               final entry = groupedMap.entries.elementAt(index);
               return _buildGroupRow(entry.key, entry.value);
-            }
-          },
+            },
+          ),
         ),
         if (showLoaderOverlay)
           Positioned.fill(
@@ -1641,42 +2136,70 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     );
   }
 
-  void _openFilterSelectionDialog(String filterType) {
+  void _openFilterSelectionDialog(String filterType) async {
     final s = context.sRead;
     List<String> items = [];
     List<String> selected = [];
 
-    final allCategories = _scannedItems
-        .map((i) => i.category.trim())
-        .where((c) => c.isNotEmpty)
-        .toSet()
-        .toList();
+    if (_largeCatalogMode) {
+      final column = filterType == 'Category'
+          ? 'category'
+          : (filterType == 'Product' ? 'productName' : 'design');
+      items = await _dbService.getDistinctInventoryScopeValues(
+        column,
+        filterType: _menuFilterType,
+        filterValue: _menuFilterValue,
+        categories: filterType == 'Product' || filterType == 'Design'
+            ? _selectedCategories
+            : const [],
+        products: filterType == 'Design' ? _selectedProducts : const [],
+      );
+    } else {
+      final allCategories = _scannedItems
+          .map((i) => i.category.trim())
+          .where((c) => c.isNotEmpty)
+          .toSet()
+          .toList();
 
-    final allProducts = _scannedItems
-        .where((i) => _selectedCategories.isEmpty || _selectedCategories.contains(i.category.trim()))
-        .map((i) => i.productName.trim())
-        .where((p) => p.isNotEmpty)
-        .toSet()
-        .toList();
+      final allProducts = _scannedItems
+          .where((i) =>
+              _selectedCategories.isEmpty ||
+              _selectedCategories.contains(i.category.trim()))
+          .map((i) => i.productName.trim())
+          .where((p) => p.isNotEmpty)
+          .toSet()
+          .toList();
 
-    final allDesigns = _scannedItems
-        .where((i) => _selectedCategories.isEmpty || _selectedCategories.contains(i.category.trim()))
-        .where((i) => _selectedProducts.isEmpty || _selectedProducts.contains(i.productName.trim()))
-        .map((i) => i.design.trim())
-        .where((d) => d.isNotEmpty)
-        .toSet()
-        .toList();
+      final allDesigns = _scannedItems
+          .where((i) =>
+              _selectedCategories.isEmpty ||
+              _selectedCategories.contains(i.category.trim()))
+          .where((i) =>
+              _selectedProducts.isEmpty ||
+              _selectedProducts.contains(i.productName.trim()))
+          .map((i) => i.design.trim())
+          .where((d) => d.isNotEmpty)
+          .toSet()
+          .toList();
+
+      if (filterType == 'Category') {
+        items = allCategories;
+      } else if (filterType == 'Product') {
+        items = allProducts;
+      } else if (filterType == 'Design') {
+        items = allDesigns;
+      }
+    }
 
     if (filterType == 'Category') {
-      items = allCategories;
       selected = List.from(_selectedCategories);
     } else if (filterType == 'Product') {
-      items = allProducts;
       selected = List.from(_selectedProducts);
     } else if (filterType == 'Design') {
-      items = allDesigns;
       selected = List.from(_selectedDesigns);
     }
+
+    if (!mounted) return;
 
     final filterTypeLocal = filterType == 'Category'
         ? s.fieldCategory
@@ -1805,7 +2328,12 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                                     : null;
                               }
                             });
-                            _setFilteredItemsForScan();
+                            if (_largeCatalogMode) {
+                              _cachedViewHash = 0;
+                              unawaited(_refreshDisplayCacheLarge());
+                            } else {
+                              _setFilteredItemsForScan();
+                            }
                             Navigator.pop(context);
                           },
                           style: ElevatedButton.styleFrom(
@@ -1926,6 +2454,92 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
             _currentLevel = 'DesignItems';
           }
         });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              flex: 20,
+              child: Text(
+                label,
+                style: AppFonts.poppins(fontSize: 12, color: Colors.black87),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Expanded(
+              flex: 10,
+              child: Text('$qty', style: AppFonts.poppins(fontSize: 12, color: Colors.grey[700])),
+            ),
+            Expanded(
+              flex: 15,
+              child: Text(grossWt.toStringAsFixed(3), style: AppFonts.poppins(fontSize: 12, color: Colors.grey[700])),
+            ),
+            Expanded(
+              flex: 10,
+              child: Text('$mQty', style: AppFonts.poppins(fontSize: 12, color: Colors.grey[700])),
+            ),
+            Expanded(
+              flex: 15,
+              child: Text(mWt.toStringAsFixed(3), style: AppFonts.poppins(fontSize: 12, color: Colors.grey[700])),
+            ),
+            Expanded(
+              flex: 10,
+              child: Center(
+                child: Icon(
+                  isMatched ? Icons.check_circle : Icons.cancel,
+                  color: isMatched ? Colors.green : Colors.red,
+                  size: 18,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAggregateGroupRow(InventoryGroupAggregate agg) {
+    final label = agg.name;
+    final qty = agg.totalQty;
+    final grossWt = agg.totalGwt;
+    final mQty = agg.matchedQty;
+    final mWt = agg.matchedGwt;
+    final isMatched = agg.fullyMatched;
+
+    return InkWell(
+      onTap: () {
+        setState(() {
+          if (_currentLevel == 'Category') {
+            _selectedCategory = label;
+            _selectedCategories.clear();
+            _selectedCategories.add(label);
+            _selectedProducts.clear();
+            _selectedDesigns.clear();
+            _currentLevel = 'Product';
+          } else if (_currentLevel == 'Product') {
+            _selectedProduct = label;
+            if (!_selectedProducts.contains(label)) {
+              _selectedProducts.add(label);
+            }
+            _selectedDesigns.clear();
+            _currentLevel = 'Design';
+          } else if (_currentLevel == 'Design') {
+            _selectedDesign = label;
+            if (!_selectedDesigns.contains(label)) {
+              _selectedDesigns.add(label);
+            }
+            _currentLevel = 'DesignItems';
+          }
+          _cachedViewHash = 0;
+        });
+        if (_largeCatalogMode) {
+          unawaited(_refreshDisplayCacheLarge());
+        }
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -2138,7 +2752,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       onScan: _toggleScanning,
       onEmail: _showEmailReportDialog,
       onReset: _resetScanning,
-      isScanning: _isScanning,
+      isScanning: _isScanning || _isPreparingScan,
     );
   }
 

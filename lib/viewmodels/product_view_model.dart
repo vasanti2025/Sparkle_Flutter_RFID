@@ -687,14 +687,14 @@ class ProductViewModel extends ChangeNotifier {
   }
 
   /// Paginated load for scan display — yields to UI between pages to avoid hangs.
+  /// Catalogs at or above [kLargeInventoryCatalogThreshold] are not loaded into RAM.
   Future<List<BulkItem>> loadScanDisplayItems({
     String? filterType,
     String? filterValue,
     void Function(int loaded, int total)? onProgress,
   }) async {
     const pageSize = 2000;
-    // Hard cap protects low-RAM handhelds from OOM crash.
-    const maxItems = 40000;
+    const maxItems = kLargeInventoryCatalogThreshold - 1;
 
     final total = await _dbService.getScanDisplayItemCount(
       filterType: filterType,
@@ -702,6 +702,14 @@ class ProductViewModel extends ChangeNotifier {
     );
     if (total == 0) {
       onProgress?.call(0, 0);
+      return [];
+    }
+
+    if (total >= kLargeInventoryCatalogThreshold) {
+      onProgress?.call(0, total);
+      debugPrint(
+        'ScanDisplay: large catalog ($total items) — DB-backed mode, skip RAM load',
+      );
       return [];
     }
 
@@ -716,16 +724,20 @@ class ProductViewModel extends ChangeNotifier {
       );
       all.addAll(batch);
       onProgress?.call(all.length, target);
-      // Let the UI breathe — prevents ANR / "system hanging".
       await Future<void>.delayed(Duration.zero);
       if (batch.length < pageSize) break;
     }
-    if (total > maxItems) {
-      debugPrint(
-        'ScanDisplay: capped load at $maxItems of $total items (device RAM safety)',
-      );
-    }
     return all;
+  }
+
+  Future<int> getScanDisplayItemCount({
+    String? filterType,
+    String? filterValue,
+  }) {
+    return _dbService.getScanDisplayItemCount(
+      filterType: filterType,
+      filterValue: filterValue,
+    );
   }
 
   // Save scan results locally

@@ -62,6 +62,7 @@ class HardwareControllerImpl(
     private var inventoryScanMode = false
     private var scanningPermitted = false
     private val inventoryScopeEpcs = HashSet<String>()
+    private val inventoryScopeLock = Any()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val pendingTagEvents = ArrayList<String>()
     private val pendingTagLock = Any()
@@ -150,6 +151,7 @@ class HardwareControllerImpl(
                 val inventory = call.argument<Boolean>("inventory") ?: inventoryScanMode
                 val playStartSound = call.argument<Boolean>("playStartSound") ?: true
                 lastScanPower = power
+                scanningPermitted = true
                 Executors.newSingleThreadExecutor().execute {
                     val ok = try {
                         if (r6ModeEnabled) {
@@ -237,29 +239,41 @@ class HardwareControllerImpl(
                 result.success(true)
             }
             "clearInventoryScope" -> {
-                inventoryScopeEpcs.clear()
+                synchronized(inventoryScopeLock) {
+                    inventoryScopeEpcs.clear()
+                }
                 result.success(true)
             }
             "setInventoryScopeEpcs" -> {
                 val epcs = call.argument<List<String>>("epcs") ?: emptyList()
-                inventoryScopeEpcs.clear()
-                for (epc in epcs) {
-                    val key = epc.trim().uppercase()
-                    if (key.isNotEmpty()) {
-                        inventoryScopeEpcs.add(key)
+                Executors.newSingleThreadExecutor().execute {
+                    val next = HashSet<String>(epcs.size.coerceAtLeast(16))
+                    for (epc in epcs) {
+                        val key = normalizeScanKey(epc)
+                        if (key.isNotEmpty()) {
+                            next.add(key)
+                        }
                     }
+                    synchronized(inventoryScopeLock) {
+                        inventoryScopeEpcs.clear()
+                        inventoryScopeEpcs.addAll(next)
+                    }
+                    mainHandler.post { result.success(true) }
                 }
-                result.success(true)
             }
             "addInventoryScopeEpcs" -> {
                 val epcs = call.argument<List<String>>("epcs") ?: emptyList()
-                for (epc in epcs) {
-                    val key = epc.trim().uppercase()
-                    if (key.isNotEmpty()) {
-                        inventoryScopeEpcs.add(key)
+                Executors.newSingleThreadExecutor().execute {
+                    synchronized(inventoryScopeLock) {
+                        for (epc in epcs) {
+                            val key = normalizeScanKey(epc)
+                            if (key.isNotEmpty()) {
+                                inventoryScopeEpcs.add(key)
+                            }
+                        }
                     }
+                    mainHandler.post { result.success(true) }
                 }
-                result.success(true)
             }
             "setTrayMode" -> {
                 val enabled = call.argument<Boolean>("enabled") ?: false
@@ -538,7 +552,9 @@ class HardwareControllerImpl(
     private fun haltScan() {
         scanningPermitted = false
         inventoryScanMode = false
-        inventoryScopeEpcs.clear()
+        synchronized(inventoryScopeLock) {
+            inventoryScopeEpcs.clear()
+        }
         sessionUniqueEpcs.clear()
         stopInventoryLoopSound()
     }
@@ -673,7 +689,9 @@ class HardwareControllerImpl(
         stopBlinkingEpc()
         inventoryScanMode = false
         scanningPermitted = false
-        inventoryScopeEpcs.clear()
+        synchronized(inventoryScopeLock) {
+            inventoryScopeEpcs.clear()
+        }
         sessionUniqueEpcs.clear()
         stopAllSounds()
         lastSearchSoundId = -1
@@ -860,8 +878,10 @@ class HardwareControllerImpl(
     private fun shouldEmitTagToFlutter(cleanEpc: String, rssi: String = ""): Boolean {
         if (!trayModeEnabled && !r6ModeEnabled) {
             if (inventoryScanMode) {
-                if (inventoryScopeEpcs.isNotEmpty() && !inventoryScopeEpcs.contains(cleanEpc)) {
-                    return false
+                synchronized(inventoryScopeLock) {
+                    if (inventoryScopeEpcs.isNotEmpty() && !inventoryScopeEpcs.contains(cleanEpc)) {
+                        return false
+                    }
                 }
             } else {
                 when {

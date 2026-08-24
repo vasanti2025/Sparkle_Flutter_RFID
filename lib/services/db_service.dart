@@ -4,7 +4,11 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import '../models/bulk_item.dart';
 import '../models/epc_dto.dart';
+import '../models/inventory_group_aggregate.dart';
 import '../models/location_item.dart';
+
+/// Above this count, inventory scan uses DB-backed matching (no full RAM load).
+const int kLargeInventoryCatalogThreshold = 25000;
 
 class DbService {
   static Database? _database;
@@ -13,12 +17,19 @@ class DbService {
   Map<String, int>? _scanKeyIdIndex;
   Map<String, String>? _tidToRfidCache;
   Map<String, List<String>>? _distinctValuesCache;
+  int? _cachedTotalBulkCount;
 
   void invalidateBulkCache() {
     _bulkItemsCache = null;
     _scanKeyIndex = null;
     _scanKeyIdIndex = null;
     _distinctValuesCache = null;
+    _cachedTotalBulkCount = null;
+  }
+
+  Future<bool> isLargeInventoryCatalog() async {
+    final count = await getTotalItemCount();
+    return count >= kLargeInventoryCatalogThreshold;
   }
 
   String _normalizeScanKey(String raw) => raw.trim().toUpperCase().replaceAll(' ', '');
@@ -72,6 +83,7 @@ class DbService {
   }
 
   Future<void> warmScanKeyIndex() async {
+    if (await isLargeInventoryCatalog()) return;
     await _ensureScanKeyIdIndex();
   }
 
@@ -80,6 +92,10 @@ class DbService {
     if (key.isEmpty) return null;
     final cached = findBulkItemByScanKeySync(raw);
     if (cached != null) return cached;
+
+    if (await isLargeInventoryCatalog()) {
+      return _queryBulkItemByScanKey(key, _scanKeyIndex ??= {});
+    }
 
     await _ensureScanKeyIdIndex();
     final bulkItemId = _scanKeyIdIndex![key];
@@ -569,6 +585,338 @@ class DbService {
     return _mapsToBulkItems(maps);
   }
 
+  ({String where, List<dynamic> args}) composeInventoryScanScopeWhere({
+    String? filterType,
+    String? filterValue,
+    List<String> categories = const [],
+    List<String> products = const [],
+    List<String> designs = const [],
+    String searchQuery = '',
+    String? scanStatus, // 'matched', 'unmatched', or null
+  }) {
+    final clauses = <String>[];
+    final args = <dynamic>[];
+
+    if (filterType != null &&
+        filterType.isNotEmpty &&
+        filterValue != null &&
+        filterValue.isNotEmpty) {
+      final filter = _verificationFilter(filterType, filterValue);
+      if (filter.where != null) {
+        clauses.add(filter.where!);
+        args.addAll(filter.args ?? const []);
+      }
+    }
+
+    void addInClause(String column, List<String> values) {
+      if (values.isEmpty) return;
+      if (values.length == 1) {
+        clauses.add('$column = ?');
+        args.add(values.first);
+      } else {
+        clauses.add('$column IN (${List.filled(values.length, '?').join(',')})');
+        args.addAll(values);
+      }
+    }
+
+    addInClause('category', categories);
+    addInClause('productName', products);
+    addInClause('design', designs);
+
+    final q = searchQuery.trim().toLowerCase();
+    if (q.isNotEmpty) {
+      clauses.add(
+        '(LOWER(productName) LIKE ? OR LOWER(itemCode) LIKE ? OR LOWER(epc) LIKE ? OR LOWER(rfid) LIKE ?)',
+      );
+      final like = '%$q%';
+      args.addAll([like, like, like, like]);
+    }
+
+    if (scanStatus == 'matched') {
+      clauses.add('isScanned = 1');
+    } else if (scanStatus == 'unmatched') {
+      clauses.add('(isScanned IS NULL OR isScanned = 0)');
+    }
+
+    final where = clauses.isEmpty ? '1=1' : clauses.join(' AND ');
+    return (where: where, args: args);
+  }
+
+  Future<void> resetScannedFlagsInScope({
+    String? filterType,
+    String? filterValue,
+  }) async {
+    final db = await database;
+    final scope = composeInventoryScanScopeWhere(
+      filterType: filterType,
+      filterValue: filterValue,
+    );
+    await db.rawUpdate(
+      'UPDATE bulk_items SET isScanned = 0, scannedStatus = ? WHERE ${scope.where}',
+      ['Unmatched', ...scope.args],
+    );
+    _distinctValuesCache = null;
+    invalidateBulkCache();
+  }
+
+  Future<BulkItem?> findBulkItemInScanScope(
+    String raw, {
+    String? filterType,
+    String? filterValue,
+    List<String> categories = const [],
+    List<String> products = const [],
+    List<String> designs = const [],
+  }) async {
+    final key = _normalizeScanKey(raw);
+    if (key.isEmpty) return null;
+
+    final scope = composeInventoryScanScopeWhere(
+      filterType: filterType,
+      filterValue: filterValue,
+      categories: categories,
+      products: products,
+      designs: designs,
+    );
+
+    final db = await database;
+    final maps = await db.rawQuery(
+      '''
+      SELECT ${_scanDisplayColumns.join(', ')}
+      FROM bulk_items
+      WHERE ${scope.where}
+        AND (
+          UPPER(TRIM(itemCode)) = ?
+          OR UPPER(TRIM(rfid)) = ?
+          OR UPPER(TRIM(epc)) = ?
+          OR UPPER(TRIM(tid)) = ?
+        )
+      LIMIT 1
+      ''',
+      [...scope.args, key, key, key, key],
+    );
+    if (maps.isEmpty) return null;
+    return BulkItem.fromMap(maps.first);
+  }
+
+  Future<void> markBulkItemScanned(int bulkItemId) async {
+    if (bulkItemId <= 0) return;
+    final db = await database;
+    await db.update(
+      'bulk_items',
+      {'isScanned': 1, 'scannedStatus': 'Matched'},
+      where: 'bulkItemId = ?',
+      whereArgs: [bulkItemId],
+    );
+  }
+
+  Future<int> countItemsInInventoryScope({
+    String? filterType,
+    String? filterValue,
+    List<String> categories = const [],
+    List<String> products = const [],
+    List<String> designs = const [],
+    String searchQuery = '',
+    String? scanStatus,
+  }) async {
+    final db = await database;
+    final scope = composeInventoryScanScopeWhere(
+      filterType: filterType,
+      filterValue: filterValue,
+      categories: categories,
+      products: products,
+      designs: designs,
+      searchQuery: searchQuery,
+      scanStatus: scanStatus,
+    );
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) FROM bulk_items WHERE ${scope.where}',
+      scope.args,
+    );
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  Future<int> countScannedInInventoryScope({
+    String? filterType,
+    String? filterValue,
+    List<String> categories = const [],
+    List<String> products = const [],
+    List<String> designs = const [],
+    String searchQuery = '',
+  }) async {
+    return countItemsInInventoryScope(
+      filterType: filterType,
+      filterValue: filterValue,
+      categories: categories,
+      products: products,
+      designs: designs,
+      searchQuery: searchQuery,
+      scanStatus: 'matched',
+    );
+  }
+
+  Future<List<InventoryGroupAggregate>> getInventoryGroupAggregates({
+    required String groupColumn,
+    String? filterType,
+    String? filterValue,
+    List<String> categories = const [],
+    List<String> products = const [],
+    List<String> designs = const [],
+    String searchQuery = '',
+    String? scanStatus,
+  }) async {
+    const allowed = {'category', 'productName', 'design'};
+    if (!allowed.contains(groupColumn)) {
+      throw ArgumentError('Invalid group column: $groupColumn');
+    }
+
+    final db = await database;
+    final scope = composeInventoryScanScopeWhere(
+      filterType: filterType,
+      filterValue: filterValue,
+      categories: categories,
+      products: products,
+      designs: designs,
+      searchQuery: searchQuery,
+      scanStatus: scanStatus,
+    );
+
+    final rows = await db.rawQuery(
+      '''
+      SELECT
+        COALESCE(NULLIF(TRIM($groupColumn), ''), 'Unknown') AS grp,
+        COUNT(*) AS totalQty,
+        SUM(CASE WHEN isScanned = 1 THEN 1 ELSE 0 END) AS matchedQty,
+        SUM(CAST(COALESCE(NULLIF(TRIM(grossWeight), ''), '0') AS REAL)) AS totalGwt,
+        SUM(
+          CASE WHEN isScanned = 1
+            THEN CAST(COALESCE(NULLIF(TRIM(grossWeight), ''), '0') AS REAL)
+            ELSE 0
+          END
+        ) AS matchedGwt
+      FROM bulk_items
+      WHERE ${scope.where}
+      GROUP BY grp
+      ORDER BY grp COLLATE NOCASE
+      ''',
+      scope.args,
+    );
+
+    return rows.map((row) {
+      return InventoryGroupAggregate(
+        name: row['grp']?.toString() ?? 'Unknown',
+        totalQty: (row['totalQty'] as int?) ?? 0,
+        matchedQty: (row['matchedQty'] as int?) ?? 0,
+        totalGwt: (row['totalGwt'] as num?)?.toDouble() ?? 0.0,
+        matchedGwt: (row['matchedGwt'] as num?)?.toDouble() ?? 0.0,
+      );
+    }).toList();
+  }
+
+  Future<List<String>> getDistinctInventoryScopeValues(
+    String column, {
+    String? filterType,
+    String? filterValue,
+    List<String> categories = const [],
+    List<String> products = const [],
+    List<String> designs = const [],
+  }) async {
+    const allowed = {'category', 'productName', 'design'};
+    if (!allowed.contains(column)) {
+      throw ArgumentError('Invalid column: $column');
+    }
+
+    final cacheKey =
+        '$column|$filterType|$filterValue|${categories.join('\u001F')}|${products.join('\u001F')}|${designs.join('\u001F')}';
+    _distinctValuesCache ??= {};
+    final cached = _distinctValuesCache![cacheKey];
+    if (cached != null) return cached;
+
+    final db = await database;
+    final scope = composeInventoryScanScopeWhere(
+      filterType: filterType,
+      filterValue: filterValue,
+      categories: categories,
+      products: products,
+      designs: designs,
+    );
+
+    final rows = await db.rawQuery(
+      '''
+      SELECT DISTINCT COALESCE(NULLIF(TRIM($column), ''), 'Unknown') AS value
+      FROM bulk_items
+      WHERE ${scope.where}
+      ORDER BY value COLLATE NOCASE
+      ''',
+      scope.args,
+    );
+
+    final values = rows
+        .map((r) => r['value']?.toString() ?? '')
+        .where((v) => v.isNotEmpty)
+        .toList(growable: false);
+    _distinctValuesCache![cacheKey] = values;
+    return values;
+  }
+
+  Future<List<BulkItem>> getInventoryScopeItemsPaged(
+    int limit,
+    int offset, {
+    String? filterType,
+    String? filterValue,
+    List<String> categories = const [],
+    List<String> products = const [],
+    List<String> designs = const [],
+    String searchQuery = '',
+    String? scanStatus,
+  }) async {
+    final db = await database;
+    final scope = composeInventoryScanScopeWhere(
+      filterType: filterType,
+      filterValue: filterValue,
+      categories: categories,
+      products: products,
+      designs: designs,
+      searchQuery: searchQuery,
+      scanStatus: scanStatus,
+    );
+
+    final maps = await db.rawQuery(
+      '''
+      SELECT ${_scanDisplayColumns.join(', ')}
+      FROM bulk_items
+      WHERE ${scope.where}
+      ORDER BY bulkItemId
+      LIMIT ? OFFSET ?
+      ''',
+      [...scope.args, limit, offset],
+    );
+    return _mapsToBulkItems(maps);
+  }
+
+  /// Chunked iteration for save/upload on huge catalogs (2L–10L).
+  Future<void> forEachBulkItemInInventoryScope({
+    String? filterType,
+    String? filterValue,
+    int chunkSize = 2000,
+    required Future<void> Function(List<BulkItem> chunk) onChunk,
+  }) async {
+    var offset = 0;
+    final size = chunkSize <= 0 ? 2000 : chunkSize;
+    while (true) {
+      final chunk = await getInventoryScopeItemsPaged(
+        size,
+        offset,
+        filterType: filterType,
+        filterValue: filterValue,
+      );
+      if (chunk.isEmpty) break;
+      await onChunk(chunk);
+      offset += chunk.length;
+      if (chunk.length < size) break;
+      await Future<void>.delayed(Duration.zero);
+    }
+  }
+
   /// Exact RFID / item code / EPC search — indexed, no full-table scan.
   Future<List<BulkItem>> searchItemsExact(String query) async {
     final q = query.trim().toUpperCase();
@@ -731,9 +1079,11 @@ class DbService {
 
   // Get total count of bulk items
   Future<int> getTotalItemCount() async {
+    if (_cachedTotalBulkCount != null) return _cachedTotalBulkCount!;
     final db = await database;
     final result = await db.rawQuery('SELECT COUNT(*) FROM bulk_items');
-    return Sqflite.firstIntValue(result) ?? 0;
+    _cachedTotalBulkCount = Sqflite.firstIntValue(result) ?? 0;
+    return _cachedTotalBulkCount!;
   }
 
   // Get RFID tags map for fast lookups (BarcodeNumber -> TidValue)

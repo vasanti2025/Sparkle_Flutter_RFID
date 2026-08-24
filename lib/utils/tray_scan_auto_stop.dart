@@ -24,6 +24,15 @@ class TrayInventoryScanSession {
     }
   }
 
+  /// Large-catalog mode: tag already verified in DB scope — no in-memory scope set.
+  void recordInScopeTag(String epc) {
+    final key = epc.trim().toUpperCase();
+    if (key.isEmpty) return;
+    if (seenInScope.add(key)) {
+      _lastNewEpcMs = DateTime.now().millisecondsSinceEpoch;
+    }
+  }
+
   bool shouldStop(Set<String> matchedEpcs, {int settleMs = kTrayScanSettleMs}) {
     if (seenInScope.isEmpty) return false;
     if (!seenInScope.every(matchedEpcs.contains)) return false;

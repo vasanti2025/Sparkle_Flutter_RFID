@@ -8,6 +8,10 @@ class RfidService {
   static final RfidService _instance = RfidService._internal();
   factory RfidService() => _instance;
 
+  /// Above this count, inventory matching runs in Dart only (avoids binder OOM / slow native upload).
+  static const int nativeInventoryScopeLimit = 5000;
+  static const int inventoryScopeBatchSize = 2500;
+
   RfidService._internal() {
     _readyFuture = _initChannels();
   }
@@ -409,6 +413,7 @@ class RfidService {
     bool inventory = false,
     bool playStartSound = true,
     List<String>? searchTags,
+    bool skipPrepare = false,
   }) async {
     if (_isScanning) {
       await stopScanning();
@@ -452,7 +457,19 @@ class RfidService {
         if (searchTags != null && searchTags.isNotEmpty) {
           await setSearchTags(searchTags);
         }
-        await prepareForScan();
+        if (!skipPrepare) {
+          final prepared = await prepareForScan();
+          if (!prepared) {
+            debugPrint('prepareForScan failed — aborting startScanning');
+            return false;
+          }
+        } else {
+          final permitted = await permitScanSession();
+          if (!permitted) {
+            debugPrint('permitScanSession failed — aborting startScanning');
+            return false;
+          }
+        }
         await setPower(power);
 
         final started = await _methodChannel.invokeMethod<bool>('startScanning', {
@@ -556,13 +573,37 @@ class RfidService {
     return true;
   }
 
-  Future<bool> prepareForScan() async {
+  Future<bool> permitScanSession() async {
+    if (!_isSupported) return true;
+    try {
+      return await _methodChannel.invokeMethod<bool>('prepareForScan') ?? false;
+    } catch (e) {
+      debugPrint('Error permitScanSession: $e');
+      return false;
+    }
+  }
+
+  Future<bool> prepareForScan({
+    Duration initTimeout = const Duration(seconds: 15),
+  }) async {
     if (_isSupported) {
       try {
         // Lazy UART init only when user actually scans (never on app open).
-        await _methodChannel
+        var initOk = await _methodChannel
             .invokeMethod('initReader')
-            .timeout(const Duration(seconds: 8), onTimeout: () => false);
+            .timeout(initTimeout, onTimeout: () {
+          debugPrint('initReader timed out after ${initTimeout.inSeconds}s');
+          return false;
+        });
+        if (initOk != true) {
+          initOk = await _methodChannel
+              .invokeMethod('initReader')
+              .timeout(initTimeout, onTimeout: () => false);
+        }
+        if (initOk != true) {
+          debugPrint('initReader failed after retry');
+          return false;
+        }
         return await _methodChannel.invokeMethod<bool>('prepareForScan') ?? false;
       } catch (e) {
         debugPrint('Error prepareForScan: $e');
@@ -665,7 +706,7 @@ class RfidService {
     try {
       await _methodChannel
           .invokeMethod('initReader')
-          .timeout(const Duration(seconds: 8), onTimeout: () => false);
+          .timeout(const Duration(seconds: 15), onTimeout: () => false);
     } catch (e) {
       debugPrint('preWarmReader: $e');
     }
@@ -725,7 +766,16 @@ class RfidService {
     }
     if (!_isSupported) return;
 
-    const batchSize = 10000;
+    // Large catalogs: Dart-side filter in ScanDisplay (native emits all tags).
+    if (epcs.length > nativeInventoryScopeLimit) {
+      await clearInventoryScope();
+      debugPrint(
+        'Inventory scope ${epcs.length} tags — Dart-side filter (skip native upload)',
+      );
+      return;
+    }
+
+    const batchSize = inventoryScopeBatchSize;
     try {
       if (epcs.length <= batchSize) {
         await _methodChannel.invokeMethod<bool>(
@@ -748,7 +798,8 @@ class RfidService {
         }
       }
     } catch (e) {
-      debugPrint('Error setting inventory scope epcs: $e');
+      debugPrint('Error setting inventory scope epcs: $e — falling back to Dart filter');
+      await clearInventoryScope();
     }
   }
 
