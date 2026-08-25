@@ -295,18 +295,21 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   }
 
   Future<void> _setFilteredItemsForScanChunked([List<ScannedBulkItem>? scopeItems]) async {
-    _filteredDbEpcSet = {};
+    // Build into a new set, then swap — never clear the live set first
+    // (that raced with scan start and briefly emptied match keys).
+    final next = <String>{};
     final scope = scopeItems ?? _getDisplayScopeItems();
     const chunk = 2000;
     for (var i = 0; i < scope.length; i++) {
       for (final key in _matchKeysForItem(scope[i])) {
-        _filteredDbEpcSet.add(key);
+        next.add(key);
       }
       if (i > 0 && i % chunk == 0) {
         await Future<void>.delayed(Duration.zero);
         if (!mounted) return;
       }
     }
+    _filteredDbEpcSet = next;
   }
 
   int _viewStateHash() {
@@ -497,7 +500,6 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   void _toggleScanning() {
     final now = DateTime.now().millisecondsSinceEpoch;
-    // Longer debounce while a 10k start is in progress (trigger often double-fires).
     final debounceMs = _scanStartInProgress ? 800 : 300;
     if (now - _lastTriggerMs < debounceMs) return;
     _lastTriggerMs = now;
@@ -510,97 +512,44 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     }
   }
 
+  /// Sparkle-style inventory start: claim UI + start UART immediately.
+  /// Never walk/rebuild ~10k rows on the tap path (that caused start failures).
   void _startScanning() async {
-    // Re-entry while awaiting 10k EPC prep killed the live session (~2s later)
-    // via a second stop+start that then showed "Failed to start RFID scanner".
     if (_isScanning || _scanStartInProgress) return;
     if (_isLoadingItems) {
       _showToast(context.sRead.pleaseWaitItemsLoading);
       return;
     }
+    if (_scannedItems.isEmpty && _selectedMenu != 'UNLABELLED') {
+      _showToast(context.sRead.noItemsInCurrentScope);
+      return;
+    }
+
     _scanStartInProgress = true;
+    // Claim session immediately so trigger cannot double-start.
+    if (mounted) setState(() => _isScanning = true);
+    _trayScanSession.reset();
+    _scanScopeItemCount = _scannedItems.length;
+    _scanMatchedItemCount = _matchedEpcSet.length;
 
     try {
-      if (!_lookupMapsReady) {
-        await _buildLookupMapsChunked();
-        if (!mounted) return;
-      }
-
-      final displayScope = _getDisplayScopeItems();
-      if (displayScope.isEmpty && _selectedMenu != 'UNLABELLED') {
-        _showToast(context.sRead.noItemsInCurrentScope);
-        return;
-      }
-
-      // Sparkle: if EPC set already warm from load, start hardware immediately.
-      // Only block on a full rebuild when the set is empty.
       if (_selectedMenu == 'UNLABELLED') {
         _filteredDbEpcSet = {};
       } else if (_filteredDbEpcSet.isEmpty) {
-        await _setFilteredItemsForScanChunked(displayScope);
-        if (!mounted) return;
-      } else {
-        // Refresh scope keys in background — do not delay UART start.
-        unawaited(_setFilteredItemsForScanChunked(displayScope));
+        // Warm keys in background — do not block UART start.
+        unawaited(_setFilteredItemsForScanChunked());
       }
 
-      if (_filteredDbEpcSet.isEmpty &&
-          _selectedMenu != 'UNLABELLED' &&
-          displayScope.isNotEmpty) {
-        _showToast(context.sRead.noRfidEpcInScope);
-        return;
-      }
-
-      var alreadyMatched = 0;
-      var scopeWithTags = 0;
-      for (final item in displayScope) {
-        final keys = _matchKeysForItem(item);
-        if (keys.isEmpty) continue;
-        scopeWithTags++;
-        if (item.currentScannedStatus == 'Matched') alreadyMatched++;
-      }
-      if (scopeWithTags > 0 &&
-          alreadyMatched >= scopeWithTags &&
-          _selectedMenu != 'UNLABELLED') {
-        _showToast(context.sRead.allItemsAlreadyMatched);
-        return;
-      }
-
-      _scanScopeItemCount = scopeWithTags;
-      _scanMatchedItemCount = alreadyMatched;
-
-      // Claim the session BEFORE any await so a second trigger cannot start again.
-      if (mounted) setState(() => _isScanning = true);
-      _trayScanSession.reset();
-      unawaited(_rfidService.startInventorySound());
-
-      if (_rfidService.isScanning) {
-        await _rfidService.stopScanning();
-        await Future<void>.delayed(const Duration(milliseconds: 120));
-      }
-      await _rfidService.clearSearchTags();
-      await _rfidService.setInventoryScanMode(true);
-      await _rfidService.clearInventoryScope();
-
-      var started = await _rfidService.startScanning(
+      // Lean inventory start (retries inside service). No error toast on failure.
+      final started = await _rfidService.startInventoryScanning(
         power: _selectedPower,
-        inventory: true,
       );
-      if (!started && mounted) {
-        await Future<void>.delayed(const Duration(milliseconds: 200));
-        await _rfidService.prepareForScan();
-        started = await _rfidService.startScanning(
-          power: _selectedPower,
-          inventory: true,
-        );
-      }
 
       if (!mounted) return;
       if (!started) {
         setState(() => _isScanning = false);
         await _rfidService.stopInventorySound();
         await _rfidService.haltScan();
-        _showToast(context.sRead.failedToStartRfidScanner);
       }
     } finally {
       _scanStartInProgress = false;

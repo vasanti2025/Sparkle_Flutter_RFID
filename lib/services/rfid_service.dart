@@ -453,7 +453,11 @@ class RfidService {
           await setSearchTags(searchTags);
         }
         await prepareForScan();
-        await setPower(power);
+        // Inventory: skip setPower here — native prepareScan(power) sets it.
+        // Main-thread setPower + bg startScanning races UART under ~10k load.
+        if (!inventory) {
+          await setPower(power);
+        }
 
         final started = await _methodChannel.invokeMethod<bool>('startScanning', {
               'power': power,
@@ -479,6 +483,60 @@ class RfidService {
       _simulationIndex = 0;
       _startSimulation();
       return true;
+    }
+  }
+
+  /// Scan Display inventory start — minimal handoff (mirrors Sparkle).
+  /// Avoids prefs/R6 probes, setPower UART race, and heavy Dart prep before start.
+  Future<bool> startInventoryScanning({required int power}) async {
+    _power = power;
+    await ensureReady();
+
+    if (!_isSupported) {
+      _isScanning = true;
+      _simulatedTagsPool = const [];
+      _simulationIndex = 0;
+      _startSimulation();
+      return true;
+    }
+
+    try {
+      if (_isScanning) {
+        await stopScanning();
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+      }
+
+      // Permit scan only — native startScanning does init + prepareScan(power).
+      await _methodChannel.invokeMethod<bool>('prepareForScan');
+      await setInventoryScanMode(true);
+      await clearInventoryScope();
+
+      for (var attempt = 0; attempt < 4; attempt++) {
+        if (attempt > 0) {
+          await Future<void>.delayed(Duration(milliseconds: 120 * attempt));
+          await _methodChannel.invokeMethod<bool>('prepareForScan');
+          await setInventoryScanMode(true);
+        }
+        final started = await _methodChannel.invokeMethod<bool>('startScanning', {
+              'power': power,
+              'inventory': true,
+              'playStartSound': true,
+            }) ??
+            false;
+        if (started) {
+          _isScanning = true;
+          return true;
+        }
+        try {
+          await _methodChannel.invokeMethod<bool>('stopScanning');
+        } catch (_) {}
+        _isScanning = false;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('Error startInventoryScanning: $e');
+      _isScanning = false;
+      return false;
     }
   }
 

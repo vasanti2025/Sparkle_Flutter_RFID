@@ -563,7 +563,12 @@ class HardwareControllerImpl(
         }
         return try {
             ensureSoundPool()
-            uhf().initHardware()
+            // Ensure UART is up before prepare/start (10k Dart heap can delay prior warm).
+            if (!uhf().initHardware()) {
+                Log.e(TAG, "startRfidInventory: initHardware failed")
+                stopInventoryLoopSound()
+                return false
+            }
             uhf().prepareScan(power)
             drainStaleBuffer()
             if (inventory) {
@@ -571,21 +576,25 @@ class HardwareControllerImpl(
             } else if (playStartSound) {
                 playSound(1, 0)
             }
-            var started = uhf().startInventory()
-            // Large Flutter catalogs can delay the Dart→native handoff; one quick
-            // retry after stop covers transient Chainway "already running" failures.
-            if (!started) {
-                try {
-                    uhf().stopInventory()
-                } catch (_: Throwable) {
+            var started = false
+            // Up to 4 attempts — Chainway often returns false if prior session
+            // was not fully released under heavy Flutter GC (10k inventory).
+            for (attempt in 0 until 4) {
+                if (started) break
+                if (attempt > 0) {
+                    try {
+                        uhf().stopInventory()
+                    } catch (_: Throwable) {
+                    }
+                    try {
+                        Thread.sleep(100L * attempt)
+                    } catch (_: InterruptedException) {
+                    }
+                    drainStaleBuffer()
+                    uhf().prepareScan(power)
                 }
-                try {
-                    Thread.sleep(120)
-                } catch (_: InterruptedException) {
-                }
-                drainStaleBuffer()
-                uhf().prepareScan(power)
                 started = uhf().startInventory()
+                Log.i(TAG, "startInventory attempt=${attempt + 1} => $started")
             }
             if (started) {
                 isScanning = true
