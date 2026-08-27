@@ -49,8 +49,8 @@ class SearchItem {
 
   void applyScan({String? rssi, int? proximityPercent}) {
     if (rssi != null) this.rssi = rssi;
-    if (proximityPercent != null && proximityPercent > this.proximityPercent) {
-      this.proximityPercent = proximityPercent;
+    if (proximityPercent != null) {
+      this.proximityPercent = proximityPercent.clamp(0, 100);
     }
   }
 
@@ -231,11 +231,37 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _startProximityDecay() {
-    // Disabled to prevent artificial RSSI fluctuations when gun and items are in the same place (matches Java stability)
+    _proximityDecayTimer?.cancel();
+    _proximityDecayTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
+      _decayStaleProximity();
+    });
   }
 
   void _stopProximityDecay() {
-    // Disabled
+    _proximityDecayTimer?.cancel();
+    _proximityDecayTimer = null;
+  }
+
+  /// While scanning, drop progress when the tag is no longer heard (device moved away).
+  /// Stopped scans stay frozen — this must not run after [_stopProximityDecay].
+  void _decayStaleProximity() {
+    if (!_isScanning || !mounted) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    var any = false;
+    for (final entry in _lastRssiUpdateMs.entries) {
+      final i = entry.key;
+      if (i < 0 || i >= _searchItems.length) continue;
+      final item = _searchItems[i];
+      if (item.proximityPercent <= 0) continue;
+      if (now - entry.value < 400) continue;
+      final next = (item.proximityPercent - 18).clamp(0, 100);
+      if (next == item.proximityPercent) continue;
+      item.proximityPercent = next;
+      if (next == 0) item.rssi = '';
+      _dirtyIndices.add(i);
+      any = true;
+    }
+    if (any) _scheduleSearchUiUpdate();
   }
 
   void _rebuildTagIndex() {
@@ -427,12 +453,13 @@ class _SearchScreenState extends State<SearchScreen> {
       _lastRssiUpdateMs[index] = now;
       final item = _searchItems[index];
       final previous = item.proximityPercent;
-      item.applyScan(rssi: rssi, proximityPercent: proximity);
+      // Follow live distance: closer raises %, farther lowers %. Light blend
+      // so 1–2 dB RSSI jitter does not slam the bar, but walking away still drops it.
+      final smoothed = ((previous * 2 + proximity * 3) / 5).round().clamp(0, 100);
+      item.applyScan(rssi: rssi, proximityPercent: smoothed);
       if (_isLargeUnmatched) {
         _playRssiSearchSound(rssi);
       }
-      // RSSI jitters even when the tag is still nearby — don't rebuild the
-      // colored progress unless the displayed % actually increased.
       if (item.proximityPercent != previous) {
         _dirtyIndices.add(index);
         _scheduleSearchUiUpdate();
