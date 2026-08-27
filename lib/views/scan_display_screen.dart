@@ -860,7 +860,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     _showToast(context.sRead.previousScanRestored);
   }
 
-  void _saveScanResults() async {
+  /*void _saveScanResults() async {
     _stopScanning();
     _syncItemStatusesFromMatchedSet();
     setState(() => _isSaving = true);
@@ -981,8 +981,103 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       setState(() => _isSaving = false);
       _showToast(context.sRead.verificationUploadFailed(e.toString()));
     }
-  }
+  }*/
 
+
+  void _saveScanResults() async {
+    _stopScanning();
+    _syncItemStatusesFromMatchedSet();
+    setState(() => _isSaving = true);
+
+    final viewModel = Provider.of<ProductViewModel>(context, listen: false);
+    final dashboardViewModel = Provider.of<DashboardViewModel>(context, listen: false);
+    final pref = context.read<PrefService>();
+    final settingsVm = context.read<SettingsViewModel>();
+    final employee = dashboardViewModel.employee;
+
+    if (employee == null || employee.clientCode == null) {
+      setState(() => _isSaving = false);
+      _showToast(context.sRead.errorSessionExpired);
+      return;
+    }
+
+    // 1. Prepare local update payload (Kotlin uses tagKey = epc ?: rfid)
+    final finalItems = _scannedItems.map((item) {
+      final map = item.originalBulkItem.toMap();
+      final isMatched = _matchKeysForItem(item)
+          .any((key) => _matchedEpcSet.contains(key));
+      map['isScanned'] = isMatched ? 1 : 0;
+      map['scannedStatus'] = isMatched ? 'Matched' : 'Unmatched';
+      return BulkItem.fromMap(map);
+    }).toList();
+
+    // 2. Prepare upload payload
+    final uploadItemsPayload = _scannedItems.map((item) {
+      final double grossWt = double.tryParse(item.grossWeight) ?? 0.0;
+      final double netWt = double.tryParse(item.netWeight) ?? 0.0;
+      final isMatched = _matchKeysForItem(item)
+          .any((key) => _matchedEpcSet.contains(key));
+      final String status = isMatched ? 'match' : 'unmatch';
+
+      return {
+        'ItemCode': item.itemCode,
+        'Status': status,
+        'GrossWeight': grossWt,
+        'NetWeight': netWt,
+        'Quantity': 1,
+        'CounterName': item.counterName,
+        'CategoryName': item.category,
+        'ProductName': item.productName,
+        'DesignName': item.design,
+        'PurityName': item.purity,
+        'CompanyName': '',
+        'BranchName': item.branchName,
+        'CounterId': item.counterId,
+        'CategoryId': item.categoryId,
+        'ProductId': item.productId,
+        'DesignId': item.designId,
+        'PurityId': 0,
+        'CompanyId': 0,
+        'BranchId': item.branchId,
+      };
+    }).toList();
+
+    // 3. Save locally in SQLite
+    await viewModel.saveScanResults(finalItems);
+
+    // 4. Call stock verification API
+    String? deviceCode;
+    if (pref.isWholesaleLoginUser()) {
+      deviceCode = (await settingsVm.ensureDeviceId()).trim();
+      if (!mounted) return;
+      if (_sessionLocation == null || !_sessionLocation!.isValid) {
+        if (!await _ensureBranchCounterForWholesale()) {
+          if (mounted) setState(() => _isSaving = false);
+          return;
+        }
+      }
+    }
+    if (!mounted) return;
+    final location = _sessionLocation;
+    final success = await viewModel.uploadVerification(
+      clientCode: employee.clientCode!,
+      items: uploadItemsPayload,
+      counterId: location?.counterId,
+      counterName: location?.counterName,
+      branchId: location?.branchId,
+      branchName: location?.branchName,
+      deviceCode: deviceCode,
+    );
+
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+
+    if (success) {
+      _showToast(context.sRead.stockVerificationUploaded);
+    } else {
+      _showToast(context.sRead.verificationUploadFailed(viewModel.errorMessage ?? ''));
+    }
+  }
   void _showToast(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1782,7 +1877,18 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                                             }
                                           }
                                           if (!mounted) return;
-                                          navigator.pushNamed('/search', arguments: {
+                                         /*  last code added
+
+                                         navigator.pushNamed('/search', arguments: {
+                                            'listKey': 'unmatchedItems',
+                                            'items': unmatched,
+                                          });*/
+
+                                          final unmatched = _scannedItems
+                                              .where((item) => item.currentScannedStatus == 'Unmatched')
+                                              .map((item) => item.originalBulkItem)
+                                              .toList();
+                                          Navigator.pushNamed(context, '/search', arguments: {
                                             'listKey': 'unmatchedItems',
                                             'items': unmatched,
                                           });

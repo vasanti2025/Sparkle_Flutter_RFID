@@ -745,7 +745,8 @@ class ProductViewModel extends ChangeNotifier {
   /// Upload stock verification — Sparkle Scan Display path:
   /// stream JSON to a temp file + `AddStockVerificationWithBatchFile` (one call).
   /// Falls back to chunked session POSTs only if the file API fails.
-  Future<bool> uploadVerification({
+  ///
+  /*Future<bool> uploadVerification({
     required String clientCode,
     required List<Map<String, dynamic>> items,
   }) async {
@@ -801,10 +802,56 @@ class ProductViewModel extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }*/
+
+  // Upload Stock Verification payload
+  Future<bool> uploadVerification({
+    required String clientCode,
+    required List<Map<String, dynamic>> items,
+    int? counterId,
+    String? counterName,
+    int? branchId,
+    String? branchName,
+    String? deviceCode,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      if (_prefService.isWholesaleLoginUser()) {
+        await _apiService.uploadStockVerificationWithBatchFile(
+          clientCode: clientCode,
+          items: items,
+          deviceCode: deviceCode,
+          counterId: counterId,
+          counterName: counterName,
+          branchId: branchId,
+          branchName: branchName,
+        );
+        return true;
+      }
+      // Chunk items into batches of 2000 to match Compose behavior
+      const int batchSize = 2000;
+      for (int i = 0; i < items.length; i += batchSize) {
+        final end = (i + batchSize < items.length) ? i + batchSize : items.length;
+        final batch = items.sublist(i, end);
+        await _apiService.uploadStockVerification(clientCode, batch);
+      }
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString().replaceFirst('Exception: ', '');
+      notifyListeners();
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
+}
 
   /// Stream JSON to disk (avoids one huge String for 2–5L items).
-  Future<File> _writeStockVerificationJsonFile(
+/*  Future<File> _writeStockVerificationJsonFile(
     String clientCode,
     List<Map<String, dynamic>> items,
   ) async {
@@ -830,5 +877,5 @@ class ProductViewModel extends ChangeNotifier {
       await sink.close();
     }
     return file;
-  }
-}
+  }*/
+
