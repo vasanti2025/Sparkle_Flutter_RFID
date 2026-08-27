@@ -23,6 +23,20 @@ class SettingsScreen extends StatelessWidget {
     final pref = vm.pref;
     final employee = pref.getEmployee();
 
+    String wholesaleTrailing() {
+      final assignments = pref.getWholesaleAssignments();
+      if (assignments.isEmpty) return s.configureWholesaleOption;
+      final first = assignments.first;
+      final label = [
+        if (first.branchName.isNotEmpty) first.branchName,
+        if (first.counterName.isNotEmpty) first.counterName,
+      ].join(' · ');
+      if (assignments.length == 1) {
+        return label.isEmpty ? s.configureWholesaleOption : label;
+      }
+      return '${label.isEmpty ? s.counter : label} +${assignments.length - 1}';
+    }
+
     return Directionality(
       textDirection: locale.textDirection,
       child: Scaffold(
@@ -79,6 +93,12 @@ class SettingsScreen extends StatelessWidget {
                 trailingText: s.branchManagement,
                 onTap: () => _showBranchesDialog(context, pref, s),
               ),
+              if (pref.isWholesaleLoginUser())
+                _ActionRow(
+                  title: s.wholesaleOption,
+                  trailingText: wholesaleTrailing(),
+                  onTap: () => Navigator.pushNamed(context, '/wholesale_option'),
+                ),
               _ActionRow(
                 title: s.customApi,
                 trailingText: s.configureApiUrl,

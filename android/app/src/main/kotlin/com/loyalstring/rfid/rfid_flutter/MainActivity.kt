@@ -48,10 +48,29 @@ class MainActivity : FlutterActivity() {
         if (launchLoggedIn != null) return
         try {
             val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
-            launchLoggedIn = prefs.getBoolean("flutter.logged_in", false)
-            val rememberMe = prefs.getBoolean("flutter.remember_me", false)
-            launchUsername = if (rememberMe) prefs.getString("flutter.remember_username", "") ?: "" else ""
-            launchPassword = if (rememberMe) prefs.getString("flutter.remember_password", "") ?: "" else ""
+            fun readBool(key: String): Boolean {
+                val full = "flutter.$key"
+                return try {
+                    prefs.getBoolean(full, false)
+                } catch (_: ClassCastException) {
+                    val raw = prefs.getString(full, null)?.trim()?.lowercase()
+                    raw == "true" || raw == "1"
+                }
+            }
+            fun readString(key: String): String {
+                val full = "flutter.$key"
+                return try {
+                    prefs.getString(full, "") ?: ""
+                } catch (_: ClassCastException) {
+                    ""
+                }
+            }
+            val loggedIn = readBool("logged_in")
+            val rememberMe = readBool("remember_me")
+            val employee = readString("employee")
+            launchLoggedIn = loggedIn || employee.isNotBlank()
+            launchUsername = if (rememberMe) readString("remember_username") else ""
+            launchPassword = if (rememberMe) readString("remember_password") else ""
         } catch (_: Throwable) {
             launchLoggedIn = false
             launchUsername = ""
@@ -88,22 +107,42 @@ class MainActivity : FlutterActivity() {
     private fun readBootstrapSnapshot(): Map<String, Any?> {
         return try {
             val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
-            fun s(key: String): String? = prefs.getString("flutter.$key", null)
-            fun b(key: String, default: Boolean = false): Boolean =
-                prefs.getBoolean("flutter.$key", default)
+            fun s(key: String): String? {
+                val full = "flutter.$key"
+                return try {
+                    prefs.getString(full, null)
+                } catch (_: ClassCastException) {
+                    null
+                }
+            }
+            fun b(key: String, default: Boolean = false): Boolean {
+                val full = "flutter.$key"
+                return try {
+                    prefs.getBoolean(full, default)
+                } catch (_: ClassCastException) {
+                    val raw = prefs.getString(full, null)?.trim()?.lowercase()
+                    raw == "true" || raw == "1"
+                }
+            }
             fun iOpt(key: String): Int? {
                 val full = "flutter.$key"
-                return if (prefs.contains(full)) prefs.getInt(full, 0) else null
+                if (!prefs.contains(full)) return null
+                return try {
+                    prefs.getInt(full, 0)
+                } catch (_: ClassCastException) {
+                    prefs.getString(full, null)?.toIntOrNull()
+                }
             }
+            val employee = s("employee")
             val snap = hashMapOf<String, Any?>(
-                "logged_in" to b("logged_in"),
+                "logged_in" to (b("logged_in") || !employee.isNullOrBlank()),
                 "remember_me" to b("remember_me"),
                 "remember_username" to (s("remember_username") ?: ""),
                 "remember_password" to (s("remember_password") ?: ""),
                 "remember_rfidType" to (s("remember_rfidType") ?: "webreusable"),
                 "app_language" to (s("app_language") ?: "en"),
                 "token" to s("token"),
-                "employee" to s("employee"),
+                "employee" to employee,
                 "client" to s("client"),
                 "branch_id" to iOpt("branch_id"),
                 "user_id" to iOpt("user_id"),

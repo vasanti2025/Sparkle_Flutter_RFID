@@ -562,6 +562,21 @@ class AppStrings {
 
   String get privacyPolicy => _t('privacyPolicy');
   String get viewPrivacyPolicy => _t('viewPrivacyPolicy');
+  String get wholesaleOption => _t('wholesaleOption');
+  String get configureWholesaleOption => _t('configureWholesaleOption');
+  String get deviceId => _t('deviceId');
+  String get branchId => _t('branchId');
+  String get counterId => _t('counterId');
+  String get counterName => _t('counterName');
+  String get selectCounter => _t('selectCounter');
+  String get pleaseSelectBranch => _t('pleaseSelectBranch');
+  String get pleaseSelectCounter => _t('pleaseSelectCounter');
+  String get pleaseEnterDeviceId => _t('pleaseEnterDeviceId');
+  String get wholesaleSaved => _t('wholesaleSaved');
+  String get wholesaleSaveFailed => _t('wholesaleSaveFailed');
+  String get failedToLoadBranchesCounters => _t('failedToLoadBranchesCounters');
+  String get addCounter => _t('addCounter');
+  String get pleaseAddAssignment => _t('pleaseAddAssignment');
   String get faceData => _t('faceData');
   String get addFaceLoginData => _t('addFaceLoginData');
   String get localWifiMode => _t('localWifiMode');
@@ -1315,6 +1330,20 @@ class AppStrings {
       'unmatch': 'Unmatch',
       'privacyPolicy': 'Privacy Policy',
       'viewPrivacyPolicy': 'View our privacy policy',
+      'wholesaleOption': 'Wholesale option',
+      'configureWholesaleOption': 'Branch, counter & device ID',
+      'deviceId': 'Device ID',
+      'branchId': 'Branch ID',
+      'counterId': 'Counter ID',
+      'selectCounter': 'Select Counter',
+      'pleaseSelectBranch': 'Please select a branch.',
+      'pleaseSelectCounter': 'Please select a counter.',
+      'pleaseEnterDeviceId': 'Please enter a device ID.',
+      'wholesaleSaved': 'Wholesale option saved',
+      'wholesaleSaveFailed': 'Failed to save wholesale option',
+      'failedToLoadBranchesCounters': 'Failed to load branches and counters.',
+      'addCounter': 'Add Counter',
+      'pleaseAddAssignment': 'Please add at least one branch and counter.',
       'faceData': 'Face Data',
       'addFaceLoginData': 'Add face login data',
       'localWifiMode': 'Local WiFi Mode',
@@ -1804,6 +1833,20 @@ class AppStrings {
       'unmatch': 'असंगत',
       'privacyPolicy': 'गोपनीयता नीति',
       'viewPrivacyPolicy': 'हमारी गोपनीयता नीति देखें',
+      'wholesaleOption': 'होलसेल विकल्प',
+      'configureWholesaleOption': 'शाखा, काउंटर और डिवाइस ID',
+      'deviceId': 'डिवाइस ID',
+      'branchId': 'शाखा ID',
+      'counterId': 'काउंटर ID',
+      'selectCounter': 'काउंटर चुनें',
+      'pleaseSelectBranch': 'कृपया एक शाखा चुनें।',
+      'pleaseSelectCounter': 'कृपया एक काउंटर चुनें।',
+      'pleaseEnterDeviceId': 'कृपया डिवाइस ID दर्ज करें।',
+      'wholesaleSaved': 'होलसेल विकल्प सेव हो गया',
+      'wholesaleSaveFailed': 'होलसेल विकल्प सेव नहीं हो सका',
+      'failedToLoadBranchesCounters': 'शाखाएं और काउंटर लोड नहीं हो सके।',
+      'addCounter': 'काउंटर जोड़ें',
+      'pleaseAddAssignment': 'कृपया कम से कम एक शाखा और काउंटर जोड़ें।',
       'faceData': 'फेस डेटा',
       'addFaceLoginData': 'फेस लॉगिन डेटा जोड़ें',
       'localWifiMode': 'स्थानीय वाईफाई मोड',
@@ -2314,6 +2357,20 @@ class AppStrings {
       'unmatch': 'غير مطابقة',
       'privacyPolicy': 'سياسة الخصوصية',
       'viewPrivacyPolicy': 'عرض سياسة الخصوصية الخاصة بنا',
+      'wholesaleOption': 'خيار الجملة',
+      'configureWholesaleOption': 'الفرع والعداد ومعرف الجهاز',
+      'deviceId': 'معرف الجهاز',
+      'branchId': 'معرف الفرع',
+      'counterId': 'معرف العداد',
+      'selectCounter': 'اختر العداد',
+      'pleaseSelectBranch': 'يرجى اختيار فرع.',
+      'pleaseSelectCounter': 'يرجى اختيار عداد.',
+      'pleaseEnterDeviceId': 'يرجى إدخال معرف الجهاز.',
+      'wholesaleSaved': 'تم حفظ خيار الجملة',
+      'wholesaleSaveFailed': 'فشل حفظ خيار الجملة',
+      'failedToLoadBranchesCounters': 'فشل تحميل الفروع والعدادات.',
+      'addCounter': 'إضافة عداد',
+      'pleaseAddAssignment': 'يرجى إضافة فرع وعداد واحد على الأقل.',
       'faceData': 'بيانات الوجه',
       'addFaceLoginData': 'إضافة بيانات تسجيل الدخول بالوجه',
       'localWifiMode': 'وضع الواي فاي المحلي',

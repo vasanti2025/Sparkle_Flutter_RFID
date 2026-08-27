@@ -79,7 +79,6 @@ class _BootstrapAppState extends State<_BootstrapApp> {
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      setState(() => _fullReady = true);
       unawaited(_hydrateInBackground());
     });
   }
@@ -94,11 +93,26 @@ class _BootstrapAppState extends State<_BootstrapApp> {
       await PrefService.init();
       var resolvedLoggedIn = _prefService.hasValidSession();
 
+      // Employee JSON is enough to restore the session even if `logged_in` was
+      // missing or native bootstrap read the wrong type.
+      if (!resolvedLoggedIn && _prefService.getEmployee() != null) {
+        await _prefService.setLoggedIn(true);
+        resolvedLoggedIn = true;
+      }
+
+      if (mounted) {
+        setState(() {
+          _sessionLoggedIn = resolvedLoggedIn;
+          _fullReady = true;
+        });
+      }
+      _refreshViewModelsAfterHydrate();
+
       if (!resolvedLoggedIn &&
           _prefService.isRememberMe() &&
           _prefService.getSavedUsername().isNotEmpty &&
           _prefService.getSavedPassword().isNotEmpty) {
-        for (var i = 0; i < 20 && appNavigatorKey.currentContext == null; i++) {
+        for (var i = 0; i < 40 && appNavigatorKey.currentContext == null; i++) {
           await Future<void>.delayed(const Duration(milliseconds: 50));
         }
         final ctx = appNavigatorKey.currentContext;
@@ -108,6 +122,7 @@ class _BootstrapAppState extends State<_BootstrapApp> {
               ctx,
               username: _prefService.getSavedUsername(),
               password: _prefService.getSavedPassword(),
+              silent: true,
             );
             if (ok) {
               resolvedLoggedIn = _prefService.hasValidSession();
@@ -116,12 +131,16 @@ class _BootstrapAppState extends State<_BootstrapApp> {
             debugPrint('Silent autologin failed: $e');
           }
         }
+        if (mounted && resolvedLoggedIn) {
+          setState(() => _sessionLoggedIn = true);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            appNavigatorKey.currentState?.pushNamedAndRemoveUntil(
+              '/dashboard',
+              (route) => false,
+            );
+          });
+        }
       }
-
-      if (mounted && resolvedLoggedIn != _sessionLoggedIn) {
-        setState(() => _sessionLoggedIn = resolvedLoggedIn);
-      }
-      _refreshViewModelsAfterHydrate();
 
       if (!_warmScheduled) {
         _warmScheduled = true;
@@ -131,6 +150,9 @@ class _BootstrapAppState extends State<_BootstrapApp> {
       }
     } catch (e, st) {
       debugPrint('STARTUP hydrate failed: $e\n$st');
+      if (mounted && !_fullReady) {
+        setState(() => _fullReady = true);
+      }
     }
   }
 

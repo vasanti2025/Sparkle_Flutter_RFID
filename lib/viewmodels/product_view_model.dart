@@ -741,12 +741,29 @@ class ProductViewModel extends ChangeNotifier {
   Future<bool> uploadVerification({
     required String clientCode,
     required List<Map<String, dynamic>> items,
+    int? counterId,
+    String? counterName,
+    int? branchId,
+    String? branchName,
+    String? deviceCode,
   }) async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
+      if (_prefService.isWholesaleLoginUser()) {
+        await _apiService.uploadStockVerificationWithBatchFile(
+          clientCode: clientCode,
+          items: items,
+          deviceCode: deviceCode,
+          counterId: counterId,
+          counterName: counterName,
+          branchId: branchId,
+          branchName: branchName,
+        );
+        return true;
+      }
       // Chunk items into batches of 2000 to match Compose behavior
       const int batchSize = 2000;
       for (int i = 0; i < items.length; i += batchSize) {

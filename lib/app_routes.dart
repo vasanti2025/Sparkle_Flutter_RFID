@@ -35,6 +35,7 @@ import 'views/stock_verification_batch_details_screen.dart';
 import 'views/stock_verification_detail_screen.dart';
 import 'views/stock_verification_report_screen.dart';
 import 'views/todays_rate_screen.dart';
+import 'views/wholesale_option_screen.dart';
 
 // Rarely opened — keep deferred to limit cold-start size.
 import 'views/add_face_screen.dart' deferred as add_face;
@@ -73,6 +74,8 @@ Widget? _buildRoutePage(RouteSettings settings) {
       return const BulkProductScreen();
     case '/settings':
       return const SettingsScreen();
+    case '/wholesale_option':
+      return const WholesaleOptionScreen();
     case '/location_list':
       return const LocationListScreen();
     case '/product_list':

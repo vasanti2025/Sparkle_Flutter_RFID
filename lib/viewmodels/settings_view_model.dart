@@ -1,5 +1,7 @@
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import '../models/location_item.dart';
+import '../models/wholesale_master.dart';
 import '../services/api_service.dart';
 import '../services/auto_sync_service.dart';
 import '../services/backup_service.dart';
@@ -277,6 +279,222 @@ class SettingsViewModel extends ChangeNotifier {
   Future<void> refreshR6Status() async {
     await RfidService().getR6Status();
     notifyListeners();
+  }
+
+  List<WholesaleBranch> _wholesaleBranches = [];
+  List<WholesaleBranch> get wholesaleBranches => _wholesaleBranches;
+
+  List<WholesaleCounter> _wholesaleCounters = [];
+  List<WholesaleCounter> get wholesaleCounters => _wholesaleCounters;
+
+  bool _loadingWholesale = false;
+  bool get loadingWholesale => _loadingWholesale;
+
+  bool _savingWholesale = false;
+  bool get savingWholesale => _savingWholesale;
+
+  String? _wholesaleError;
+  String? get wholesaleError => _wholesaleError;
+
+  List<WholesaleCounter> countersForBranch(int? branchId) {
+    if (branchId == null || branchId <= 0) return _wholesaleCounters;
+    final filtered = _wholesaleCounters
+        .where((c) => c.branchId == 0 || c.branchId == branchId)
+        .toList();
+    return filtered.isNotEmpty ? filtered : _wholesaleCounters;
+  }
+
+  List<WholesaleBranch> get scanPopupBranches {
+    final fromAssign = <int, WholesaleBranch>{};
+    for (final assignment in _wholesaleAssignments) {
+      if (assignment.branchId <= 0) continue;
+      fromAssign[assignment.branchId] = WholesaleBranch(
+        id: assignment.branchId,
+        name: assignment.branchName,
+      );
+    }
+    if (fromAssign.isNotEmpty) return fromAssign.values.toList();
+    return _wholesaleBranches;
+  }
+
+  List<WholesaleCounter> scanPopupCountersFor(int? branchId) {
+    final fromAssign = <int, WholesaleCounter>{};
+    for (final assignment in _wholesaleAssignments) {
+      if (assignment.counterId <= 0) continue;
+      if (branchId != null &&
+          branchId > 0 &&
+          assignment.branchId > 0 &&
+          assignment.branchId != branchId) {
+        continue;
+      }
+      fromAssign[assignment.counterId] = WholesaleCounter(
+        id: assignment.counterId,
+        name: assignment.counterName,
+        branchId: assignment.branchId,
+      );
+    }
+    if (fromAssign.isNotEmpty) return fromAssign.values.toList();
+    return countersForBranch(branchId);
+  }
+
+  Future<String> ensureDeviceId() async {
+    var id = _prefService.getDeviceId().trim();
+    if (id.isEmpty) {
+      final fromEmployee = _prefService.getEmployee()?.deviceId?.trim() ?? '';
+      if (fromEmployee.isNotEmpty) {
+        id = fromEmployee;
+      } else {
+        final rand = Random.secure();
+        final values = List<int>.generate(16, (i) => rand.nextInt(256));
+        id = values.map((e) => e.toRadixString(16).padLeft(2, '0')).join();
+      }
+      await _prefService.saveDeviceId(id);
+    }
+    return id;
+  }
+
+  List<RfidDeviceAssignment> _wholesaleAssignments = [];
+  List<RfidDeviceAssignment> get wholesaleAssignments => _wholesaleAssignments;
+
+  Object? _rfidApiDeviceId;
+  Object? get rfidApiDeviceId => _rfidApiDeviceId;
+
+  Future<void> loadWholesaleMasters() async {
+    _loadingWholesale = true;
+    _wholesaleError = null;
+    notifyListeners();
+    try {
+      final clientCode = _prefService.getEmployee()?.clientCode ?? '';
+      if (clientCode.isEmpty) {
+        _wholesaleBranches = [];
+        _wholesaleCounters = [];
+        _wholesaleAssignments = _prefService.getWholesaleAssignments();
+        _wholesaleError = 'deviceConfigNotFound';
+        return;
+      }
+      final deviceId = await ensureDeviceId();
+      final results = await Future.wait([
+        _apiService.getWholesaleBranches(clientCode),
+        _apiService.getAllCounters(clientCode),
+        _loadDeviceAndAssignments(clientCode, deviceId),
+      ]);
+      _wholesaleBranches = results[0] as List<WholesaleBranch>;
+      _wholesaleCounters = results[1] as List<WholesaleCounter>;
+    } catch (e) {
+      _wholesaleError = e.toString();
+    } finally {
+      _loadingWholesale = false;
+      notifyListeners();
+    }
+  }
+
+  bool _deviceMatches(RfidDeviceInfo device, String storedId) {
+    final stored = storedId.trim().toLowerCase();
+    if (stored.isEmpty) return false;
+    return device.deviceId.trim().toLowerCase() == stored ||
+        device.deviceCode.trim().toLowerCase() == stored ||
+        device.id.toString() == storedId.trim();
+  }
+
+  Future<List<RfidDeviceAssignment>> _loadDeviceAndAssignments(
+    String clientCode,
+    String storedDeviceCode,
+  ) async {
+    final deviceCode = storedDeviceCode.trim();
+    _rfidApiDeviceId = deviceCode;
+    var assignments = <RfidDeviceAssignment>[];
+
+    assignments = await _apiService.getRFIDDeviceAssignments(
+      clientCode: clientCode,
+      deviceCode: deviceCode,
+      deviceId: int.tryParse(deviceCode) ?? 0,
+    );
+
+    if (assignments.isEmpty) {
+      final devices = await _apiService.getAllRFIDDevices(clientCode);
+      RfidDeviceInfo? matched;
+      for (final device in devices) {
+        if (_deviceMatches(device, deviceCode)) {
+          matched = device;
+          break;
+        }
+      }
+      if (matched != null) {
+        assignments = matched.assignments;
+        final matchedCode = matched.deviceCode.trim().isNotEmpty
+            ? matched.deviceCode.trim()
+            : deviceCode;
+        _rfidApiDeviceId = matchedCode;
+        if (assignments.isEmpty) {
+          assignments = await _apiService.getRFIDDeviceAssignments(
+            clientCode: clientCode,
+            deviceCode: matchedCode,
+            deviceId: matched.id,
+          );
+        }
+      }
+    }
+
+    if (assignments.isEmpty) {
+      assignments = _prefService.getWholesaleAssignments();
+    }
+    _wholesaleAssignments = assignments;
+    return assignments;
+  }
+
+  Future<bool> saveWholesaleOption({
+    required int branchId,
+    required String branchName,
+    required int counterId,
+    required String counterName,
+    required String deviceId,
+    List<RfidDeviceAssignment>? assignments,
+  }) async {
+    final employee = _prefService.getEmployee();
+    final clientCode = employee?.clientCode ?? '';
+    if (clientCode.isEmpty || deviceId.trim().isEmpty) return false;
+
+    final rows = (assignments ?? const <RfidDeviceAssignment>[]).where((a) => a.isValid).toList();
+    if (rows.isEmpty) {
+      rows.add(RfidDeviceAssignment(
+        branchId: branchId,
+        branchName: branchName,
+        counterId: counterId,
+        counterName: counterName,
+      ));
+    }
+    if (rows.every((a) => !a.isValid)) return false;
+
+    _savingWholesale = true;
+    notifyListeners();
+    try {
+      final numericDeviceId = _rfidApiDeviceId is int
+          ? _rfidApiDeviceId as int
+          : int.tryParse('${_rfidApiDeviceId ?? ''}') ?? 0;
+      final ok = await _apiService.assignRFIDDeviceToBranchCounter(
+        clientCode: clientCode,
+        deviceCode: deviceId.trim(),
+        deviceId: numericDeviceId,
+        replaceAll: false,
+        assignments: rows,
+      );
+      if (!ok) return false;
+      final first = rows.first;
+      await _prefService.saveWholesaleOption(
+        branchId: first.branchId,
+        branchName: first.branchName,
+        counterId: first.counterId,
+        counterName: first.counterName,
+        deviceId: deviceId.trim(),
+        assignments: rows,
+      );
+      _wholesaleAssignments = rows;
+      notifyListeners();
+      return true;
+    } finally {
+      _savingWholesale = false;
+      notifyListeners();
+    }
   }
 }
 

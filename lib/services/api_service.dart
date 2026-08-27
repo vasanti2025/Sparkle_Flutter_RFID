@@ -6,6 +6,7 @@ import '../models/login_response.dart';
 import '../models/location_item.dart';
 import '../models/stock_transfer_models.dart';
 import '../models/user_permission.dart';
+import '../models/wholesale_master.dart';
 import 'order_payload_builder.dart';
 import 'api_logging_interceptor.dart';
 import 'pref_service.dart';
@@ -195,6 +196,45 @@ class ApiService {
       final response = await _dio.post(
         'api/ProductMaster/AddStockVerificationBySession',
         data: payload,
+      );
+      return response.statusCode == 200;
+    } on DioException catch (e) {
+      final errMsg = e.response?.data?.toString() ?? e.message ?? 'Unknown error';
+      throw Exception('Upload failed: $errMsg');
+    }
+  }
+
+  /// Multipart save used for wholesale client `LS000641`.
+  /// Form fields override values inside [jsonFile].
+  Future<bool> uploadStockVerificationWithBatchFile({
+    required String clientCode,
+    required List<Map<String, dynamic>> items,
+    String? deviceCode,
+    int? counterId,
+    String? counterName,
+    int? branchId,
+    String? branchName,
+  }) async {
+    try {
+      final formMap = <String, dynamic>{
+        'jsonFile': MultipartFile.fromString(
+          jsonEncode({'ClientCode': clientCode, 'Items': items}),
+          filename: 'stock_verification.json',
+        ),
+        'ClientCode': clientCode,
+      };
+      final code = deviceCode?.trim() ?? '';
+      if (code.isNotEmpty) formMap['DeviceCode'] = code;
+      if (counterId != null && counterId > 0) formMap['CounterId'] = counterId.toString();
+      final cName = counterName?.trim() ?? '';
+      if (cName.isNotEmpty) formMap['CounterName'] = cName;
+      if (branchId != null && branchId > 0) formMap['BranchId'] = branchId.toString();
+      final bName = branchName?.trim() ?? '';
+      if (bName.isNotEmpty) formMap['BranchName'] = bName;
+
+      final response = await _dio.post(
+        'api/ProductMaster/AddStockVerificationWithBatchFile',
+        data: FormData.fromMap(formMap),
       );
       return response.statusCode == 200;
     } on DioException catch (e) {
@@ -1236,7 +1276,7 @@ class ApiService {
     }
   }
 
-  Future<List<String>> getAllCounterNames(String clientCode) async {
+  Future<List<WholesaleCounter>> getAllCounters(String clientCode) async {
     if (clientCode.trim().isEmpty) return [];
     try {
       final response = await _dio.post(
@@ -1244,30 +1284,205 @@ class ApiService {
         data: {'ClientCode': clientCode},
       );
       if (response.statusCode != 200) return [];
-      final data = response.data;
-      List<dynamic>? list;
-      if (data is List) {
-        list = data;
-      } else if (data is Map) {
-        for (final key in ['data', 'Data', 'result', 'Result']) {
+      final counters = _asObjectList(response.data)
+          .map(WholesaleCounter.fromJson)
+          .where((c) => c.name.isNotEmpty)
+          .toList();
+      counters.sort((a, b) => a.name.compareTo(b.name));
+      return counters;
+    } catch (e) {
+      debugPrint('Error getAllCounters: $e');
+      return [];
+    }
+  }
+
+  Future<List<String>> getAllCounterNames(String clientCode) async {
+    final counters = await getAllCounters(clientCode);
+    return counters.map((c) => c.name).toSet().toList()..sort();
+  }
+
+  Future<List<WholesaleBranch>> getWholesaleBranches(String clientCode) async {
+    if (clientCode.trim().isEmpty) return [];
+    try {
+      final raw = await getAllBranches(clientCode);
+      final branches = raw
+          .whereType<Map>()
+          .map((e) => WholesaleBranch.fromJson(Map<String, dynamic>.from(e)))
+          .where((b) => b.name.isNotEmpty)
+          .toList();
+      branches.sort((a, b) => a.name.compareTo(b.name));
+      return branches;
+    } catch (e) {
+      debugPrint('Error getWholesaleBranches: $e');
+      return [];
+    }
+  }
+
+  Object _deviceIdPayload(Object deviceId) {
+    if (deviceId is int) return deviceId;
+    final text = deviceId.toString().trim();
+    return int.tryParse(text) ?? text;
+  }
+
+  Future<List<RfidDeviceInfo>> getAllRFIDDevices(String clientCode) async {
+    if (clientCode.trim().isEmpty) return [];
+    try {
+      final response = await _dio.post(
+        'api/RFIDDevice/GetAllRFIDDevice',
+        data: {'ClientCode': clientCode},
+      );
+      if (response.statusCode != 200) return [];
+      var maps = _asObjectList(response.data);
+      if (maps.isEmpty && response.data is Map) {
+        final data = response.data as Map;
+        for (final key in ['Devices', 'devices', 'RFIDDevices', 'rfidDevices']) {
           if (data[key] is List) {
-            list = data[key] as List;
+            maps = (data[key] as List)
+                .whereType<Map>()
+                .map((e) => Map<String, dynamic>.from(e))
+                .toList();
             break;
           }
         }
       }
-      if (list == null) return [];
-      final names = <String>[];
-      for (final e in list) {
-        if (e is! Map) continue;
-        final name = (e['CounterName'] ?? e['counterName'])?.toString().trim() ?? '';
-        if (name.isNotEmpty) names.add(name);
-      }
-      return names.toSet().toList()..sort();
+      return maps.map(RfidDeviceInfo.fromJson).toList();
     } catch (e) {
-      debugPrint('Error getAllCounterNames: $e');
+      debugPrint('Error getAllRFIDDevices: $e');
       return [];
     }
+  }
+
+  Future<RfidDeviceInfo?> getRFIDDeviceById({
+    required String clientCode,
+    required Object deviceId,
+  }) async {
+    try {
+      final response = await _dio.post(
+        'api/RFIDDevice/GetRFIDDevicesById',
+        data: {
+          'ClientCode': clientCode,
+          'DeviceId': _deviceIdPayload(deviceId),
+        },
+      );
+      if (response.statusCode != 200 || response.data == null) return null;
+      final maps = _asObjectList(response.data);
+      if (maps.isNotEmpty) return RfidDeviceInfo.fromJson(maps.first);
+      if (response.data is Map) {
+        return RfidDeviceInfo.fromJson(Map<String, dynamic>.from(response.data as Map));
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error getRFIDDeviceById: $e');
+      return null;
+    }
+  }
+
+  Future<List<RfidDeviceAssignment>> getRFIDDeviceAssignments({
+    required String clientCode,
+    String deviceCode = '',
+    int deviceId = 0,
+    int branchId = 0,
+    int counterId = 0,
+  }) async {
+    try {
+      final response = await _dio.post(
+        'api/RFIDDevice/GetRFIDDeviceAssignments',
+        data: {
+          'ClientCode': clientCode,
+          'DeviceId': deviceId,
+          'DeviceCode': deviceCode.trim(),
+          'BranchId': branchId,
+          'CounterId': counterId,
+        },
+      );
+      if (response.statusCode != 200) return [];
+      return parseWholesaleAssignments(response.data);
+    } catch (e) {
+      debugPrint('Error getRFIDDeviceAssignments: $e');
+      return [];
+    }
+  }
+
+  Future<bool> assignRFIDDeviceToBranchCounter({
+    required String clientCode,
+    required String deviceCode,
+    int deviceId = 0,
+    required List<RfidDeviceAssignment> assignments,
+    bool replaceAll = false,
+  }) async {
+    try {
+      final payloadAssignments = wholesaleAssignmentsToApi(assignments);
+      if (payloadAssignments.isEmpty) return false;
+      final parsedDeviceId = deviceId > 0 ? deviceId : (int.tryParse(deviceCode.trim()) ?? 0);
+      final payload = {
+        'ClientCode': clientCode,
+        'DeviceId': parsedDeviceId,
+        'DeviceCode': deviceCode.trim(),
+        'ReplaceAll': replaceAll,
+        'Assignments': payloadAssignments,
+      };
+      debugPrint('AssignRFIDDeviceToBranchCounter payload: ${jsonEncode(payload)}');
+      final response = await _dio.post(
+        'api/RFIDDevice/AssignRFIDDeviceToBranchCounter',
+        data: payload,
+        options: Options(
+          validateStatus: (status) => status != null && status < 500,
+        ),
+      );
+      debugPrint(
+        'AssignRFIDDeviceToBranchCounter status=${response.statusCode} body=${response.data}',
+      );
+      if (response.statusCode != 200) return false;
+      final data = response.data;
+      if (data is Map) {
+        final status = data['Status'] ?? data['status'] ?? data['Success'] ?? data['success'];
+        if (status is bool) return status;
+        if (status != null && status.toString().toLowerCase() == 'false') return false;
+      }
+      return true;
+    } catch (e) {
+      debugPrint('Error assignRFIDDeviceToBranchCounter: $e');
+      return false;
+    }
+  }
+
+  Future<bool> saveWholesaleOption({
+    required String clientCode,
+    required int userId,
+    required int branchId,
+    required String branchName,
+    required int counterId,
+    required String counterName,
+    required String deviceId,
+  }) async {
+    return assignRFIDDeviceToBranchCounter(
+      clientCode: clientCode,
+      deviceCode: deviceId,
+      assignments: [
+        RfidDeviceAssignment(
+          branchId: branchId,
+          branchName: branchName,
+          counterId: counterId,
+          counterName: counterName,
+        ),
+      ],
+    );
+  }
+
+  List<Map<String, dynamic>> _asObjectList(dynamic data) {
+    List<dynamic>? list;
+    if (data is List) {
+      list = data;
+    } else if (data is Map) {
+      for (final key in ['data', 'Data', 'result', 'Result']) {
+        if (data[key] is List) {
+          list = data[key] as List;
+          break;
+        }
+      }
+    }
+    if (list == null) return [];
+    return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
   }
 
   Future<List<UserPermission>> getAllUserPermissionsAll(String clientCode) async {
