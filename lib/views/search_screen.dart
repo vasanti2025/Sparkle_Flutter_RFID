@@ -23,6 +23,9 @@ class SearchItem {
   final String hex;
   String rssi;
   int proximityPercent;
+  final List<int> _rssiWindow = [];
+  int _pendingBand = -1;
+  int _pendingCount = 0;
 
   late final String normEpc;
   late final String normRfid;
@@ -47,16 +50,72 @@ class SearchItem {
     normHex = hex.trim().toUpperCase().replaceAll(' ', '');
   }
 
-  void applyScan({String? rssi, int? proximityPercent}) {
-    if (rssi != null) this.rssi = rssi;
-    if (proximityPercent != null) {
-      this.proximityPercent = proximityPercent.clamp(0, 100);
+  static int _bandFor(int percent) {
+    if (percent <= 0) return 0;
+    if (percent <= 25) return 25;
+    if (percent <= 50) return 50;
+    if (percent <= 75) return 75;
+    return 100;
+  }
+
+  /// RFID search meter: lock to 25% bands (matches bar colors).
+  /// Same place stays on one band; closer/farther moves after confirmed reads.
+  bool applyStableProximity(String rssi, int rawPercent) {
+    this.rssi = rssi;
+    final sample = rawPercent.clamp(0, 100);
+    _rssiWindow.add(sample);
+    if (_rssiWindow.length > 5) _rssiWindow.removeAt(0);
+
+    int target;
+    if (_rssiWindow.length < 3) {
+      target = _bandFor(sample);
+      if (target <= proximityPercent) return false;
+    } else {
+      final sorted = [..._rssiWindow]..sort();
+      target = _bandFor(sorted[sorted.length >> 1]);
+    }
+    if (target == proximityPercent) {
+      _pendingBand = -1;
+      _pendingCount = 0;
+      return false;
+    }
+    if (target == _pendingBand) {
+      _pendingCount++;
+    } else {
+      _pendingBand = target;
+      _pendingCount = 1;
+    }
+    final need = target > proximityPercent ? 2 : 3;
+    if (_pendingCount < need) return false;
+    _pendingBand = -1;
+    _pendingCount = 0;
+    proximityPercent = target;
+    return true;
+  }
+
+  void decayTowardZero() {
+    if (proximityPercent <= 0) return;
+    _rssiWindow.clear();
+    _pendingBand = -1;
+    _pendingCount = 0;
+    if (proximityPercent > 75) {
+      proximityPercent = 75;
+    } else if (proximityPercent > 50) {
+      proximityPercent = 50;
+    } else if (proximityPercent > 25) {
+      proximityPercent = 25;
+    } else {
+      proximityPercent = 0;
+      rssi = '';
     }
   }
 
   void clearScan() {
     rssi = '';
     proximityPercent = 0;
+    _rssiWindow.clear();
+    _pendingBand = -1;
+    _pendingCount = 0;
   }
 }
 
@@ -232,7 +291,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _startProximityDecay() {
     _proximityDecayTimer?.cancel();
-    _proximityDecayTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
+    _proximityDecayTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
       _decayStaleProximity();
     });
   }
@@ -242,8 +301,9 @@ class _SearchScreenState extends State<SearchScreen> {
     _proximityDecayTimer = null;
   }
 
-  /// While scanning, drop progress when the tag is no longer heard (device moved away).
-  /// Stopped scans stay frozen — this must not run after [_stopProximityDecay].
+  /// Drop progress only after the tag has been silent for 2s (out of field).
+  /// Inventory gaps of a few hundred ms are normal and must not move the bar.
+  /// Stopped scans stay frozen.
   void _decayStaleProximity() {
     if (!_isScanning || !mounted) return;
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -253,11 +313,8 @@ class _SearchScreenState extends State<SearchScreen> {
       if (i < 0 || i >= _searchItems.length) continue;
       final item = _searchItems[i];
       if (item.proximityPercent <= 0) continue;
-      if (now - entry.value < 400) continue;
-      final next = (item.proximityPercent - 18).clamp(0, 100);
-      if (next == item.proximityPercent) continue;
-      item.proximityPercent = next;
-      if (next == 0) item.rssi = '';
+      if (now - entry.value < 2000) continue;
+      item.decayTowardZero();
       _dirtyIndices.add(i);
       any = true;
     }
@@ -452,15 +509,11 @@ class _SearchScreenState extends State<SearchScreen> {
 
       _lastRssiUpdateMs[index] = now;
       final item = _searchItems[index];
-      final previous = item.proximityPercent;
-      // Follow live distance: closer raises %, farther lowers %. Light blend
-      // so 1–2 dB RSSI jitter does not slam the bar, but walking away still drops it.
-      final smoothed = ((previous * 2 + proximity * 3) / 5).round().clamp(0, 100);
-      item.applyScan(rssi: rssi, proximityPercent: smoothed);
+      final changed = item.applyStableProximity(rssi, proximity);
       if (_isLargeUnmatched) {
         _playRssiSearchSound(rssi);
       }
-      if (item.proximityPercent != previous) {
+      if (changed) {
         _dirtyIndices.add(index);
         _scheduleSearchUiUpdate();
       }
