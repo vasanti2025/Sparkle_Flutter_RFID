@@ -17,7 +17,7 @@ import 'viewmodels/login_view_model.dart';
 import 'views/dashboard_screen.dart';
 import 'views/login_screen.dart';
 
-/// Real Login/Dashboard tree — loaded after Instant first frame so splash can dismiss.
+/// Real Login/Dashboard tree — Dashboard is loaded after Login first frame.
 Widget buildReadyApp({
   required PrefService prefService,
   required bool loggedIn,
@@ -34,6 +34,8 @@ Widget buildReadyApp({
     ),
   );
 }
+
+Widget buildDashboardPage() => const DashboardScreen();
 
 /// Loads heavy ViewModels + routes after Login/Dashboard first frame.
 class _ExtendedProvidersLoader extends StatefulWidget {
@@ -95,38 +97,7 @@ class _ExtendedProvidersLoaderState extends State<_ExtendedProvidersLoader> {
       widget.onSessionResolved(resolvedLoggedIn);
       _refreshViewModelsAfterHydrate();
 
-      if (!resolvedLoggedIn &&
-          widget.prefService.isRememberMe() &&
-          widget.prefService.getSavedUsername().isNotEmpty &&
-          widget.prefService.getSavedPassword().isNotEmpty) {
-        for (var i = 0; i < 20 && appNavigatorKey.currentContext == null; i++) {
-          await Future<void>.delayed(const Duration(milliseconds: 50));
-        }
-        final ctx = appNavigatorKey.currentContext;
-        if (ctx != null && ctx.mounted) {
-          try {
-            final ok = await ctx.read<LoginViewModel>().login(
-              ctx,
-              username: widget.prefService.getSavedUsername(),
-              password: widget.prefService.getSavedPassword(),
-            );
-            if (ok) {
-              resolvedLoggedIn = widget.prefService.hasValidSession();
-            }
-          } catch (e) {
-            debugPrint('Silent autologin failed: $e');
-          }
-        }
-        if (mounted && resolvedLoggedIn) {
-          widget.onSessionResolved(true);
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            appNavigatorKey.currentState?.pushNamedAndRemoveUntil(
-              '/dashboard',
-              (route) => false,
-            );
-          });
-        }
-      }
+      // Remember Me only pre-fills the login form. Never auto-submit after logout.
 
       if (!_warmScheduled) {
         _warmScheduled = true;

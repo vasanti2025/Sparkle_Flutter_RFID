@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/employee.dart';
 import '../services/db_service.dart';
 import '../services/pref_service.dart';
-import '../services/auto_sync_service.dart';
+import '../services/auto_sync_service.dart' deferred as autosync;
 
 class DashboardViewModel extends ChangeNotifier {
   final PrefService _prefService;
@@ -27,7 +27,8 @@ class DashboardViewModel extends ChangeNotifier {
   /// Full logout like Sparkle: clear prefs + local stock, then UI must reset VMs + navigate.
   Future<void> logout() async {
     try {
-      await AutoSyncService.cancelPeriodicSync();
+      await autosync.loadLibrary();
+      await autosync.AutoSyncService.cancelPeriodicSync();
     } catch (_) {}
     try {
       await _dbService?.clearAllItems();

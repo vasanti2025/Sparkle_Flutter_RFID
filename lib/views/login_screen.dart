@@ -1,13 +1,10 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
 import '../services/pref_service.dart';
 import '../viewmodels/dashboard_view_model.dart';
 import '../viewmodels/login_view_model.dart';
-import '../viewmodels/product_view_model.dart';
-import '../viewmodels/stock_transfer_view_model.dart';
+import '../session_vm_hooks.dart' deferred as vm_hooks;
 import 'widgets/curved_header_painter.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -107,19 +104,16 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _navigateAfterLogin(BuildContext context) {
     Navigator.pushReplacementNamed(context, '/dashboard');
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!context.mounted) return;
-      try {
-        context.read<StockTransferViewModel>().resetSession();
-      } catch (_) {}
       try {
         context.read<DashboardViewModel>().loadUser();
       } catch (_) {}
       try {
-        final productVm = context.read<ProductViewModel>();
-        Future<void>.delayed(const Duration(seconds: 1), () {
-          unawaited(productVm.syncProducts(force: true));
-        });
+        await vm_hooks.loadLibrary();
+        if (!context.mounted) return;
+        vm_hooks.resetStockTransferSession(context);
+        vm_hooks.startProductSyncAfterLogin(context);
       } catch (_) {}
     });
   }

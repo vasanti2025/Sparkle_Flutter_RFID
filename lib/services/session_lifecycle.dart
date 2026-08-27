@@ -8,8 +8,7 @@ import '../app_navigator.dart';
 import '../models/login_request.dart';
 import '../viewmodels/dashboard_view_model.dart';
 import '../viewmodels/login_view_model.dart';
-import '../viewmodels/product_view_model.dart';
-import '../viewmodels/stock_transfer_view_model.dart';
+import '../session_vm_hooks.dart' deferred as vm_hooks;
 import 'api_service.dart';
 import 'pref_service.dart';
 
@@ -170,8 +169,6 @@ class SessionLifecycle {
 
       DashboardViewModel? dashVm;
       LoginViewModel? loginVm;
-      ProductViewModel? productVm;
-      StockTransferViewModel? stockVm;
       if (ctx != null && ctx.mounted) {
         try {
           dashVm = ctx.read<DashboardViewModel>();
@@ -180,19 +177,13 @@ class SessionLifecycle {
           loginVm = ctx.read<LoginViewModel>();
         } catch (_) {}
         try {
-          productVm = ctx.read<ProductViewModel>();
-        } catch (_) {}
-        try {
-          stockVm = ctx.read<StockTransferViewModel>();
+          await vm_hooks.loadLibrary();
+          if (ctx.mounted) {
+            await vm_hooks.resetProductAndStockForLogout(ctx);
+          }
         } catch (_) {}
       }
 
-      try {
-        await productVm?.resetForLogout();
-      } catch (_) {}
-      try {
-        stockVm?.resetSession();
-      } catch (_) {}
       try {
         if (dashVm != null) {
           await dashVm.logout();

@@ -7,7 +7,7 @@ import '../models/login_request.dart';
 import '../models/login_response.dart';
 import '../models/user_permission.dart';
 import '../services/api_service.dart';
-import '../services/location_sync_service.dart';
+import '../services/location_sync_service.dart' deferred as loc_sync;
 import '../services/pref_service.dart';
 
 class LoginViewModel extends ChangeNotifier {
@@ -270,10 +270,16 @@ class LoginViewModel extends ChangeNotifier {
     unawaited(_saveBranchIdsForEmployee(employee));
 
     if (_prefService.isLocationSyncEnabled()) {
-      unawaited(LocationSyncService.applySettings(true));
-      Future<void>.delayed(const Duration(seconds: 8), () {
-        unawaited(LocationSyncService.syncNow().then((_) {}));
-      });
+      unawaited(() async {
+        try {
+          await loc_sync.loadLibrary();
+          await loc_sync.LocationSyncService.applySettings(true);
+          await Future<void>.delayed(const Duration(seconds: 8));
+          await loc_sync.LocationSyncService.syncNow();
+        } catch (e) {
+          debugPrint('Location sync after login skipped: $e');
+        }
+      }());
     }
   }
 
