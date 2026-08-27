@@ -20,7 +20,6 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import android.util.Base64
-import net.posprinter.POSConnect
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -37,7 +36,7 @@ class MainActivity : FlutterActivity() {
 
     private var eventSink: EventChannel.EventSink? = null
     private var hardware: HardwareController? = null
-    private var printerManager: PrinterManager? = null
+    private var printerManager: Any? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var posConnectInited = false
     private var launchLoggedIn: Boolean? = null
@@ -182,11 +181,14 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun printer(): PrinterManager {
-        val existing = printerManager
+        val existing = printerManager as? PrinterManager
         if (existing != null) return existing
         if (!posConnectInited) {
             try {
-                POSConnect.init(applicationContext)
+                // Reflection so POSConnect native libs are not linked at splash.
+                val clazz = Class.forName("net.posprinter.POSConnect")
+                clazz.getMethod("init", android.content.Context::class.java)
+                    .invoke(null, applicationContext)
                 posConnectInited = true
                 Log.i("MainActivity", "POSConnect.init done (lazy)")
             } catch (e: Throwable) {
@@ -285,11 +287,11 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "disconnectPrinter" -> {
-                    printerManager?.disconnect()
+                    (printerManager as? PrinterManager)?.disconnect()
                     result.success(true)
                 }
                 "isPrinterConnected" -> {
-                    result.success(printerManager?.isConnected() == true)
+                    result.success((printerManager as? PrinterManager)?.isConnected() == true)
                 }
                 "printDeliveryChallan" -> {
                     val args = call.arguments as? Map<*, *> ?: emptyMap<Any, Any>()
@@ -529,7 +531,7 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         hardware?.release()
         hardware = null
-        printerManager?.disconnect()
+        (printerManager as? PrinterManager)?.disconnect()
         printerManager = null
         super.onDestroy()
     }
