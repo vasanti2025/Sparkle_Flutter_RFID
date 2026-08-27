@@ -244,6 +244,13 @@ class LoginViewModel extends ChangeNotifier {
       organisationName: client?.organisationName ?? '',
     );
 
+    // Session clock + credentials for silent JWT refresh within the 1hr window.
+    await _prefService.saveSessionCredentials(
+      username: username,
+      password: password,
+    );
+    await _prefService.markSessionStarted();
+
     // Mark session active only after token + employee are persisted.
     await _prefService.setLoggedIn(true);
 

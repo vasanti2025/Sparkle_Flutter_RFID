@@ -5,6 +5,7 @@ import 'services/api_service.dart';
 import 'services/db_service.dart';
 import 'services/locale_service.dart';
 import 'services/pref_service.dart';
+import 'services/session_lifecycle.dart';
 import 'viewmodels/dashboard_view_model.dart';
 import 'viewmodels/login_view_model.dart';
 
@@ -19,6 +20,7 @@ Widget buildStartupProviders({
   required Widget child,
 }) {
   final apiService = ApiService(prefService);
+  SessionLifecycle.instance.attach(prefs: prefService, api: apiService);
   final dbService = DbService();
   onDbReady(dbService);
   final localeService = LocaleService(prefService);

@@ -5,14 +5,34 @@ import 'package:flutter/services.dart';
 import 'package:sqflite/sqflite.dart';
 import '../models/bulk_item.dart';
 
-/// Background isolate entry for large labelled-stock sync (10L+ rows).
+/// Background isolate entry for large labelled-stock sync (5–8L+ rows).
 /// Mirrors Kotlin [BulkRepositoryImpl.syncBulkItemsFromServer]:
 /// stream JSON, map items, batch-insert into SQLite — no full in-memory load.
+///
+/// Speed focus (mapping rules unchanged):
+/// - Insert batches of 1000
+/// - Preload RFID barcode→TID map (no per-row DB lookup)
+/// - Drop secondary indexes during insert, recreate after
+/// - Dual RFID / null→hex mapping stays the same
 class SyncIsolate {
-  static const int _batchSize = 500;
+  static const int _batchSize = 1000;
+  static const int _rfidBatchSize = 1000;
   static const int _maxSkipped = 1000;
-  static const int _progressIntervalMs = 700;
-  static const int _rfidCacheMax = 50000;
+  static const int _progressIntervalMs = 1000;
+
+  static const List<String> _bulkSecondaryIndexes = [
+    'idx_bulk_items_epc',
+    'idx_bulk_items_bulkItemId',
+    'idx_bulk_items_counterName',
+    'idx_bulk_items_boxName',
+    'idx_bulk_items_branchName',
+    'idx_bulk_items_category',
+    'idx_bulk_items_productName',
+    'idx_bulk_items_design',
+    'idx_bulk_items_rfid',
+    'idx_bulk_items_itemCode',
+    'idx_bulk_items_tid',
+  ];
 
   static void run(Map<String, dynamic> params) async {
     final RootIsolateToken? rootToken = params['token'];
@@ -39,7 +59,6 @@ class SyncIsolate {
 
     Database? db;
     HttpClient? httpClient;
-    final rfidLookup = _RfidLookupCache(maxEntries: _rfidCacheMax);
 
     void sendProgress({
       required String status,
@@ -61,8 +80,8 @@ class SyncIsolate {
       sendPort.send({'status': 'init', 'message': 'Initializing database...'});
       db = await openDatabase(
         dbPath,
-        onConfigure: (db) async {
-          await db.rawQuery('PRAGMA journal_mode=WAL;');
+        onConfigure: (database) async {
+          await database.rawQuery('PRAGMA journal_mode=WAL;');
         },
       );
 
@@ -70,7 +89,7 @@ class SyncIsolate {
 
       httpClient = HttpClient();
       httpClient.connectionTimeout = const Duration(seconds: 60);
-      httpClient.idleTimeout = const Duration(minutes: 10);
+      httpClient.idleTimeout = const Duration(minutes: 15);
 
       // Sparkle login syncs GetAllRFID first so Barcode↔TID lookup works during mapping.
       sendPort.send({'status': 'rfid', 'message': 'Syncing RFID tags...'});
@@ -82,8 +101,12 @@ class SyncIsolate {
         db: db,
       );
 
-      // Kotlin clears only bulk_items before streaming stock data.
-      sendPort.send({'status': 'init', 'message': 'Clearing old stock data...'});
+      sendPort.send({'status': 'rfid', 'message': 'Loading RFID lookup...'});
+      final rfidByBarcode = await _loadRfidBarcodeMap(db);
+
+      // Drop secondary indexes before wipe+bulk insert (UNIQUE(epc) stays).
+      sendPort.send({'status': 'init', 'message': 'Preparing database...'});
+      await _dropBulkSecondaryIndexes(db);
       await db.delete('bulk_items');
 
       sendPort.send({
@@ -152,9 +175,8 @@ class SyncIsolate {
           processedCount++;
 
           try {
-            final mapped = await _mapServerItem(
-              db: db!,
-              rfidLookup: rfidLookup,
+            final mapped = _mapServerItem(
+              rfidByBarcode: rfidByBarcode,
               itemJson: itemJson,
               isWebReusable: isWebReusable,
               allowSingleAndWebReusable: allowSingleAndWebReusable,
@@ -186,6 +208,12 @@ class SyncIsolate {
       }
 
       await flushQueue();
+
+      sendPort.send({
+        'status': 'init',
+        'message': 'Building indexes...',
+      });
+      await _createBulkSecondaryIndexes(db);
       await _restoreDbPragmas(db);
 
       sendPort.send({
@@ -197,6 +225,9 @@ class SyncIsolate {
       });
     } catch (e) {
       if (db != null) {
+        try {
+          await _createBulkSecondaryIndexes(db);
+        } catch (_) {}
         try {
           await _restoreDbPragmas(db);
         } catch (_) {}
@@ -218,19 +249,54 @@ class SyncIsolate {
   static Future<void> _configureBulkInsertPragmas(Database db) async {
     await db.rawQuery('PRAGMA synchronous = OFF');
     await db.rawQuery('PRAGMA temp_store = MEMORY');
-    await db.rawQuery('PRAGMA cache_size = -64000');
+    await db.rawQuery('PRAGMA cache_size = -200000'); // ~200MB page cache
+    await db.rawQuery('PRAGMA locking_mode = EXCLUSIVE');
+    try {
+      await db.rawQuery('PRAGMA mmap_size = 268435456');
+    } catch (_) {}
   }
 
   static Future<void> _restoreDbPragmas(Database db) async {
     await db.rawQuery('PRAGMA synchronous = NORMAL');
+    try {
+      await db.rawQuery('PRAGMA locking_mode = NORMAL');
+    } catch (_) {}
+  }
+
+  static Future<void> _dropBulkSecondaryIndexes(Database db) async {
+    for (final name in _bulkSecondaryIndexes) {
+      try {
+        await db.execute('DROP INDEX IF EXISTS $name');
+      } catch (_) {}
+    }
+  }
+
+  static Future<void> _createBulkSecondaryIndexes(Database db) async {
+    const stmts = [
+      'CREATE INDEX IF NOT EXISTS idx_bulk_items_epc ON bulk_items(epc)',
+      'CREATE INDEX IF NOT EXISTS idx_bulk_items_bulkItemId ON bulk_items(bulkItemId)',
+      'CREATE INDEX IF NOT EXISTS idx_bulk_items_counterName ON bulk_items(counterName)',
+      'CREATE INDEX IF NOT EXISTS idx_bulk_items_boxName ON bulk_items(boxName)',
+      'CREATE INDEX IF NOT EXISTS idx_bulk_items_branchName ON bulk_items(branchName)',
+      'CREATE INDEX IF NOT EXISTS idx_bulk_items_category ON bulk_items(category)',
+      'CREATE INDEX IF NOT EXISTS idx_bulk_items_productName ON bulk_items(productName)',
+      'CREATE INDEX IF NOT EXISTS idx_bulk_items_design ON bulk_items(design)',
+      'CREATE INDEX IF NOT EXISTS idx_bulk_items_rfid ON bulk_items(rfid)',
+      'CREATE INDEX IF NOT EXISTS idx_bulk_items_itemCode ON bulk_items(itemCode)',
+      'CREATE INDEX IF NOT EXISTS idx_bulk_items_tid ON bulk_items(tid)',
+    ];
+    for (final sql in stmts) {
+      try {
+        await db.execute(sql);
+      } catch (_) {}
+    }
   }
 
   static Future<void> _insertBulkBatch(Database db, List<BulkItem> items) async {
     if (items.isEmpty) return;
     final batch = db.batch();
     for (final item in items) {
-      // NEVER use REPLACE here — UNIQUE(epc) + REPLACE deletes the other row
-      // (wipes RFID items when hex EPCs collide, and vice versa) on 10k syncs.
+      // NEVER use REPLACE — UNIQUE(epc) + REPLACE deletes the other row.
       batch.insert(
         'bulk_items',
         item.toMap(),
@@ -238,6 +304,24 @@ class SyncIsolate {
       );
     }
     await batch.commit(noResult: true);
+  }
+
+  /// Full barcode→TID map once (O(1) lookup per stock row; critical for 5–8L).
+  static Future<Map<String, String>> _loadRfidBarcodeMap(Database db) async {
+    final map = <String, String>{};
+    try {
+      final rows = await db.rawQuery(
+        'SELECT BarcodeNumber, TidValue FROM rfid_tags',
+      );
+      for (final row in rows) {
+        final barcode =
+            (row['BarcodeNumber'] as String? ?? '').trim().toUpperCase();
+        if (barcode.isEmpty) continue;
+        final tid = (row['TidValue'] as String? ?? '').trim().toUpperCase();
+        map[barcode] = tid;
+      }
+    } catch (_) {}
+    return map;
   }
 
   static Future<void> _syncRfidTagsFromServer({
@@ -263,12 +347,35 @@ class SyncIsolate {
       final decoded = jsonDecode(body);
       if (decoded is! List) return;
 
+      try {
+        await db.delete('rfid_tags');
+      } catch (_) {}
+
       final batch = <Map<String, dynamic>>[];
+      Future<void> flushRfid() async {
+        if (batch.isEmpty) return;
+        final b = db.batch();
+        for (final row in batch) {
+          b.insert('rfid_tags', row, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+        await b.commit(noResult: true);
+        batch.clear();
+      }
+
       for (final raw in decoded) {
         if (raw is! Map) continue;
         final map = Map<String, dynamic>.from(raw);
-        final barcode = BulkItem.apiString(map, ['BarcodeNumber', 'barcodeNumber', 'RFIDCode']);
-        final tid = BulkItem.apiString(map, ['TidValue', 'TIDNumber', 'TidNumber', 'EPC']);
+        final barcode = BulkItem.apiString(map, [
+          'BarcodeNumber',
+          'barcodeNumber',
+          'RFIDCode',
+        ]);
+        final tid = BulkItem.apiString(map, [
+          'TidValue',
+          'TIDNumber',
+          'TidNumber',
+          'EPC',
+        ]);
         if (barcode.isEmpty) continue;
         batch.add({
           'BarcodeNumber': barcode,
@@ -276,53 +383,43 @@ class SyncIsolate {
           'ClientCode': BulkItem.apiString(map, ['ClientCode']),
           'CreatedOn': BulkItem.apiString(map, ['CreatedOn']),
           'LastUpdated': BulkItem.apiString(map, ['LastUpdated']),
-          'StatusType': (map['StatusType'] == true || map['StatusType'] == 1) ? 1 : 0,
+          'StatusType':
+              (map['StatusType'] == true || map['StatusType'] == 1) ? 1 : 0,
         });
-        if (batch.length >= 500) {
-          final b = db.batch();
-          for (final row in batch) {
-            b.insert('rfid_tags', row, conflictAlgorithm: ConflictAlgorithm.replace);
-          }
-          await b.commit(noResult: true);
-          batch.clear();
+        if (batch.length >= _rfidBatchSize) {
+          await flushRfid();
         }
       }
-      if (batch.isNotEmpty) {
-        final b = db.batch();
-        for (final row in batch) {
-          b.insert('rfid_tags', row, conflictAlgorithm: ConflictAlgorithm.replace);
-        }
-        await b.commit(noResult: true);
-      }
+      await flushRfid();
     } catch (_) {
       // RFID sheet sync is best-effort; stock sync must continue.
     }
   }
 
-  /// Per-item dual mapping for mixed ~10k stock (both flows in one sync):
-  /// 1) API RFIDCode present → keep RFID, EPC from TIDNumber or rfid_tags lookup
-  /// 2) API RFIDCode null    → EPC/TID = convertToHex(itemCode), RFID blank
-  /// Global tagType must NOT wipe RFID when the API sent RFIDCode.
-  static Future<BulkItem?> _mapServerItem({
-    required Database db,
-    required _RfidLookupCache rfidLookup,
+  /// Per-item dual mapping (unchanged rules):
+  /// 1) API RFIDCode present → keep RFID, EPC from TIDNumber or rfid lookup
+  /// 2) API RFIDCode null → EPC/TID = convertToHex(itemCode), RFID blank
+  static BulkItem? _mapServerItem({
+    required Map<String, String> rfidByBarcode,
     required Map<String, dynamic> itemJson,
     required bool isWebReusable,
     required bool allowSingleAndWebReusable,
     required Set<String> usedEpcSet,
     required List<String> skippedItemCodes,
-  }) async {
+  }) {
     // Tag-type flags kept for isolate API; mapping is per-item so both flows
-    // work in the same ~10k sync (RFID present vs RFID null→hex).
+    // work in the same sync (RFID present vs RFID null→hex).
     // ignore: unnecessary_statements
     (isWebReusable, allowSingleAndWebReusable);
 
     final status = BulkItem.apiString(itemJson, ['Status', 'status']);
     final itemCode = BulkItem.apiString(itemJson, ['ItemCode', 'itemCode']);
     final categoryId = _apiInt(itemJson, ['CategoryId', 'categoryId']);
-    final categoryName = BulkItem.apiString(itemJson, ['CategoryName', 'categoryName']);
+    final categoryName =
+        BulkItem.apiString(itemJson, ['CategoryName', 'categoryName']);
     final productId = _apiInt(itemJson, ['ProductId', 'productId']);
-    final productName = BulkItem.apiString(itemJson, ['ProductName', 'productName']);
+    final productName =
+        BulkItem.apiString(itemJson, ['ProductName', 'productName']);
 
     void addSkipped(String reason) {
       if (skippedItemCodes.length < _maxSkipped) {
@@ -351,117 +448,52 @@ class SyncIsolate {
     final apiRfid = bulkItem.rfid.trim();
     final apiTid = bulkItem.tid.trim();
 
-    String rfid;
-    String epc;
-    String tid;
-
     if (apiRfid.isNotEmpty) {
       // -------- Approach 1: RFID present (never clear, never force itemCode hex) --------
-      rfid = apiRfid;
-      tid = apiTid;
-      epc = apiTid;
+      var tid = apiTid;
+      var epc = apiTid;
       if (epc.isEmpty) {
-        final lookupEpc = await rfidLookup.lookup(db, apiRfid);
+        final lookupEpc = rfidByBarcode[apiRfid.toUpperCase()];
         if (lookupEpc != null && lookupEpc.isNotEmpty) {
           epc = lookupEpc;
           tid = lookupEpc;
         } else {
-          // Sparkle: epc = tid ?: rfid — needed so inventory scope matches
-          // tags whose EPC bank holds the barcode when TID is absent.
+          // Sparkle: epc = tid ?: rfid
           epc = apiRfid;
         }
       }
-    } else {
-      // -------- Approach 2: RFID null → itemCode hex (Sparkle convertToHex) --------
-      rfid = '';
-      epc = _convertToHex(itemCode);
-      tid = epc;
+
+      if (epc.trim().isEmpty) {
+        bulkItem.epc = '';
+        bulkItem.tid = tid;
+        return bulkItem;
+      }
+
+      final epcKey = epc.trim().toUpperCase();
+      if (usedEpcSet.contains(epcKey)) {
+        // Keep row; blank EPC so UNIQUE does not drop it / break scan keys.
+        bulkItem.epc = '';
+        bulkItem.tid = tid;
+        return bulkItem;
+      }
+      usedEpcSet.add(epcKey);
+      bulkItem.epc = epc;
+      bulkItem.tid = tid.isEmpty ? epc : tid;
+      return bulkItem;
     }
 
-    // RFID row with no EPC yet: store empty (NULL in DB — multiple NULLs OK).
-    // Do NOT invent itemCode hex here (that breaks Approach 1).
-    if (epc.trim().isEmpty) {
-      return _withEpcTidRfid(bulkItem, rfid: rfid, epc: '', tid: tid);
-    }
-
-    // UNIQUE(epc): never append "#id" — that breaks RFID scan matching.
-    // First row keeps the real EPC; duplicates keep the item with blank EPC.
-    final epcKey = epc.trim().toUpperCase();
+    // -------- Approach 2: RFID null → itemCode hex (Sparkle convertToHex) --------
+    final hex = _convertToHex(itemCode);
+    final epcKey = hex.toUpperCase();
     if (usedEpcSet.contains(epcKey)) {
-      return _withEpcTidRfid(bulkItem, rfid: rfid, epc: '', tid: tid);
+      bulkItem.epc = '';
+      bulkItem.tid = '';
+      return bulkItem;
     }
     usedEpcSet.add(epcKey);
-    if (tid.isEmpty) tid = epc;
-
-    return _withEpcTidRfid(bulkItem, rfid: rfid, epc: epc, tid: tid);
-  }
-
-  static BulkItem _withEpcTidRfid(
-    BulkItem item, {
-    required String rfid,
-    required String epc,
-    required String tid,
-  }) {
-    return BulkItem(
-      id: item.id,
-      bulkItemId: item.bulkItemId,
-      productName: item.productName,
-      itemCode: item.itemCode,
-      rfid: rfid,
-      grossWeight: item.grossWeight,
-      stoneWeight: item.stoneWeight,
-      diamondWeight: item.diamondWeight,
-      netWeight: item.netWeight,
-      category: item.category,
-      design: item.design,
-      purity: item.purity,
-      makingPerGram: item.makingPerGram,
-      makingPercent: item.makingPercent,
-      fixMaking: item.fixMaking,
-      fixWastage: item.fixWastage,
-      stoneAmount: item.stoneAmount,
-      diamondAmount: item.diamondAmount,
-      sku: item.sku,
-      epc: epc,
-      vendor: item.vendor,
-      tid: tid,
-      box: item.box,
-      designCode: item.designCode,
-      productCode: item.productCode,
-      imageUrl: item.imageUrl,
-      totalQty: item.totalQty,
-      pcs: item.pcs,
-      matchedPcs: item.matchedPcs,
-      totalGwt: item.totalGwt,
-      matchGwt: item.matchGwt,
-      totalStoneWt: item.totalStoneWt,
-      matchStoneWt: item.matchStoneWt,
-      totalNetWt: item.totalNetWt,
-      matchNetWt: item.matchNetWt,
-      unmatchedQty: item.unmatchedQty,
-      matchedQty: item.matchedQty,
-      unmatchedGrossWt: item.unmatchedGrossWt,
-      mrp: item.mrp,
-      counterName: item.counterName,
-      counterId: item.counterId,
-      boxId: item.boxId,
-      boxName: item.boxName,
-      branchId: item.branchId,
-      branchName: item.branchName,
-      packetId: item.packetId,
-      packetName: item.packetName,
-      scannedStatus: item.scannedStatus,
-      categoryId: item.categoryId,
-      productId: item.productId,
-      branchType: item.branchType,
-      designId: item.designId,
-      isScanned: item.isScanned,
-      totalWt: item.totalWt,
-      categoryWt: item.categoryWt,
-      skuId: item.skuId,
-      purityId: item.purityId,
-      status: item.status,
-    );
+    bulkItem.epc = hex;
+    bulkItem.tid = hex;
+    return bulkItem;
   }
 
   static int? _apiInt(Map<String, dynamic> json, List<String> keys) {
@@ -494,71 +526,6 @@ class SyncIsolate {
       hex = '00$hex';
     }
     return hex;
-  }
-}
-
-/// LRU cache for RFID barcode <-> TID lookups (avoids loading all RFID into RAM).
-class _RfidLookupCache {
-  _RfidLookupCache({required int maxEntries}) : _maxEntries = maxEntries;
-
-  final int _maxEntries;
-  final Map<String, String> _barcodeToTid = {};
-  final Map<String, String> _tidToBarcode = {};
-
-  Future<String?> lookup(Database db, String rfid) async {
-    final key = rfid.trim().toUpperCase();
-    if (key.isEmpty) return null;
-
-    final cached = _barcodeToTid[key];
-    if (cached != null) return cached.isEmpty ? null : cached;
-
-    final rows = await db.query(
-      'rfid_tags',
-      columns: ['TidValue'],
-      where: 'UPPER(TRIM(BarcodeNumber)) = ?',
-      whereArgs: [key],
-      limit: 1,
-    );
-    final tid = rows.isEmpty
-        ? ''
-        : (rows.first['TidValue'] as String? ?? '').trim().toUpperCase();
-
-    _put(_barcodeToTid, key, tid);
-    if (tid.isNotEmpty) _put(_tidToBarcode, tid, key);
-    return tid.isEmpty ? null : tid;
-  }
-
-  /// Sparkle BulkItemDao.getItemCodeByEpc — TidValue → BarcodeNumber.
-  Future<String?> lookupBarcodeByTid(Database db, String tid) async {
-    final key = tid.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
-    if (key.isEmpty) return null;
-
-    final cached = _tidToBarcode[key];
-    if (cached != null) return cached.isEmpty ? null : cached;
-
-    final rows = await db.query(
-      'rfid_tags',
-      columns: ['BarcodeNumber'],
-      where: 'UPPER(TRIM(TidValue)) = ?',
-      whereArgs: [tid.trim().toUpperCase()],
-      limit: 1,
-    );
-    final barcode = rows.isEmpty
-        ? ''
-        : (rows.first['BarcodeNumber'] as String? ?? '').trim();
-
-    _put(_tidToBarcode, key, barcode);
-    if (barcode.isNotEmpty) {
-      _put(_barcodeToTid, barcode.toUpperCase(), key);
-    }
-    return barcode.isEmpty ? null : barcode;
-  }
-
-  void _put(Map<String, String> map, String key, String value) {
-    if (map.length >= _maxEntries) {
-      map.remove(map.keys.first);
-    }
-    map[key] = value;
   }
 }
 
@@ -600,13 +567,17 @@ class _StreamingJsonParser {
         }
       }
 
-      final itemsIndex = _headerBuffer.indexOf(RegExp(r'"(Items|items)"\s*:\s*\['));
-      if (itemsIndex != -1) {
-        _inItemsArray = true;
-        final startIndex = _headerBuffer.indexOf('[', itemsIndex) + 1;
-        final remainingChunk = _headerBuffer.substring(startIndex);
-        _headerBuffer = '';
-        await _processItemsContent(remainingChunk);
+      // Fast path: avoid RegExp scan on every chunk for large downloads.
+      var itemsIndex = _headerBuffer.indexOf('"Items"');
+      if (itemsIndex < 0) itemsIndex = _headerBuffer.indexOf('"items"');
+      if (itemsIndex >= 0) {
+        final bracket = _headerBuffer.indexOf('[', itemsIndex);
+        if (bracket >= 0) {
+          _inItemsArray = true;
+          final remainingChunk = _headerBuffer.substring(bracket + 1);
+          _headerBuffer = '';
+          await _processItemsContent(remainingChunk);
+        }
       }
     } else {
       await _processItemsContent(chunk);
@@ -651,6 +622,8 @@ class _StreamingJsonParser {
               final jsonMap = jsonDecode(itemStr);
               if (jsonMap is Map<String, dynamic>) {
                 await onItemFound(jsonMap);
+              } else if (jsonMap is Map) {
+                await onItemFound(Map<String, dynamic>.from(jsonMap));
               }
             } catch (_) {}
             _currentItem.clear();

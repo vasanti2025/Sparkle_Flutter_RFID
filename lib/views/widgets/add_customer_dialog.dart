@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../l10n/l10n_extension.dart';
 import '../../utils/app_dropdown.dart';
 
+/// Add Customer Profile dialog — validation aligned with Sparkle
+/// `CustomerNameInputData.AddCustomerDialog` (+ letters-only name).
 class AddCustomerDialog extends StatefulWidget {
   final String title;
   final Function(Map<String, dynamic> req) onSave;
@@ -36,6 +39,17 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
     'Kerala', 'Maharashtra', 'Rajasthan', 'Tamil Nadu', 'Telangana'
   ];
 
+  // Same patterns as Sparkle AddCustomerDialog.
+  static final _phoneRe = RegExp(r'^[0-9]{10}$');
+  static final _emailRe = RegExp(
+    r'^[a-zA-Z0-9_+&*-]+(?:\.[a-zA-Z0-9_+&*-]+)*@(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,7}$',
+  );
+  static final _panRe = RegExp(r'^[A-Z]{5}[0-9]{4}[A-Z]{1}$');
+  static final _gstRe = RegExp(
+    r'^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[A-Z0-9]{1}[A-Z]{1}[0-9]{1}$',
+  );
+  static final _nameDigitRe = RegExp(r'\d');
+
   @override
   void dispose() {
     _nameCtrl.dispose();
@@ -63,7 +77,6 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Dark Header
             Container(
               height: 56,
               color: const Color(0xFF2E2E2E),
@@ -84,7 +97,6 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
               ),
             ),
 
-            // Scrollable Form Fields
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(16),
@@ -95,16 +107,32 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
                       _buildTextField(
                         controller: _nameCtrl,
                         hintText: s.fieldCustomerName,
-                        validator: (v) => v == null || v.trim().isEmpty ? s.validationNameRequired : null,
+                        textCapitalization: TextCapitalization.words,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.deny(RegExp(r'[0-9]')),
+                        ],
+                        validator: (v) {
+                          final name = v?.trim() ?? '';
+                          if (name.isEmpty) return s.validationNameRequired;
+                          if (_nameDigitRe.hasMatch(name)) {
+                            return s.validationNameLettersOnly;
+                          }
+                          return null;
+                        },
                       ),
                       const SizedBox(height: 10),
                       _buildTextField(
                         controller: _phoneCtrl,
                         hintText: s.fieldMobileNumber,
                         keyboardType: TextInputType.phone,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(10),
+                        ],
                         validator: (v) {
-                          if (v == null || v.trim().isEmpty) return s.validationMobileRequired;
-                          if (v.trim().length != 10 || double.tryParse(v.trim()) == null) {
+                          final phone = v?.trim() ?? '';
+                          if (phone.isEmpty) return s.validationMobileRequired;
+                          if (!_phoneRe.hasMatch(phone)) {
                             return s.validationMobileDigits;
                           }
                           return null;
@@ -115,15 +143,28 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
                         controller: _emailCtrl,
                         hintText: s.fieldEmailAddress,
                         keyboardType: TextInputType.emailAddress,
+                        validator: (v) {
+                          final email = v?.trim() ?? '';
+                          if (email.isNotEmpty && !_emailRe.hasMatch(email)) {
+                            return s.validationEmailInvalid;
+                          }
+                          return null;
+                        },
                       ),
                       const SizedBox(height: 10),
                       _buildTextField(
                         controller: _panCtrl,
                         hintText: s.fieldPanNumber,
                         textCapitalization: TextCapitalization.characters,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9]')),
+                          LengthLimitingTextInputFormatter(10),
+                          _UpperCaseTextFormatter(),
+                        ],
                         validator: (v) {
-                          if (v != null && v.isNotEmpty && v.trim().length != 10) {
-                            return s.validationPanDigits;
+                          final pan = (v ?? '').trim().toUpperCase();
+                          if (pan.isNotEmpty && !_panRe.hasMatch(pan)) {
+                            return s.validationPanInvalid;
                           }
                           return null;
                         },
@@ -133,9 +174,15 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
                         controller: _gstCtrl,
                         hintText: s.fieldGstNumber,
                         textCapitalization: TextCapitalization.characters,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9]')),
+                          LengthLimitingTextInputFormatter(15),
+                          _UpperCaseTextFormatter(),
+                        ],
                         validator: (v) {
-                          if (v != null && v.isNotEmpty && v.trim().length != 15) {
-                            return s.validationGstDigits;
+                          final gst = (v ?? '').trim().toUpperCase();
+                          if (gst.isNotEmpty && !_gstRe.hasMatch(gst)) {
+                            return s.validationGstInvalid;
                           }
                           return null;
                         },
@@ -147,7 +194,6 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
                       ),
                       const SizedBox(height: 10),
 
-                      // Dropdown Row (Country & State)
                       Row(
                         children: [
                           Expanded(
@@ -176,6 +222,12 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
                       _buildTextField(
                         controller: _cityCtrl,
                         hintText: s.fieldCity,
+                        validator: (v) {
+                          if (v == null || v.trim().isEmpty) {
+                            return s.validationCityRequired;
+                          }
+                          return null;
+                        },
                       ),
                     ],
                   ),
@@ -183,7 +235,6 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
               ),
             ),
 
-            // Footer Actions
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: const BoxDecoration(
@@ -202,7 +253,10 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
                         onPressed: () => Navigator.pop(context),
                         child: Text(
                           s.cancel,
-                          style: GoogleFonts.poppins(color: Colors.grey[700], fontWeight: FontWeight.bold),
+                          style: GoogleFonts.poppins(
+                            color: Colors.grey[700],
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ),
@@ -220,9 +274,10 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
                       child: ElevatedButton(
                         onPressed: () {
                           if (_formKey.currentState?.validate() ?? false) {
-                            final names = _nameCtrl.text.trim().split(' ');
+                            final names = _nameCtrl.text.trim().split(RegExp(r'\s+'));
                             final first = names.first;
-                            final last = names.length > 1 ? names.sublist(1).join(' ') : '';
+                            final last =
+                                names.length > 1 ? names.sublist(1).join(' ') : '';
 
                             final req = {
                               'FirstName': first,
@@ -242,11 +297,16 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.transparent,
                           shadowColor: Colors.transparent,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
                         child: Text(
                           s.save,
-                          style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold),
+                          style: GoogleFonts.poppins(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ),
@@ -265,12 +325,14 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
     required String hintText,
     TextInputType keyboardType = TextInputType.text,
     TextCapitalization textCapitalization = TextCapitalization.none,
+    List<TextInputFormatter>? inputFormatters,
     String? Function(String?)? validator,
   }) {
     return TextFormField(
       controller: controller,
       keyboardType: keyboardType,
       textCapitalization: textCapitalization,
+      inputFormatters: inputFormatters,
       validator: validator,
       style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
       decoration: InputDecoration(
@@ -284,6 +346,7 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide.none,
         ),
+        errorMaxLines: 2,
       ),
     );
   }
@@ -309,6 +372,19 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
           onChanged: onChanged,
         ),
       ),
+    );
+  }
+}
+
+class _UpperCaseTextFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    return newValue.copyWith(
+      text: newValue.text.toUpperCase(),
+      selection: newValue.selection,
     );
   }
 }

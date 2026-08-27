@@ -152,11 +152,14 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
     final scopeTags = vm.scanScopeTags;
     if (scopeTags.isNotEmpty) {
       await _rfidService.setMatchEpcs(scopeTags);
+    } else {
+      await _rfidService.clearMatchEpcs();
     }
 
     final started = await _rfidService.startScanning(
       power: _power,
       simulatedScopeTags: scopeTags,
+      inventory: !_isSingleScan,
     );
     if (started) _trayAutoStop.onScanStarted();
     if (mounted) setState(() {});
@@ -669,7 +672,11 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
           _isSingleScan = false;
           _toggleGscan(vm);
         },
-        onReset: () {
+        onReset: () async {
+          if (_rfidService.isScanning) {
+            await _rfidService.stopScanning();
+            if (mounted) setState(() {});
+          }
           vm.clearSampleIn();
           _customerSearchCtrl.clear();
           _sampleOutNoCtrl.clear();

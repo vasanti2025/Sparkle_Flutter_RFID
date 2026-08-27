@@ -1,12 +1,16 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import '../models/bulk_item.dart';
 import '../services/db_service.dart';
 import '../services/pref_service.dart';
+import '../services/session_lifecycle.dart';
 import '../services/sync_isolate.dart';
 import '../services/api_service.dart';
 import '../utils/product_image.dart';
@@ -194,6 +198,7 @@ class ProductViewModel extends ChangeNotifier {
       _isLoading = false;
       _errorMessage = 'Session expired. Please login again.';
       notifyListeners();
+      unawaited(SessionLifecycle.instance.forceLogoutToLogin());
       return;
     }
 
@@ -400,6 +405,7 @@ class ProductViewModel extends ChangeNotifier {
     if (employee == null) {
       _errorMessage = 'Session expired. Please login again.';
       notifyListeners();
+      unawaited(SessionLifecycle.instance.forceLogoutToLogin());
       return false;
     }
 
@@ -439,6 +445,7 @@ class ProductViewModel extends ChangeNotifier {
     if (employee == null) {
       _errorMessage = 'Session expired. Please login again.';
       notifyListeners();
+      unawaited(SessionLifecycle.instance.forceLogoutToLogin());
       return false;
     }
 
@@ -692,9 +699,9 @@ class ProductViewModel extends ChangeNotifier {
     String? filterValue,
     void Function(int loaded, int total)? onProgress,
   }) async {
-    const pageSize = 2000;
-    // Hard cap protects low-RAM handhelds from OOM crash.
-    const maxItems = 40000;
+    const pageSize = 2500;
+    // Handhelds in the field inventory ~50k SKUs; keep a hard cap above that.
+    const maxItems = 50000;
 
     final total = await _dbService.getScanDisplayItemCount(
       filterType: filterType,
@@ -737,7 +744,9 @@ class ProductViewModel extends ChangeNotifier {
     }
   }
 
-  // Upload Stock Verification payload
+  /// Upload stock verification — Sparkle Scan Display path:
+  /// stream JSON to a temp file + `AddStockVerificationWithBatchFile` (one call).
+  /// Falls back to chunked session POSTs only if the file API fails.
   Future<bool> uploadVerification({
     required String clientCode,
     required List<Map<String, dynamic>> items,
@@ -747,12 +756,43 @@ class ProductViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Chunk items into batches of 2000 to match Compose behavior
+      if (items.isEmpty) {
+        throw Exception('Item list is empty');
+      }
+
+      try {
+        final file = await _writeStockVerificationJsonFile(clientCode, items);
+        try {
+          final ok = await _apiService.uploadStockVerificationFile(
+            clientCode,
+            file.path,
+          );
+          if (ok) return true;
+        } finally {
+          try {
+            if (await file.exists()) await file.delete();
+          } catch (_) {}
+        }
+      } catch (e) {
+        debugPrint('Stock verification file upload failed, falling back to batches: $e');
+      }
+
+      // Fallback: parallel 2k batches (old AddStockVerificationBySession path).
       const int batchSize = 2000;
-      for (int i = 0; i < items.length; i += batchSize) {
+      const int parallel = 3;
+      final batches = <List<Map<String, dynamic>>>[];
+      for (var i = 0; i < items.length; i += batchSize) {
         final end = (i + batchSize < items.length) ? i + batchSize : items.length;
-        final batch = items.sublist(i, end);
-        await _apiService.uploadStockVerification(clientCode, batch);
+        batches.add(items.sublist(i, end));
+      }
+      for (var i = 0; i < batches.length; i += parallel) {
+        final group = batches.sublist(
+          i,
+          (i + parallel < batches.length) ? i + parallel : batches.length,
+        );
+        await Future.wait(
+          group.map((batch) => _apiService.uploadStockVerification(clientCode, batch)),
+        );
       }
       return true;
     } catch (e) {
@@ -763,5 +803,34 @@ class ProductViewModel extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  /// Stream JSON to disk (avoids one huge String for 2–5L items).
+  Future<File> _writeStockVerificationJsonFile(
+    String clientCode,
+    List<Map<String, dynamic>> items,
+  ) async {
+    final dir = await getTemporaryDirectory();
+    final file = File(
+      p.join(dir.path, 'stock_items_${DateTime.now().millisecondsSinceEpoch}.json'),
+    );
+    final sink = file.openWrite(encoding: utf8);
+    try {
+      sink.write('{"ClientCode":');
+      sink.write(jsonEncode(clientCode));
+      sink.write(',"Items":[');
+      for (var i = 0; i < items.length; i++) {
+        if (i > 0) sink.write(',');
+        sink.write(jsonEncode(items[i]));
+        if (i > 0 && i % 5000 == 0) {
+          await sink.flush();
+          await Future<void>.delayed(Duration.zero);
+        }
+      }
+      sink.write(']}');
+    } finally {
+      await sink.close();
+    }
+    return file;
   }
 }

@@ -21,8 +21,14 @@ class SearchItem {
   final String rfid;
   final String tid;
   final String hex;
-  final String rssi;
-  final int proximityPercent;
+  String rssi;
+  int proximityPercent;
+
+  late final String normEpc;
+  late final String normRfid;
+  late final String normItemCode;
+  late final String normTid;
+  late final String normHex;
 
   SearchItem({
     required this.epc,
@@ -33,23 +39,34 @@ class SearchItem {
     this.hex = '',
     this.rssi = '',
     this.proximityPercent = 0,
-  });
-
-  SearchItem copyWith({
-    String? rssi,
-    int? proximityPercent,
   }) {
-    return SearchItem(
-      epc: epc,
-      itemCode: itemCode,
-      productName: productName,
-      rfid: rfid,
-      tid: tid,
-      hex: hex,
-      rssi: rssi ?? this.rssi,
-      proximityPercent: proximityPercent ?? this.proximityPercent,
-    );
+    normEpc = epc.trim().toUpperCase().replaceAll(' ', '');
+    normRfid = rfid.trim().toUpperCase().replaceAll(' ', '');
+    normItemCode = itemCode.trim().toUpperCase().replaceAll(' ', '');
+    normTid = tid.trim().toUpperCase().replaceAll(' ', '');
+    normHex = hex.trim().toUpperCase().replaceAll(' ', '');
   }
+
+  void applyScan({String? rssi, int? proximityPercent}) {
+    if (rssi != null) this.rssi = rssi;
+    if (proximityPercent != null) this.proximityPercent = proximityPercent;
+  }
+
+  void clearScan() {
+    rssi = '';
+    proximityPercent = 0;
+  }
+}
+
+/// Single compact unmatched list shared with inventory — avoids a second 50k copy
+/// on 3GB handhelds (Navigator arguments + SearchItem list would OOM/ANR).
+class UnmatchedSearchCatalog {
+  UnmatchedSearchCatalog._();
+  static final UnmatchedSearchCatalog instance = UnmatchedSearchCatalog._();
+
+  final List<SearchItem> items = [];
+
+  void clear() => items.clear();
 }
 
 class SearchScreen extends StatefulWidget {
@@ -85,7 +102,20 @@ class _SearchScreenState extends State<SearchScreen> {
   final Map<String, int> _tagIndexMap = {};
   final Map<int, int> _lastRssiUpdateMs = {};
   int _lastSearchUiUpdateUs = 0;
-  final Map<int, SearchItem> _pendingItemUpdates = {};
+  final Set<int> _dirtyIndices = {};
+  final Set<int> _hotSet = {};
+  final Set<int> _atMaxProximity = {};
+  final List<int> _hotIndices = [];
+  final List<int> _coldIndices = [];
+  bool _displayIndexValid = false;
+  int _filteredCount = 0;
+  bool _indexReady = true;
+  int _lastRssiSoundMs = 0;
+  int _lastRssiSoundId = -1;
+  final ValueNotifier<int> _nearbyTick = ValueNotifier<int>(0);
+
+  bool get _isLargeUnmatched =>
+      _listKey == 'unmatchedItems' && _searchItems.length >= 500;
 
   @override
   void initState() {
@@ -110,16 +140,14 @@ class _SearchScreenState extends State<SearchScreen> {
       final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
       if (args != null) {
         final listKey = args['listKey'] as String? ?? 'normal';
-        final rawItems = args['items'] as List?;
-        final items = rawItems?.cast<BulkItem>().toList() ?? <BulkItem>[];
-        setState(() {
-          _listKey = listKey;
-          if (_listKey == 'unmatchedItems') {
-            _searchItems = items.map((i) => _searchItemFromBulk(i)).toList();
-            _rebuildTagIndex();
-            unawaited(_rfidService.prepareForScan());
-          }
-        });
+        _listKey = listKey;
+        if (_listKey == 'unmatchedItems') {
+          _isLoading = true;
+          _indexReady = false;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) unawaited(_attachUnmatchedCatalog());
+          });
+        }
       }
       _isInit = true;
     }
@@ -132,10 +160,14 @@ class _SearchScreenState extends State<SearchScreen> {
     _debounceTimer?.cancel();
     _uiFlushTimer?.cancel();
     _proximityDecayTimer?.cancel();
+    _nearbyTick.dispose();
     unawaited(_rfidService.stopInventorySound());
     unawaited(_rfidService.stopSound());
     unawaited(_rfidService.stopScanning());
     unawaited(_rfidService.clearSearchTags());
+    if (_listKey == 'unmatchedItems') {
+      UnmatchedSearchCatalog.instance.clear();
+    }
     _searchController.dispose();
     super.dispose();
   }
@@ -147,87 +179,139 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   /// Trim + uppercase + strip spaces — matches native EPC keys and stock transfer.
-  static String _normScanKey(String value) =>
-      value.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
+  static String _normScanKey(String value) {
+    var s = value.trim();
+    if (s.isEmpty) return '';
+    s = s.toUpperCase();
+    if (s.contains(' ')) s = s.replaceAll(' ', '');
+    return s;
+  }
 
-  bool _itemMatchesScannedTag(SearchItem item, String epc) {
-    final key = _normScanKey(epc);
-    if (key.isEmpty) return false;
-    for (final value in [item.epc, item.rfid, item.itemCode, item.tid, item.hex]) {
-      if (_normScanKey(value) == key) return true;
+  Future<void> _attachUnmatchedCatalog() async {
+    // Reuse the catalog inventory already filled — do not copy 50k rows.
+    _searchItems = UnmatchedSearchCatalog.instance.items;
+    if (!mounted) return;
+    if (_searchItems.isEmpty) {
+      setState(() {
+        _isLoading = false;
+        _indexReady = true;
+        _displayIndexValid = false;
+      });
+      return;
     }
-    return false;
+    await _rebuildTagIndexChunked();
+    if (!mounted) return;
+    setState(() {
+      _isLoading = false;
+      _indexReady = true;
+      _displayIndexValid = false;
+    });
+    unawaited(_rfidService.prepareForScan());
+  }
+
+  Future<void> _rebuildTagIndexChunked() async {
+    _tagIndexMap.clear();
+    const chunk = 600;
+    for (int i = 0; i < _searchItems.length; i++) {
+      final item = _searchItems[i];
+
+      if (item.normEpc.isNotEmpty) _tagIndexMap[item.normEpc] = i;
+      if (item.normRfid.isNotEmpty) _tagIndexMap[item.normRfid] = i;
+      if (item.normItemCode.isNotEmpty) _tagIndexMap[item.normItemCode] = i;
+      if (item.normTid.isNotEmpty) _tagIndexMap[item.normTid] = i;
+      if (item.normHex.isNotEmpty) _tagIndexMap[item.normHex] = i;
+
+      if (i > 0 && i % chunk == 0) {
+        await Future<void>.delayed(Duration.zero);
+        if (!mounted) return;
+      }
+    }
   }
 
   void _startProximityDecay() {
-    _proximityDecayTimer?.cancel();
-    _proximityDecayTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (!_isScanning || !mounted) return;
-      final now = DateTime.now().millisecondsSinceEpoch;
-      var changed = false;
-      for (int i = 0; i < _searchItems.length; i++) {
-        final last = _lastRssiUpdateMs[i];
-        if (last == null) continue;
-        // No fresh RSSI for this row — decay so progress drops when tag moves away.
-        if (now - last > 450) {
-          final current = _pendingItemUpdates[i]?.proximityPercent ??
-              _searchItems[i].proximityPercent;
-          if (current > 0) {
-            final next = (current - 8).clamp(0, 100);
-            _pendingItemUpdates[i] = (_pendingItemUpdates[i] ?? _searchItems[i])
-                .copyWith(proximityPercent: next);
-            changed = true;
-            if (next == 0) _lastRssiUpdateMs.remove(i);
-          }
-        }
-      }
-      if (changed) _flushPendingSearchUpdates();
-    });
+    // Disabled to prevent artificial RSSI fluctuations when gun and items are in the same place (matches Java stability)
   }
 
   void _stopProximityDecay() {
-    _proximityDecayTimer?.cancel();
-    _proximityDecayTimer = null;
-    _lastRssiUpdateMs.clear();
+    // Disabled
   }
 
   void _rebuildTagIndex() {
     _tagIndexMap.clear();
     for (int i = 0; i < _searchItems.length; i++) {
       final item = _searchItems[i];
-      void addKey(String value) {
-        final key = _normScanKey(value);
-        if (key.isNotEmpty) _tagIndexMap[key] = i;
+      if (item.normEpc.isNotEmpty) _tagIndexMap[item.normEpc] = i;
+      if (item.normRfid.isNotEmpty) _tagIndexMap[item.normRfid] = i;
+      if (item.normItemCode.isNotEmpty) _tagIndexMap[item.normItemCode] = i;
+      if (item.normTid.isNotEmpty) _tagIndexMap[item.normTid] = i;
+      if (item.normHex.isNotEmpty) _tagIndexMap[item.normHex] = i;
+    }
+  }
+
+  void _rebuildNearbyOnly() {
+    for (final i in _dirtyIndices) {
+      if (i < 0 || i >= _searchItems.length) continue;
+      final prox = _searchItems[i].proximityPercent;
+      if (prox > 0) {
+        _hotSet.add(i);
+      } else {
+        _hotSet.remove(i);
       }
-      addKey(item.epc);
-      addKey(item.rfid);
-      addKey(item.itemCode);
-      addKey(item.tid);
-      addKey(item.hex);
+      if (prox >= 100) {
+        _atMaxProximity.add(i);
+      } else {
+        _atMaxProximity.remove(i);
+      }
+    }
+    _dirtyIndices.clear();
+    _hotIndices
+      ..clear()
+      ..addAll(_hotSet);
+    _hotIndices.sort((a, b) => _searchItems[b]
+        .proximityPercent
+        .compareTo(_searchItems[a].proximityPercent));
+    // Keep the live nearby pane small so 3GB devices never rebuild 50k rows.
+    if (_hotIndices.length > 40) {
+      _hotIndices.removeRange(40, _hotIndices.length);
     }
   }
 
   void _flushPendingSearchUpdates() {
-    if (_pendingItemUpdates.isEmpty || !mounted) return;
-    setState(() {
-      _pendingItemUpdates.forEach((index, item) {
-        if (index >= 0 && index < _searchItems.length) {
-          _searchItems[index] = item;
-        }
-      });
-      _pendingItemUpdates.clear();
-    });
+    if (_dirtyIndices.isEmpty) return;
+    if (!mounted) return;
+    _rebuildNearbyOnly();
+    _displayIndexValid = false;
+    if (_isLargeUnmatched) {
+      _nearbyTick.value++;
+    }
+    setState(() {});
     _checkAutoStopSearch();
   }
 
   /// Stop when every item in the current list reaches max proximity (Sparkle Search).
   void _checkAutoStopSearch() {
     if (!_isScanning || _scanBusy) return;
-    final items = _getFilteredItems();
-    if (items.isEmpty) return;
-    if (items.every((i) => i.proximityPercent >= 100)) {
-      unawaited(_stopSearchScan());
+    if (_searchItems.isEmpty) return;
+    if (_isLargeUnmatched) {
+      if (_searchQuery.trim().isEmpty &&
+          _atMaxProximity.length >= _searchItems.length) {
+        unawaited(_stopSearchScan());
+      }
+      return;
     }
+    if (!_displayIndexValid) _rebuildDisplayIndices();
+    if (_filteredCount <= 0) return;
+    if (_searchQuery.trim().isEmpty) {
+      if (_atMaxProximity.length < _searchItems.length) return;
+    } else {
+      for (final i in _hotIndices) {
+        if (_searchItems[i].proximityPercent < 100) return;
+      }
+      for (final i in _coldIndices) {
+        if (_searchItems[i].proximityPercent < 100) return;
+      }
+    }
+    unawaited(_stopSearchScan());
   }
 
   Future<void> _stopSearchScan() async {
@@ -239,22 +323,26 @@ class _SearchScreenState extends State<SearchScreen> {
       await _rfidService.stopInventorySound();
       await _rfidService.stopSound();
       await _rfidService.clearSearchTags();
-      if (mounted) setState(() => _isScanning = false);
+      if (mounted) {
+        _displayIndexValid = false;
+        setState(() => _isScanning = false);
+        _nearbyTick.value++;
+      }
     } finally {
       _scanBusy = false;
     }
   }
 
-  void _scheduleSearchUiUpdate(int index, SearchItem updated) {
-    _pendingItemUpdates[index] = updated;
+  void _scheduleSearchUiUpdate() {
     final now = DateTime.now().microsecondsSinceEpoch;
+    final minUs = _isLargeUnmatched ? 180000 : 16000;
     if (_lastSearchUiUpdateUs == 0 ||
-        now - _lastSearchUiUpdateUs >= 16000) {
+        now - _lastSearchUiUpdateUs >= minUs) {
       _lastSearchUiUpdateUs = now;
       _uiFlushTimer?.cancel();
       _flushPendingSearchUpdates();
     } else {
-      _uiFlushTimer ??= Timer(const Duration(milliseconds: 16), () {
+      _uiFlushTimer ??= Timer(Duration(microseconds: minUs), () {
         _uiFlushTimer = null;
         _lastSearchUiUpdateUs = DateTime.now().microsecondsSinceEpoch;
         _flushPendingSearchUpdates();
@@ -300,45 +388,49 @@ class _SearchScreenState extends State<SearchScreen> {
     return Colors.green;
   }
 
-  void _onTagScanned(Map<String, dynamic> tagEvent) {
-    if (!_isScanning) return;
-
-    final epc = _normScanKey(tagEvent['epc'] as String? ?? '');
-    final rssi = (tagEvent['rssi'] as String? ?? '').trim();
-    if (epc.isEmpty) return;
-
-    final proximity = convertRssiToProximity(rssi);
-    if (proximity < 0) return;
-
+  void _playRssiSearchSound(String rssi) {
+    final rssiAbs = double.tryParse(rssi.trim())?.abs() ?? 0;
+    final id = rssiAbs > 0 && rssiAbs < 50
+        ? 4
+        : rssiAbs > 50 && rssiAbs < 60
+            ? 2
+            : rssiAbs > 60 && rssiAbs < 70
+                ? 5
+                : rssiAbs > 70
+                    ? 1
+                    : -1;
+    if (id == -1) return;
     final now = DateTime.now().millisecondsSinceEpoch;
-    var updatedAny = false;
+    if (id == _lastRssiSoundId && now - _lastRssiSoundMs < 40) return;
+    _lastRssiSoundMs = now;
+    _lastRssiSoundId = id;
+    unawaited(_rfidService.playSound(id));
+  }
 
-    for (int i = 0; i < _searchItems.length; i++) {
-      if (!_itemMatchesScannedTag(_searchItems[i], epc)) continue;
-      _lastRssiUpdateMs[i] = now;
-      final base = _pendingItemUpdates[i] ?? _searchItems[i];
-      _scheduleSearchUiUpdate(
-        i,
-        base.copyWith(
-          rssi: rssi,
-          proximityPercent: proximity,
-        ),
-      );
-      updatedAny = true;
-    }
+  void _onTagScanned(Map<String, dynamic> tagEvent) {
+    try {
+      if (!_isScanning) return;
 
-    if (!updatedAny) {
+      final epc = _normScanKey(tagEvent['epc'] as String? ?? '');
+      final rssi = (tagEvent['rssi'] as String? ?? '').trim();
+      if (epc.isEmpty) return;
+
+      final proximity = convertRssiToProximity(rssi);
+      if (proximity < 0) return;
+
+      final now = DateTime.now().millisecondsSinceEpoch;
       final index = _tagIndexMap[epc];
       if (index == null || index < 0 || index >= _searchItems.length) return;
+
       _lastRssiUpdateMs[index] = now;
-      final base = _pendingItemUpdates[index] ?? _searchItems[index];
-      _scheduleSearchUiUpdate(
-        index,
-        base.copyWith(
-          rssi: rssi,
-          proximityPercent: proximity,
-        ),
-      );
+      _searchItems[index].applyScan(rssi: rssi, proximityPercent: proximity);
+      _dirtyIndices.add(index);
+      if (_isLargeUnmatched) {
+        _playRssiSearchSound(rssi);
+      }
+      _scheduleSearchUiUpdate();
+    } catch (e) {
+      debugPrint('Search tag handler: $e');
     }
   }
 
@@ -353,47 +445,80 @@ class _SearchScreenState extends State<SearchScreen> {
       return;
     }
 
-    final itemsToSearch = _getFilteredItems();
-    if (itemsToSearch.isEmpty) {
-      _showToast(context.sRead.noItemsToSearch);
+    if (!_indexReady) {
+      _showToast(context.sRead.pleaseWaitItemsLoading);
       return;
     }
 
-    final tags = <String>[];
-    for (var item in itemsToSearch) {
-      if (item.epc.isNotEmpty) tags.add(item.epc);
-      if (item.rfid.isNotEmpty) tags.add(item.rfid);
-      if (item.itemCode.isNotEmpty) tags.add(item.itemCode);
-      if (item.tid.isNotEmpty) tags.add(item.tid);
-      if (item.hex.isNotEmpty) tags.add(item.hex);
-    }
-
-    final cleanTags = tags
-        .map(_normScanKey)
-        .where((t) => t.isNotEmpty)
-        .toSet()
-        .toList();
-    if (cleanTags.isEmpty) {
-      _showToast(context.sRead.noSearchableIdentifiersFound);
-      return;
+    if (_isLargeUnmatched) {
+      if (_searchItems.isEmpty) {
+        _showToast(context.sRead.noItemsToSearch);
+        return;
+      }
+    } else {
+      if (!_displayIndexValid) _rebuildDisplayIndices();
+      if (_filteredCount <= 0) {
+        _showToast(context.sRead.noItemsToSearch);
+        return;
+      }
     }
 
     _scanBusy = true;
     try {
-      // Instant tap feedback — single beep only; RSSI tones come from native during scan.
       setState(() => _isScanning = true);
       unawaited(_rfidService.playBeep());
-      _rebuildTagIndex();
       _lastSearchUiUpdateUs = 0;
+      _atMaxProximity.clear();
+      _dirtyIndices.clear();
+      _hotSet.clear();
+      _hotIndices.clear();
       _startProximityDecay();
 
-      final started = await _rfidService
-          .startScanning(
-            power: _selectedPower,
-            searchTags: cleanTags,
-            playStartSound: false,
-          )
-          .timeout(const Duration(seconds: 12), onTimeout: () => false);
+      bool started;
+      if (_isLargeUnmatched) {
+        // 3GB handhelds cannot take 50k search tags over the binder.
+        // Match in Dart; native emits all tags (same RSSI proximity UX).
+        await _rfidService.clearSearchTags();
+        started = await _rfidService
+            .startScanning(
+              power: _selectedPower,
+              playStartSound: false,
+            )
+            .timeout(const Duration(seconds: 12), onTimeout: () => false);
+      } else {
+        List<String> cleanTags;
+        if (_searchQuery.trim().isEmpty && _tagIndexMap.isNotEmpty) {
+          cleanTags = _tagIndexMap.keys.toList(growable: false);
+        } else {
+          final tags = <String>{};
+          void addTag(String value) {
+            final key = _normScanKey(value);
+            if (key.isNotEmpty) tags.add(key);
+          }
+          for (var i = 0; i < _filteredCount; i++) {
+            final item = _displayItemAt(i);
+            addTag(item.epc);
+            addTag(item.rfid);
+            addTag(item.itemCode);
+            addTag(item.tid);
+            addTag(item.hex);
+          }
+          cleanTags = tags.toList(growable: false);
+        }
+        if (cleanTags.isEmpty) {
+          _showToast(context.sRead.noSearchableIdentifiersFound);
+          setState(() => _isScanning = false);
+          _stopProximityDecay();
+          return;
+        }
+        started = await _rfidService
+            .startScanning(
+              power: _selectedPower,
+              searchTags: cleanTags,
+              playStartSound: false,
+            )
+            .timeout(const Duration(seconds: 12), onTimeout: () => false);
+      }
 
       if (!mounted) return;
       if (!started) {
@@ -402,6 +527,7 @@ class _SearchScreenState extends State<SearchScreen> {
         await _rfidService.stopSound();
         await _rfidService.stopScanning();
         await _rfidService.clearSearchTags();
+        if (!mounted) return;
         _showToast(context.sRead.failedToStartRfidScanner);
       }
     } catch (e) {
@@ -417,17 +543,22 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _onQueryChanged(String val) {
-    setState(() {
-      _searchQuery = val;
-    });
-
+    _searchQuery = val;
+    _displayIndexValid = false;
     if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
-    
+
     if (_listKey == 'normal') {
+      setState(() {});
       _debounceTimer = Timer(const Duration(milliseconds: 200), () {
         _performSearch(val);
       });
+      return;
     }
+
+    _debounceTimer = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      setState(() {});
+    });
   }
 
   Future<void> _performSearch(String query) async {
@@ -555,62 +686,102 @@ class _SearchScreenState extends State<SearchScreen> {
       setState(() {
         _searchItems = results;
         _rebuildTagIndex();
+        _displayIndexValid = false;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isLoading = false);
       _showToast(context.sRead.searchError(e));
     }
   }
 
-  List<SearchItem> _getFilteredItems() {
-    final query = _searchQuery.trim().toLowerCase();
-    List<SearchItem> baseList;
-    
-    if (_listKey == 'unmatchedItems') {
-      if (query.isNotEmpty) {
-        baseList = _searchItems.where((item) {
-          return item.itemCode.toLowerCase().contains(query) ||
-              item.rfid.toLowerCase().contains(query) ||
-              item.epc.toLowerCase().contains(query);
-        }).toList();
-      } else {
-        baseList = List.from(_searchItems);
-      }
-    } else {
-      baseList = List.from(_searchItems);
+  void _rebuildDisplayIndices() {
+    if (_isLargeUnmatched && _searchQuery.trim().isEmpty) {
+      _filteredCount = _searchItems.length;
+      _displayIndexValid = true;
+      return;
     }
-
-    baseList.sort((a, b) {
-      int cmp = b.proximityPercent.compareTo(a.proximityPercent);
-      if (cmp != 0) return cmp;
-      
+    final query = _searchQuery.trim().toUpperCase().replaceAll(' ', '');
+    _hotIndices.clear();
+    _coldIndices.clear();
+    for (var i = 0; i < _searchItems.length; i++) {
+      final item = _searchItems[i];
       if (query.isNotEmpty) {
-        final aExact = a.itemCode.toLowerCase() == query || a.rfid.toLowerCase() == query || a.epc.toLowerCase() == query;
-        final bExact = b.itemCode.toLowerCase() == query || b.rfid.toLowerCase() == query || b.epc.toLowerCase() == query;
-        if (aExact && !bExact) return -1;
-        if (!aExact && bExact) return 1;
+        if (!item.normItemCode.contains(query) &&
+            !item.normRfid.contains(query) &&
+            !item.normEpc.contains(query) &&
+            !item.normTid.contains(query) &&
+            !item.normHex.contains(query)) {
+          continue;
+        }
       }
-      return 0;
-    });
+      if (item.proximityPercent > 0) {
+        _hotIndices.add(i);
+      } else {
+        _coldIndices.add(i);
+      }
+    }
+    _hotIndices.sort((a, b) => _searchItems[b]
+        .proximityPercent
+        .compareTo(_searchItems[a].proximityPercent));
+    if (query.isNotEmpty && _coldIndices.isNotEmpty) {
+      final exact = <int>[];
+      final rest = <int>[];
+      for (final i in _coldIndices) {
+        final item = _searchItems[i];
+        final isExact = item.normItemCode == query ||
+            item.normRfid == query ||
+            item.normEpc == query ||
+            item.normTid == query ||
+            item.normHex == query;
+        if (isExact) {
+          exact.add(i);
+        } else {
+          rest.add(i);
+        }
+      }
+      _coldIndices
+        ..clear()
+        ..addAll(exact)
+        ..addAll(rest);
+    }
+    _filteredCount = _hotIndices.length + _coldIndices.length;
+    _displayIndexValid = true;
+  }
 
-    return baseList;
+  SearchItem _displayItemAt(int index) {
+    if (index < _hotIndices.length) {
+      return _searchItems[_hotIndices[index]];
+    }
+    return _searchItems[_coldIndices[index - _hotIndices.length]];
   }
 
   void _resetSearch() {
     unawaited(_stopSearchScan());
     _stopProximityDecay();
     _searchController.clear();
+    _atMaxProximity.clear();
+    _dirtyIndices.clear();
+    _hotSet.clear();
+    _hotIndices.clear();
     setState(() {
       _searchQuery = '';
       _isScanning = false;
       if (_listKey == 'normal') {
         _searchItems.clear();
+        _tagIndexMap.clear();
       } else {
-        // Reset proximity values in unmatched list
-        _searchItems = _searchItems.map((i) => i.copyWith(rssi: '', proximityPercent: 0)).toList();
+        for (var i = 0; i < _searchItems.length; i++) {
+          final item = _searchItems[i];
+          if (item.proximityPercent != 0 || item.rssi.isNotEmpty) {
+            item.clearScan();
+          }
+        }
       }
+      _displayIndexValid = false;
     });
+    _nearbyTick.value++;
   }
 
   void _showToast(String message) {
@@ -627,7 +798,14 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget build(BuildContext context) {
     final s = context.s;
     final isUnmatchedList = _listKey == 'unmatchedItems';
-    final filteredItems = _getFilteredItems();
+    final largeUnmatched = _isLargeUnmatched;
+    final query = _searchQuery.trim();
+    if (!largeUnmatched || query.isNotEmpty) {
+      if (!_displayIndexValid) _rebuildDisplayIndices();
+    }
+    final catalogCount = (largeUnmatched && query.isEmpty)
+        ? _searchItems.length
+        : _filteredCount;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -784,7 +962,7 @@ class _SearchScreenState extends State<SearchScreen> {
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : filteredItems.isEmpty
+                : catalogCount == 0 && !(largeUnmatched && _hotIndices.isNotEmpty)
                     ? Center(
                         child: Text(
                           isUnmatchedList && _searchItems.isEmpty
@@ -794,33 +972,50 @@ class _SearchScreenState extends State<SearchScreen> {
                           textAlign: TextAlign.center,
                         ),
                       )
-                    : ListView.builder(
-                        itemCount: filteredItems.length,
-                        itemBuilder: (context, index) {
-                          final item = filteredItems[index];
-                          return Container(
-                            padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 8.0),
-                            decoration: BoxDecoration(
-                              border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
+                    : Column(
+                        children: [
+                          if (largeUnmatched && query.isEmpty)
+                            ValueListenableBuilder<int>(
+                              valueListenable: _nearbyTick,
+                              builder: (context, value, child) {
+                                if (_hotIndices.isEmpty) {
+                                  return const SizedBox.shrink();
+                                }
+                                final n = _hotIndices.length > 8
+                                    ? 8
+                                    : _hotIndices.length;
+                                return SizedBox(
+                                  height: n * 34.0,
+                                  child: ListView.builder(
+                                    physics: const NeverScrollableScrollPhysics(),
+                                    itemExtent: 34,
+                                    itemCount: n,
+                                    itemBuilder: (context, index) {
+                                      return _buildSearchRow(
+                                        _searchItems[_hotIndices[index]],
+                                        index,
+                                      );
+                                    },
+                                  ),
+                                );
+                              },
                             ),
-                            child: Row(
-                              children: _selectedSearchType == 'Order' && !isUnmatchedList
-                                  ? [
-                                      _buildDataCell('${index + 1}', 1),
-                                      _buildDataCell(item.rfid, 2),
-                                      _buildProgressCell(item.proximityPercent, 3),
-                                      _buildDataCell('${item.proximityPercent}%', 1),
-                                    ]
-                                  : [
-                                      _buildDataCell('${index + 1}', 1),
-                                      _buildDataCell(item.rfid, 2),
-                                      _buildDataCell(item.itemCode, 2),
-                                      _buildProgressCell(item.proximityPercent, 3),
-                                      _buildDataCell('${item.proximityPercent}%', 1),
-                                    ],
+                          Expanded(
+                            child: ListView.builder(
+                              itemCount: catalogCount,
+                              itemExtent: 34,
+                              cacheExtent: 80,
+                              addAutomaticKeepAlives: false,
+                              addRepaintBoundaries: false,
+                              itemBuilder: (context, index) {
+                                final item = (largeUnmatched && query.isEmpty)
+                                    ? _searchItems[index]
+                                    : _displayItemAt(index);
+                                return _buildSearchRow(item, index);
+                              },
                             ),
-                          );
-                        },
+                          ),
+                        ],
                       ),
           ),
 
@@ -835,6 +1030,31 @@ class _SearchScreenState extends State<SearchScreen> {
             isScreen: true,
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSearchRow(SearchItem item, int index) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 8.0),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
+      ),
+      child: Row(
+        children: _selectedSearchType == 'Order' && _listKey != 'unmatchedItems'
+            ? [
+                _buildDataCell('${index + 1}', 1),
+                _buildDataCell(item.rfid, 2),
+                _buildProgressCell(item.proximityPercent, 3),
+                _buildDataCell('${item.proximityPercent}%', 1),
+              ]
+            : [
+                _buildDataCell('${index + 1}', 1),
+                _buildDataCell(item.rfid, 2),
+                _buildDataCell(item.itemCode, 2),
+                _buildProgressCell(item.proximityPercent, 3),
+                _buildDataCell('${item.proximityPercent}%', 1),
+              ],
       ),
     );
   }

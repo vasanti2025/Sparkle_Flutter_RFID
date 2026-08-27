@@ -119,6 +119,15 @@ class _ProductListScreenState extends State<ProductListScreen> {
   }
 
   void _editProduct(BulkItem item) async {
+    if (item.status.toLowerCase() == 'apiactive') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(context.sRead.apiActiveCannotEditDelete),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
     final result = await Navigator.pushNamed(
       context,
       '/edit_product',
@@ -131,6 +140,15 @@ class _ProductListScreenState extends State<ProductListScreen> {
   }
 
   void _confirmDeleteProduct(BulkItem item) {
+    if (item.status.toLowerCase() == 'apiactive') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(context.sRead.apiActiveCannotEditDelete),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
     final s = context.sRead;
     showAppDialog(
       context: context,
@@ -148,8 +166,8 @@ class _ProductListScreenState extends State<ProductListScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(s.cancel, style: GoogleFonts.poppins(color: Colors.grey[600])),
+               onPressed: () => Navigator.pop(context),
+               child: Text(s.cancel, style: GoogleFonts.poppins(color: Colors.grey[600])),
             ),
             ElevatedButton(
               onPressed: () async {

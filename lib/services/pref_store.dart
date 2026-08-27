@@ -70,25 +70,13 @@ class MemoryPrefStore implements PrefStore {
   /// Loads persisted prefs over bootstrap seed — disk is source of truth on cold start.
   void importFromSharedPreferences(SharedPreferences prefs) {
     for (final key in prefs.getKeys()) {
-      final str = prefs.getString(key);
-      if (str != null) {
-        put(key, str);
-        continue;
-      }
-      final boolVal = prefs.getBool(key);
-      if (boolVal != null) {
-        put(key, boolVal);
-        continue;
-      }
-      final intVal = prefs.getInt(key);
-      if (intVal != null) {
-        put(key, intVal);
-        continue;
-      }
-      final doubleVal = prefs.getDouble(key);
-      if (doubleVal != null) {
-        put(key, doubleVal);
-        continue;
+      try {
+        final val = prefs.get(key);
+        if (val != null) {
+          put(key, val);
+        }
+      } catch (e) {
+        print('Error importing preference key $key: $e');
       }
     }
   }
@@ -154,6 +142,37 @@ class MemoryPrefStore implements PrefStore {
       final key = entry.key;
       final value = entry.value;
       if (value is String) {
+        await prefs.setString(key, value);
+      } else if (value is bool) {
+        await prefs.setBool(key, value);
+      } else if (value is int) {
+        await prefs.setInt(key, value);
+      } else if (value is double) {
+        await prefs.setDouble(key, value);
+      } else if (value != null) {
+        await prefs.setString(key, value.toString());
+      }
+    }
+  }
+
+  /// Like [mergeInto], but never overwrite durable session keys with empty values.
+  Future<void> mergeSessionSafeInto(SharedPreferences prefs) async {
+    const protectEmpty = {
+      'token',
+      'employee',
+      'client',
+      'session_username',
+      'session_password',
+    };
+    for (final entry in _data.entries) {
+      final key = entry.key;
+      final value = entry.value;
+      if (value is String) {
+        if (protectEmpty.contains(key) &&
+            value.isEmpty &&
+            (prefs.getString(key)?.isNotEmpty ?? false)) {
+          continue;
+        }
         await prefs.setString(key, value);
       } else if (value is bool) {
         await prefs.setBool(key, value);

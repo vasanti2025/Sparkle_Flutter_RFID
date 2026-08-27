@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../app_navigator.dart';
 import '../l10n/l10n_extension.dart';
 import '../services/app_warmup_service.dart';
+import '../services/session_lifecycle.dart';
 import '../viewmodels/dashboard_view_model.dart';
 import '../viewmodels/login_view_model.dart';
 import '../viewmodels/product_view_model.dart';
@@ -18,7 +19,8 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen>
+    with WidgetsBindingObserver {
   bool _navigating = false;
 
   static const _menuDefs = [
@@ -44,13 +46,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<DashboardViewModel>().loadUser();
+      unawaited(SessionLifecycle.instance.startMonitoring());
       AppWarmupService.instance.start(appNavigatorKey);
     });
     // Do NOT prefetch all list APIs here — it competes with navigation and
     // freezes/hangs the handheld. Each list screen loads when opened.
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      unawaited(SessionLifecycle.instance.checkAndEnforce());
+      try {
+        context.read<DashboardViewModel>().loadUser();
+      } catch (_) {}
+    }
   }
 
   String _titleForKey(String key, dynamic s) {
@@ -136,7 +156,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     final s = context.s;
     final employeeName = context.select<DashboardViewModel, String?>(
-      (vm) => vm.employee?.username,
+      (vm) {
+        final e = vm.employee;
+        if (e == null) return null;
+        final name = (e.username ?? e.userName ?? '').trim();
+        return name.isEmpty ? null : name;
+      },
     );
 
     final menuItems = _menuDefs
@@ -250,6 +275,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         } catch (_) {}
                         final nav = Navigator.of(context, rootNavigator: true);
                         Navigator.pop(context);
+                        SessionLifecycle.instance.stopMonitoring();
                         try {
                           await productVm?.resetForLogout();
                         } catch (_) {}

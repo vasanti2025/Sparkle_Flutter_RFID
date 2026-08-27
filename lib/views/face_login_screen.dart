@@ -302,6 +302,11 @@ class _FaceLoginScreenState extends State<FaceLoginScreen>
       organisationName: employee.clients?.organisationName ?? '',
     );
 
+    await pref.saveSessionCredentials(
+      username: matchedUsername,
+      password: pref.getSavedPassword(),
+    );
+    await pref.markSessionStarted();
     await pref.setLoggedIn(true);
 
     // Save permitted branches + start product sync (same as password login).

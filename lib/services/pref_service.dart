@@ -17,6 +17,14 @@ class PrefService {
   static const String _keyBranchId = 'branch_id';
   static const String _keyOrg = 'organisation_name';
   static const String _keyRfidType = 'remember_rfidType';
+  /// Absolute login session clock (ms since epoch). Cleared on logout.
+  static const String _keySessionStartedAt = 'session_started_at';
+  /// In-session credentials for silent JWT refresh (cleared on logout).
+  static const String _keySessionUsername = 'session_username';
+  static const String _keySessionPassword = 'session_password';
+
+  /// Client-side login session length. Server JWT is refreshed within this window.
+  static const Duration sessionDuration = Duration(hours: 1);
 
   // RFID power keys — match Kotlin UserPreferences
   static const String keyProductCount = 'product_count';
@@ -98,14 +106,86 @@ class PrefService {
   }
 
   /// True when the user should stay on dashboard without re-entering credentials.
-  bool hasValidSession() => isLoggedIn() && getEmployee() != null;
+  bool hasValidSession() {
+    if (!isLoggedIn() || getEmployee() == null) return false;
+    final token = getToken();
+    if (token == null || token.isEmpty) return false;
+    if (isSessionTimedOut()) return false;
+    return true;
+  }
+
+  Future<void> markSessionStarted([DateTime? at]) async {
+    final ms = (at ?? DateTime.now()).millisecondsSinceEpoch;
+    await _store.setInt(_keySessionStartedAt, ms);
+  }
+
+  int? getSessionStartedAtMs() => _store.getInt(_keySessionStartedAt);
+
+  bool isSessionTimedOut() {
+    final started = getSessionStartedAtMs();
+    if (started == null || started <= 0) {
+      // Legacy sessions without a clock: treat as still valid until next login
+      // stamps a start time. Do not force-logout mid-shift for old installs.
+      return false;
+    }
+    final age = DateTime.now().millisecondsSinceEpoch - started;
+    return age >= sessionDuration.inMilliseconds;
+  }
+
+  Duration? sessionTimeRemaining() {
+    final started = getSessionStartedAtMs();
+    if (started == null || started <= 0) return null;
+    final left = sessionDuration.inMilliseconds -
+        (DateTime.now().millisecondsSinceEpoch - started);
+    if (left <= 0) return Duration.zero;
+    return Duration(milliseconds: left);
+  }
+
+  Future<void> saveSessionCredentials({
+    required String username,
+    required String password,
+  }) async {
+    await _store.setString(_keySessionUsername, username);
+    await _store.setString(_keySessionPassword, password);
+  }
+
+  String getSessionUsername() {
+    final session = _store.getString(_keySessionUsername) ?? '';
+    if (session.isNotEmpty) return session;
+    return getSavedUsername();
+  }
+
+  String getSessionPassword() {
+    final session = _store.getString(_keySessionPassword) ?? '';
+    if (session.isNotEmpty) return session;
+    return getSavedPassword();
+  }
 
   Future<void> upgradeToSharedPreferences(SharedPreferences prefs) async {
     if (_store is MemoryPrefStore) {
       final mem = _store as MemoryPrefStore;
-      // Disk wins over bootstrap defaults; then persist any in-session memory edits.
+      // Capture any in-memory session written during bootstrap (login race).
+      final memToken = mem.getString(_keyToken) ?? '';
+      final memEmployee = mem.getString(_keyEmployee) ?? '';
+      final memClient = mem.getString('client') ?? '';
+      final memLoggedIn = mem.getBool(_keyLoggedIn) ?? false;
+      final memSessionAt = mem.getInt(_keySessionStartedAt);
+      final memSessionUser = mem.getString(_keySessionUsername) ?? '';
+      final memSessionPass = mem.getString(_keySessionPassword) ?? '';
+
+      // Disk is source of truth for cold start, then restore richer memory session.
       mem.importFromSharedPreferences(prefs);
-      await mem.mergeInto(prefs);
+      if (memToken.isNotEmpty) mem.put(_keyToken, memToken);
+      if (memEmployee.isNotEmpty) mem.put(_keyEmployee, memEmployee);
+      if (memClient.isNotEmpty) mem.put('client', memClient);
+      if (memLoggedIn) mem.put(_keyLoggedIn, true);
+      if (memSessionAt != null && memSessionAt > 0) {
+        mem.put(_keySessionStartedAt, memSessionAt);
+      }
+      if (memSessionUser.isNotEmpty) mem.put(_keySessionUsername, memSessionUser);
+      if (memSessionPass.isNotEmpty) mem.put(_keySessionPassword, memSessionPass);
+
+      await mem.mergeSessionSafeInto(prefs);
     }
     _store = SharedPrefStore(prefs);
     _initFuture = Future.value(this);
@@ -405,6 +485,9 @@ class PrefService {
     await _store.remove(_keyBranchId);
     await _store.remove(keyBranchIds);
     await _store.remove(_keyUserId);
+    await _store.remove(_keySessionStartedAt);
+    await _store.remove(_keySessionUsername);
+    await _store.remove(_keySessionPassword);
     if (!isRememberMe()) {
       await _store.remove(_keyUsername);
       await _store.remove(_keyPassword);

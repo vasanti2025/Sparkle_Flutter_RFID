@@ -182,6 +182,11 @@ class HardwareControllerImpl(
                 searchTags.addAll(tags.map { normalizeScanKey(it) }.filter { it.isNotEmpty() })
                 result.success(true)
             }
+            "addSearchTags" -> {
+                val tags = call.argument<List<String>>("tags") ?: emptyList()
+                searchTags.addAll(tags.map { normalizeScanKey(it) }.filter { it.isNotEmpty() })
+                result.success(true)
+            }
             "setMatchEpcs" -> {
                 val epcs = call.argument<List<String>>("epcs") ?: emptyList()
                 searchTags.clear()
@@ -717,16 +722,24 @@ class HardwareControllerImpl(
         synchronized(recentEmitProx) {
             recentEmitProx.clear()
         }
-        return try {
-            if (useBleReader()) {
-                trayManager.stopInventory()
-            } else {
-                uhfFacade?.stopInventory() ?: false
+        val useBle = useBleReader()
+        java.util.concurrent.Executors.newSingleThreadExecutor().execute {
+            var stopped = false
+            for (attempt in 0 until 3) {
+                if (stopped) break
+                try {
+                    stopped = if (useBle) {
+                        trayManager.stopInventory()
+                    } else {
+                        uhfFacade?.stopInventory() ?: false
+                    }
+                } catch (_: Throwable) {}
+                if (!stopped) {
+                    try { Thread.sleep(50L) } catch (_: InterruptedException) {}
+                }
             }
-        } catch (e: Throwable) {
-            e.printStackTrace()
-            false
         }
+        return true
     }
 
     private fun drainStaleBuffer() {
@@ -887,6 +900,7 @@ class HardwareControllerImpl(
                 // Sparkle BulkViewModel: all inventory tags flow to the app;
                 // matching uses filteredDbEpcSet in Flutter. Native scope filtering
                 // dropped every tag when DB EPC ≠ chip EPC (looked like scan broken).
+                if (matchEpcs.isNotEmpty() && !matchEpcs.contains(cleanEpc)) return false
             } else {
                 when {
                     searchTags.isNotEmpty() -> if (!searchTags.contains(cleanEpc)) return false
@@ -923,6 +937,8 @@ class HardwareControllerImpl(
 
     private fun queueTagEvent(cleanEpc: String, rssi: String) {
         synchronized(pendingTagLock) {
+            // Cap batch size so unmatched floods cannot blow the Flutter event binder.
+            if (pendingTagEvents.size >= 300) return
             pendingTagEvents.add("$cleanEpc,$rssi")
             if (!tagFlushScheduled) {
                 tagFlushScheduled = true

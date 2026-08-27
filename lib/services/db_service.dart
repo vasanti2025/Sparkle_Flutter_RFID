@@ -569,22 +569,27 @@ class DbService {
     return _mapsToBulkItems(maps);
   }
 
-  /// Exact RFID / item code / EPC search — indexed, no full-table scan.
+  /// Exact RFID / item code / EPC / TID search — indexed, no full-table scan.
   Future<List<BulkItem>> searchItemsExact(String query) async {
-    final q = query.trim().toUpperCase();
+    final q = query.trim();
     if (q.isEmpty) return [];
+    final qu = q.toUpperCase();
+
+    final args = q == qu ? [q] : [q, qu];
+    final placeholders = List.filled(args.length, '?').join(', ');
 
     final db = await database;
     final maps = await db.rawQuery(
       '''
       SELECT ${_scanDisplayColumns.join(', ')}
       FROM bulk_items
-      WHERE UPPER(TRIM(rfid)) = ?
-         OR UPPER(TRIM(itemCode)) = ?
-         OR UPPER(TRIM(epc)) = ?
+      WHERE rfid IN ($placeholders)
+         OR itemCode IN ($placeholders)
+         OR epc IN ($placeholders)
+         OR tid IN ($placeholders)
       LIMIT 50
       ''',
-      [q, q, q],
+      [...args, ...args, ...args, ...args],
     );
     return _mapsToBulkItems(maps);
   }
@@ -641,7 +646,7 @@ class DbService {
   Future<void> insertBulkItemsInBatch(
     List<BulkItem> items, {
     void Function(int done, int total)? onProgress,
-    int chunkSize = 400,
+    int? chunkSize,
   }) async {
     if (items.isEmpty) {
       invalidateBulkCache();
@@ -649,7 +654,12 @@ class DbService {
     }
     final db = await database;
     final total = items.length;
-    final size = chunkSize <= 0 ? 400 : chunkSize;
+    
+    // Dynamically scale chunk size to target ~100 progress updates, preventing UI thread
+    // thrashing and excessive SQLite commits (which slow down 10L imports by 100x).
+    final calculatedChunk = (total / 100).clamp(2000, 25000).toInt();
+    final size = chunkSize ?? calculatedChunk;
+    
     var done = 0;
     for (var i = 0; i < items.length; i += size) {
       final end = (i + size > items.length) ? items.length : i + size;
@@ -1067,25 +1077,30 @@ class DbService {
     return count;
   }
 
-  // Bulk update scan status
+  // Bulk update scan status (chunked for 2–5L inventories).
   Future<void> saveScanResultsLocally(List<BulkItem> items) async {
     if (items.isEmpty) return;
     final db = await database;
-    await db.transaction((txn) async {
-      final batch = txn.batch();
-      for (final item in items) {
-        batch.update(
-          'bulk_items',
-          {
-            'isScanned': item.isScanned,
-            'scannedStatus': item.scannedStatus,
-          },
-          where: 'bulkItemId = ?',
-          whereArgs: [item.bulkItemId],
-        );
-      }
-      await batch.commit(noResult: true);
-    });
+    const chunk = 5000;
+    for (var i = 0; i < items.length; i += chunk) {
+      final end = (i + chunk < items.length) ? i + chunk : items.length;
+      final slice = items.sublist(i, end);
+      await db.transaction((txn) async {
+        final batch = txn.batch();
+        for (final item in slice) {
+          batch.update(
+            'bulk_items',
+            {
+              'isScanned': item.isScanned,
+              'scannedStatus': item.scannedStatus,
+            },
+            where: 'bulkItemId = ?',
+            whereArgs: [item.bulkItemId],
+          );
+        }
+        await batch.commit(noResult: true);
+      });
+    }
     invalidateBulkCache();
   }
 

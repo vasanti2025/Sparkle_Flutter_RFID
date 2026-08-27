@@ -331,10 +331,12 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
     }
 
     if (!mounted) return;
-    final db = context.read<DbService>();
-    unawaited(_rfidService.prepareProductScanMatchSet(db));
+    await _rfidService.clearMatchEpcs();
 
-    final started = await _rfidService.startScanning(power: _power);
+    final started = await _rfidService.startScanning(
+      power: _power,
+      inventory: !_isSingleScan,
+    );
     if (started) _trayAutoStop.onScanStarted();
     if (mounted) setState(() {});
     if (!started && mounted) {
@@ -1071,7 +1073,11 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
           _isSingleScan = false;
           _toggleGscan(vm);
         },
-        onReset: () {
+        onReset: () async {
+          if (_rfidService.isScanning) {
+            await _rfidService.stopScanning();
+            if (mounted) setState(() {});
+          }
           vm.clearOrder();
           _customerSearchCtrl.clear();
         },

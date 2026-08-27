@@ -66,8 +66,15 @@ Widget _buildOverlappingScanButton({
   required bool isScanning,
   required VoidCallback onTap,
   required dynamic s,
+  bool showResume = false,
 }) {
   final bool showStop = isScanning;
+  final String label = showStop
+      ? s.stop
+      : (showResume ? s.resume : s.scanBtn);
+  final IconData icon = showStop
+      ? Icons.close
+      : (showResume ? Icons.play_arrow : Icons.qr_code_scanner);
   return GestureDetector(
     onTap: onTap,
     child: Container(
@@ -93,13 +100,13 @@ Widget _buildOverlappingScanButton({
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            showStop ? Icons.close : Icons.qr_code_scanner,
+            icon,
             color: Colors.white,
             size: 26,
           ),
           const SizedBox(height: 2),
           Text(
-            showStop ? s.stop : s.scanBtn,
+            label,
             style: GoogleFonts.poppins(
               color: Colors.white,
               fontSize: 11,
@@ -243,6 +250,8 @@ class ScanBottomBarInventory extends StatelessWidget {
   final VoidCallback onEmail;
   final VoidCallback onReset;
   final bool isScanning;
+  /// Scan Display only: after user Stop with unmatched items still left.
+  final bool showResume;
 
   const ScanBottomBarInventory({
     super.key,
@@ -252,6 +261,7 @@ class ScanBottomBarInventory extends StatelessWidget {
     required this.onEmail,
     required this.onReset,
     required this.isScanning,
+    this.showResume = false,
   });
 
   @override
@@ -270,6 +280,7 @@ class ScanBottomBarInventory extends StatelessWidget {
       ),
       centerButton: _buildOverlappingScanButton(
         isScanning: isScanning,
+        showResume: showResume && !isScanning,
         onTap: onScan,
         s: s,
       ),

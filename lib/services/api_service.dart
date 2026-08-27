@@ -9,6 +9,7 @@ import '../models/user_permission.dart';
 import 'order_payload_builder.dart';
 import 'api_logging_interceptor.dart';
 import 'pref_service.dart';
+import 'session_lifecycle.dart';
 
 class ApiService {
   static const String defaultBaseUrl = PrefService.defaultApiBaseUrl;
@@ -42,6 +43,32 @@ class ApiService {
         }
         
         return handler.next(options);
+      },
+      onError: (err, handler) async {
+        final status = err.response?.statusCode;
+        final path = err.requestOptions.path.toLowerCase();
+        final isLoginCall = path.contains('clientonboardinglogin');
+        if ((status == 401 || status == 403) && !isLoginCall) {
+          if (err.requestOptions.extra['session_retried'] == true) {
+            return handler.next(err);
+          }
+          final recovered = await SessionLifecycle.instance.handleUnauthorized();
+          if (recovered) {
+            try {
+              final req = err.requestOptions;
+              req.extra['session_retried'] = true;
+              final token = _prefService.getToken();
+              if (token != null && token.isNotEmpty) {
+                req.headers['Authorization'] = 'Bearer $token';
+              }
+              final response = await _dio.fetch(req);
+              return handler.resolve(response);
+            } catch (_) {
+              return handler.next(err);
+            }
+          }
+        }
+        return handler.next(err);
       },
     ));
   }
@@ -185,7 +212,7 @@ class ApiService {
     }
   }
 
-  // Upload stock verification payload
+  // Upload stock verification payload (small batches — kept for fallback).
   Future<bool> uploadStockVerification(String clientCode, List<Map<String, dynamic>> items) async {
     try {
       final payload = {
@@ -195,11 +222,42 @@ class ApiService {
       final response = await _dio.post(
         'api/ProductMaster/AddStockVerificationBySession',
         data: payload,
+        options: Options(
+          sendTimeout: const Duration(minutes: 10),
+          receiveTimeout: const Duration(minutes: 10),
+        ),
       );
       return response.statusCode == 200;
     } on DioException catch (e) {
       final errMsg = e.response?.data?.toString() ?? e.message ?? 'Unknown error';
       throw Exception('Upload failed: $errMsg');
+    }
+  }
+
+  /// Sparkle Scan Display path: one multipart JSON file upload for large inventories
+  /// (`AddStockVerificationWithBatchFile`) — far faster than many 2k session POSTs.
+  Future<bool> uploadStockVerificationFile(String clientCode, String filePath) async {
+    try {
+      final formData = FormData.fromMap({
+        'ClientCode': clientCode,
+        'jsonFile': await MultipartFile.fromFile(
+          filePath,
+          filename: filePath.split(RegExp(r'[/\\]')).last,
+        ),
+      });
+
+      final response = await _dio.post(
+        'api/ProductMaster/AddStockVerificationWithBatchFile',
+        data: formData,
+        options: Options(
+          sendTimeout: const Duration(minutes: 30),
+          receiveTimeout: const Duration(minutes: 30),
+        ),
+      );
+      return response.statusCode == 200 || response.statusCode == 201;
+    } on DioException catch (e) {
+      final errMsg = e.response?.data?.toString() ?? e.message ?? 'Unknown error';
+      throw Exception('File upload failed: $errMsg');
     }
   }
 

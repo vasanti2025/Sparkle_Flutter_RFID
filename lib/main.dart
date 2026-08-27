@@ -92,6 +92,12 @@ class _BootstrapAppState extends State<_BootstrapApp> {
       }
 
       await PrefService.init();
+
+      // Absolute 1hr session — clear stale sessions before choosing home route.
+      if (_prefService.isLoggedIn() && _prefService.isSessionTimedOut()) {
+        await _prefService.logout();
+      }
+
       var resolvedLoggedIn = _prefService.hasValidSession();
 
       if (!resolvedLoggedIn &&
@@ -116,6 +122,11 @@ class _BootstrapAppState extends State<_BootstrapApp> {
             debugPrint('Silent autologin failed: $e');
           }
         }
+      }
+
+      // Still marked logged-in but session data missing → force login screen.
+      if (!resolvedLoggedIn && _prefService.isLoggedIn()) {
+        await _prefService.logout();
       }
 
       if (mounted && resolvedLoggedIn != _sessionLoggedIn) {

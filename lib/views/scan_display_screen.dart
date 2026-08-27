@@ -12,13 +12,34 @@ import '../viewmodels/dashboard_view_model.dart';
 import '../services/pref_service.dart';
 import '../services/rfid_service.dart';
 import '../services/email_service.dart';
+import '../services/session_lifecycle.dart';
 import '../utils/product_image.dart';
 import '../utils/tray_scan_auto_stop.dart';
+import 'search_screen.dart';
 import 'widgets/scan_bottom_bar.dart';
+
+String _normalizeInventoryScanKey(String raw) {
+  var s = raw.trim();
+  if (s.isEmpty) return '';
+  s = s.toUpperCase();
+  if (s.contains(' ')) s = s.replaceAll(' ', '');
+  return s;
+}
+
+class _GroupBucket {
+  _GroupBucket(this.label);
+  final String label;
+  final List<ScannedBulkItem> items = [];
+  int matchedQty = 0;
+  double totalWt = 0;
+  double matchedWt = 0;
+}
 
 class ScannedBulkItem {
   final BulkItem originalBulkItem;
   String currentScannedStatus; // 'Matched' or 'Unmatched'
+  List<String>? _matchKeys;
+  double? _parsedGrossWt;
 
   ScannedBulkItem(this.originalBulkItem, [this.currentScannedStatus = 'Unmatched']);
 
@@ -40,6 +61,90 @@ class ScannedBulkItem {
   int get productId => originalBulkItem.productId;
   int get designId => originalBulkItem.designId;
   int get branchId => originalBulkItem.branchId;
+
+  List<String> get matchKeys => _matchKeys ??= _computeMatchKeys();
+  double get parsedGrossWt =>
+      _parsedGrossWt ??= double.tryParse(grossWeight) ?? 0.0;
+
+  List<String> _computeMatchKeys() {
+    final keys = <String>{};
+    void addKey(String raw) {
+      final v = _normalizeInventoryScanKey(raw);
+      if (v.isEmpty) return;
+      keys.add(v);
+      final hash = v.indexOf('#');
+      if (hash > 0) keys.add(v.substring(0, hash));
+    }
+
+    addKey(epc);
+    addKey(rfid);
+    return keys.toList(growable: false);
+  }
+
+  static ScannedBulkItem unlabelled(String epc) {
+    return ScannedBulkItem(
+      BulkItem(
+        bulkItemId: 0,
+        productName: 'Unlabelled Item',
+        itemCode: '',
+        rfid: epc,
+        grossWeight: '0.000',
+        stoneWeight: '0.000',
+        diamondWeight: '0.000',
+        netWeight: '0.000',
+        category: 'Unlabelled',
+        design: 'Unlabelled',
+        purity: '',
+        makingPerGram: '',
+        makingPercent: '',
+        fixMaking: '',
+        fixWastage: '',
+        stoneAmount: '',
+        diamondAmount: '',
+        sku: '',
+        epc: epc,
+        vendor: '',
+        tid: '',
+        box: '',
+        designCode: '',
+        productCode: '',
+        imageUrl: '',
+        totalQty: 1,
+        pcs: 1,
+        matchedPcs: 1,
+        totalGwt: 0.0,
+        matchGwt: 0.0,
+        totalStoneWt: 0.0,
+        matchStoneWt: 0.0,
+        totalNetWt: 0.0,
+        matchNetWt: 0.0,
+        unmatchedQty: 0,
+        matchedQty: 1,
+        unmatchedGrossWt: 0.0,
+        mrp: 0.0,
+        counterName: '',
+        counterId: 0,
+        boxId: 0,
+        boxName: '',
+        branchId: 0,
+        branchName: '',
+        packetId: 0,
+        packetName: '',
+        scannedStatus: 'Matched',
+        categoryId: 0,
+        productId: 0,
+        branchType: '',
+        designId: 0,
+        isScanned: 1,
+        totalWt: 0.0,
+        categoryWt: '',
+        skuId: 0,
+        purityId: 0,
+        status: '',
+      ),
+      'Matched',
+    );
+  }
 }
 
 class ScanDisplayScreen extends StatefulWidget {
@@ -77,14 +182,15 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   bool _isScanning = false;
   /// Blocks re-entrant start while 10k EPC prep / hardware handoff is in flight.
   bool _scanStartInProgress = false;
+  /// After user taps Stop with unmatched items left — bottom button shows Resume.
+  bool _showResumeOnScanButton = false;
   int _selectedPower = 30; // Default power level
-  /// Scope size / matched count for O(1) auto-stop on large catalogs.
-  int _scanScopeItemCount = 0;
-  int _scanMatchedItemCount = 0;
 
   // Drawer / overlay menu and unlabelled items
   bool _showMenu = false;
   final List<String> _unlabelledEpcs = [];
+  final Set<String> _unlabelledEpcSet = {};
+  final Map<String, ScannedBulkItem> _unlabelledItemCache = {};
 
   // Search filter
   bool _showSearchInput = false;
@@ -98,16 +204,25 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   bool _lookupMapsReady = false;
   int _lastScanUiUpdateMs = 0;
   int _lastTriggerMs = 0;
+  int _lastBeepMs = 0;
+  int _scopeUnmatchedRemaining = 0;
+  int _allUnmatchedCount = 0;
+  bool _needsAutoStopCheck = false;
   Timer? _scanUiFlushTimer;
   final TrayInventoryScanSession _trayScanSession = TrayInventoryScanSession();
 
   List<ScannedBulkItem>? _cachedFilteredItems;
-  Map<String, List<ScannedBulkItem>>? _cachedGroupedMap;
+  List<_GroupBucket>? _cachedGroupedBuckets;
   int _cachedViewHash = 0;
   int _cachedMatchedCount = 0;
   int _cachedTotalCount = 0;
   double _cachedTotalGrossWt = 0;
   double _cachedTotalMatchedWt = 0;
+
+  int _matchedCount = 0;
+  double _totalGrossWt = 0.0;
+  double _totalMatchedWt = 0.0;
+  int _lastListRefreshMs = 0;
 
   @override
   void initState() {
@@ -178,7 +293,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
     // Build scanned wrappers in chunks so we don't freeze on huge lists.
     final scanned = <ScannedBulkItem>[];
-    const chunk = 1500;
+    const chunk = 2500;
     for (var i = 0; i < list.length; i += chunk) {
       final end = (i + chunk < list.length) ? i + chunk : list.length;
       for (var j = i; j < end; j++) {
@@ -192,6 +307,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       _scannedItems = scanned;
       _isLoadingItems = false;
       _lookupMapsReady = false;
+      _allUnmatchedCount = scanned.length;
+      _recalculateScopeCounts();
+      _refreshDisplayCache(forceListRefresh: true);
     });
 
     scheduleMicrotask(() async {
@@ -205,22 +323,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     });
   }
 
-  List<String> _matchKeysForItem(ScannedBulkItem item) {
-    // Include EPC + RFID. If a past sync stored "EPC#id" for UNIQUE, also
-    // register the base EPC so hardware tags still match without re-sync.
-    final keys = <String>{};
-    void addKey(String raw) {
-      final v = raw.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
-      if (v.isEmpty) return;
-      keys.add(v);
-      final hash = v.indexOf('#');
-      if (hash > 0) keys.add(v.substring(0, hash));
-    }
-
-    addKey(item.epc);
-    addKey(item.rfid);
-    return keys.toList();
-  }
+  List<String> _matchKeysForItem(ScannedBulkItem item) => item.matchKeys;
 
   String _statusForItem(ScannedBulkItem item) {
     for (final key in _matchKeysForItem(item)) {
@@ -231,14 +334,22 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   void _registerMatchForItem(ScannedBulkItem item, String scannedTag) {
     final wasMatched = item.currentScannedStatus == 'Matched';
-    _matchedEpcSet.add(scannedTag.trim().toUpperCase().replaceAll(RegExp(r'\s+'), ''));
-    for (final key in _matchKeysForItem(item)) {
+    _matchedEpcSet.add(_normalizeInventoryScanKey(scannedTag));
+    for (final key in item.matchKeys) {
       _matchedEpcSet.add(key);
     }
     if (!wasMatched) {
       item.currentScannedStatus = 'Matched';
-      _scanMatchedItemCount++;
-      unawaited(_rfidService.playBeep());
+      _matchedCount++;
+      _totalMatchedWt += item.parsedGrossWt;
+      if (_scopeUnmatchedRemaining > 0) _scopeUnmatchedRemaining--;
+      if (_allUnmatchedCount > 0) _allUnmatchedCount--;
+      _needsAutoStopCheck = true;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - _lastBeepMs >= 40) {
+        _lastBeepMs = now;
+        unawaited(_rfidService.playBeep());
+      }
     }
   }
 
@@ -323,47 +434,93 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       _selectedCategories.length,
       _selectedProducts.length,
       _selectedDesigns.length,
-      _matchedEpcSet.length,
       _scannedItems.length,
     );
   }
 
-  void _refreshDisplayCache() {
-    final filteredItems = _getFilteredScopeItems();
-    _cachedFilteredItems = filteredItems;
-    _cachedGroupedMap = _getGroupedMap(filteredItems);
-    _cachedViewHash = _viewStateHash();
-    _cachedTotalCount = filteredItems.length;
-    _cachedMatchedCount = filteredItems.where((i) => i.currentScannedStatus == 'Matched').length;
-    _cachedTotalGrossWt = 0;
-    _cachedTotalMatchedWt = 0;
-    for (final item in filteredItems) {
-      final gw = double.tryParse(item.grossWeight) ?? 0.0;
-      _cachedTotalGrossWt += gw;
+  void _recountScopeUnmatched() {
+    final scope = _getDisplayScopeItems();
+    var n = 0;
+    for (final item in scope) {
+      if (item.currentScannedStatus != 'Matched') n++;
+    }
+    _scopeUnmatchedRemaining = n;
+  }
+
+  void _recalculateScopeCounts() {
+    final scope = _selectedMenu == 'UNLABELLED' ? _getFilteredScopeItems() : _getNavScopeItems();
+    
+    int matched = 0;
+    double totalWt = 0.0;
+    double matchedWt = 0.0;
+    
+    for (final item in scope) {
+      final gw = item.parsedGrossWt;
+      totalWt += gw;
       if (item.currentScannedStatus == 'Matched') {
-        _cachedTotalMatchedWt += gw;
+        matched++;
+        matchedWt += gw;
       }
     }
+    
+    _matchedCount = matched;
+    _totalGrossWt = totalWt;
+    _totalMatchedWt = matchedWt;
+    _cachedTotalCount = scope.length;
+    if (_selectedMenu != 'UNLABELLED') {
+      _scopeUnmatchedRemaining = scope.length - matched;
+    }
+  }
+
+  void _refreshDisplayCache({bool forceListRefresh = false}) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final elapsed = now - _lastListRefreshMs;
+    final n = _scannedItems.length;
+    final detailTab = _selectedMenu == 'UNMATCHED' ||
+        _selectedMenu == 'MATCHED' ||
+        _selectedMenu == 'UNLABELLED' ||
+        _currentLevel == 'DesignItems';
+    final listInterval = !_isScanning
+        ? 0
+        : (detailTab ? (n > 20000 ? 450 : 350) : (n > 20000 ? 1200 : 1000));
+    final needListRefresh = forceListRefresh ||
+        !_isScanning ||
+        elapsed >= listInterval ||
+        _cachedFilteredItems == null;
+    
+    if (needListRefresh) {
+      _lastListRefreshMs = now;
+      final filteredItems = _getFilteredScopeItems();
+      _cachedFilteredItems = filteredItems;
+      _cachedGroupedBuckets = _getGroupedBuckets(filteredItems);
+      _cachedViewHash = _viewStateHash();
+    }
+    
+    _cachedMatchedCount = _matchedCount;
+    _cachedTotalGrossWt = _totalGrossWt;
+    _cachedTotalMatchedWt = _totalMatchedWt;
   }
 
   void _ensureDisplayCache() {
     final hash = _viewStateHash();
-    if (_cachedFilteredItems == null || _cachedGroupedMap == null || hash != _cachedViewHash) {
-      _refreshDisplayCache();
+    if (_cachedFilteredItems == null ||
+        _cachedGroupedBuckets == null ||
+        hash != _cachedViewHash) {
+      _recalculateScopeCounts();
+      _refreshDisplayCache(forceListRefresh: true);
     }
   }
 
   void _scheduleScanUiUpdate() {
     final now = DateTime.now().millisecondsSinceEpoch;
-    // Larger catalogs: less frequent full UI rebuilds (Sparkle throttles ~80ms;
-    // 10k status walks need more breathing room or the UART session drops).
-    final minInterval = _scannedItems.length > 2500 ? 200 : 80;
+    final n = _scannedItems.length;
+    final minInterval = n > 20000 ? 280 : (n > 2500 ? 200 : 80);
     if (now - _lastScanUiUpdateMs >= minInterval) {
       _lastScanUiUpdateMs = now;
       _scanUiFlushTimer?.cancel();
       _scanUiFlushTimer = null;
       _syncItemStatusesFromMatchedSetChunked();
-      _cachedViewHash = 0;
+      _refreshDisplayCache();
       if (mounted) setState(() {});
       _checkAutoStopScan();
     } else {
@@ -373,7 +530,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
           _scanUiFlushTimer = null;
           _lastScanUiUpdateMs = DateTime.now().millisecondsSinceEpoch;
           _syncItemStatusesFromMatchedSetChunked();
-          _cachedViewHash = 0;
+          _refreshDisplayCache();
           if (mounted) setState(() {});
           _checkAutoStopScan();
         },
@@ -395,23 +552,16 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       return;
     }
 
-    // O(1) path for ~10k — avoid scope.every on every UI tick.
-    if (_scanScopeItemCount > 0 &&
-        _scanMatchedItemCount >= _scanScopeItemCount) {
-      _stopScanning();
-      _showToast(context.sRead.allItemsMatchedScanStopped);
+    if (!_needsAutoStopCheck) return;
+    if (_scopeUnmatchedRemaining > 0) {
+      _needsAutoStopCheck = false;
       return;
     }
+    _needsAutoStopCheck = false;
+    if (_scannedItems.isEmpty) return;
 
-    if (_scannedItems.length > 2500) return;
-
-    final scope = _getDisplayScopeItems();
-    if (scope.isEmpty) return;
-    final allMatched = scope.every((i) => i.currentScannedStatus == 'Matched');
-    if (allMatched) {
-      _stopScanning();
-      _showToast(context.sRead.allItemsMatchedScanStopped);
-    }
+    _stopScanning();
+    _showToast(context.sRead.allItemsMatchedScanStopped);
   }
 
   // Handle drill-down back press
@@ -469,32 +619,62 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   }
 
   void _onTagScanned(String tag) {
-    // Only handle tags while this screen owns the scan session.
-    if (!_isScanning) return;
-    if (!mounted) return;
-    final route = ModalRoute.of(context);
-    if (route != null && !route.isCurrent) return;
+    try {
+      // Only handle tags while this screen owns the scan session.
+      if (!_isScanning) return;
+      if (!mounted) return;
+      final route = ModalRoute.of(context);
+      if (route != null && !route.isCurrent) return;
 
-    final scannedEpc = tag.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
-    if (scannedEpc.isEmpty) return;
+      final scannedEpc = _normalizeInventoryScanKey(tag);
+      if (scannedEpc.isEmpty) return;
 
-    if (_filteredDbEpcSet.contains(scannedEpc)) {
-      if (_rfidService.trayReaderActive) {
-        _trayScanSession.recordInScope(scannedEpc, _filteredDbEpcSet);
+      if (_matchedEpcSet.contains(scannedEpc)) {
+        if (_rfidService.trayReaderActive && _filteredDbEpcSet.contains(scannedEpc)) {
+          _trayScanSession.recordInScope(scannedEpc, _filteredDbEpcSet);
+          _scheduleScanUiUpdate();
+        } else if (_scopeUnmatchedRemaining <= 0 &&
+            _scannedItems.isNotEmpty &&
+            _selectedMenu != 'UNLABELLED') {
+          _needsAutoStopCheck = true;
+          _checkAutoStopScan();
+        }
+        return;
       }
+
+      final mapsWarming = !_lookupMapsReady ||
+          (_filteredDbEpcSet.isEmpty &&
+              _scannedItems.isNotEmpty &&
+              _selectedMenu != 'UNLABELLED');
+      final inScope = _filteredDbEpcSet.contains(scannedEpc);
       final masterIndex = _epcToMasterIndex[scannedEpc];
-      if (masterIndex != null && masterIndex < _scannedItems.length) {
-        _registerMatchForItem(_scannedItems[masterIndex], scannedEpc);
-      } else {
-        _matchedEpcSet.add(scannedEpc);
-      }
-      _scheduleScanUiUpdate();
-      return;
-    }
 
-    if (!_unlabelledEpcs.contains(scannedEpc)) {
-      _unlabelledEpcs.add(scannedEpc);
-      _scheduleScanUiUpdate();
+      if (inScope || (mapsWarming && masterIndex != null)) {
+        if (_rfidService.trayReaderActive) {
+          _trayScanSession.recordInScope(scannedEpc, _filteredDbEpcSet);
+        }
+        if (masterIndex != null && masterIndex < _scannedItems.length) {
+          _registerMatchForItem(_scannedItems[masterIndex], scannedEpc);
+        } else {
+          _matchedEpcSet.add(scannedEpc);
+        }
+        _scheduleScanUiUpdate();
+        return;
+      }
+
+      // Don't classify unknown tags as unlabelled until lookup maps are ready.
+      if (mapsWarming) return;
+
+      if (_unlabelledEpcSet.length >= 20000) return;
+      if (_unlabelledEpcSet.add(scannedEpc)) {
+        _unlabelledEpcs.add(scannedEpc);
+        if (_scopeUnmatchedRemaining <= 0 && _scannedItems.isNotEmpty) {
+          _needsAutoStopCheck = true;
+        }
+        _scheduleScanUiUpdate();
+      }
+    } catch (e, st) {
+      debugPrint('Inventory tag handler: $e\n$st');
     }
   }
 
@@ -506,7 +686,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
     if (_scanStartInProgress) return;
     if (_isScanning) {
-      _stopScanning();
+      _stopScanning(fromUser: true);
     } else {
       _startScanning();
     }
@@ -529,8 +709,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     // Claim session immediately so trigger cannot double-start.
     if (mounted) setState(() => _isScanning = true);
     _trayScanSession.reset();
-    _scanScopeItemCount = _scannedItems.length;
-    _scanMatchedItemCount = _matchedEpcSet.length;
+    _needsAutoStopCheck = false;
+    _recountScopeUnmatched();
 
     try {
       if (_selectedMenu == 'UNLABELLED') {
@@ -556,7 +736,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     }
   }
 
-  void _stopScanning() async {
+  void _stopScanning({bool fromUser = false}) async {
     if (!_isScanning && !_scanStartInProgress) return;
     _scanStartInProgress = false;
     _trayScanSession.reset();
@@ -566,9 +746,21 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     _scanUiFlushTimer = null;
     // Full reconcile once on stop (not per-tag) so save/resume stay accurate.
     _syncItemStatusesFromMatchedSet();
+    var unmatchedLeft = 0;
+    for (final item in _scannedItems) {
+      if (item.currentScannedStatus != 'Matched') unmatchedLeft++;
+    }
+    _allUnmatchedCount = unmatchedLeft;
+    _recountScopeUnmatched();
+    final incomplete = fromUser && _scannedItems.isNotEmpty && unmatchedLeft > 0;
+
     if (mounted) {
       setState(() {
         _isScanning = false;
+        // User Stop mid-session → show Resume; auto/system stop → Scan.
+        _showResumeOnScanButton = incomplete;
+        _recalculateScopeCounts();
+        _refreshDisplayCache(forceListRefresh: true);
       });
     }
   }
@@ -576,11 +768,15 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   void _resetScanning() {
     _stopScanning();
     setState(() {
+      _showResumeOnScanButton = false;
       _matchedEpcSet.clear();
       for (var item in _scannedItems) {
         item.currentScannedStatus = 'Unmatched';
       }
       _unlabelledEpcs.clear();
+      _unlabelledEpcSet.clear();
+      _unlabelledItemCache.clear();
+      _allUnmatchedCount = _scannedItems.length;
       _selectedCategories.clear();
       _selectedProducts.clear();
       _selectedDesigns.clear();
@@ -595,6 +791,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     });
     _buildLookupMaps();
     _setFilteredItemsForScan();
+    _recalculateScopeCounts();
+    _refreshDisplayCache(forceListRefresh: true);
     _showToast(context.sRead.scanResetSuccessful);
   }
 
@@ -609,12 +807,19 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         }
       }
       _syncItemStatusesFromMatchedSet();
+      var unmatched = 0;
+      for (final item in _scannedItems) {
+        if (item.currentScannedStatus != 'Matched') unmatched++;
+      }
+      _allUnmatchedCount = unmatched;
       _selectedMenu = 'ALL';
       _currentLevel = 'Category';
       _selectedCategory = null;
       _selectedProduct = null;
       _selectedDesign = null;
     });
+    _recalculateScopeCounts();
+    _refreshDisplayCache(forceListRefresh: true);
     _showToast(context.sRead.previousScanRestored);
   }
 
@@ -630,65 +835,89 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     if (employee == null || employee.clientCode == null) {
       setState(() => _isSaving = false);
       _showToast(context.sRead.errorSessionExpired);
+      unawaited(SessionLifecycle.instance.forceLogoutToLogin());
       return;
     }
 
-    // 1. Prepare local update payload (Kotlin uses tagKey = epc ?: rfid)
-    final finalItems = _scannedItems.map((item) {
-      final map = item.originalBulkItem.toMap();
-      final isMatched = _matchKeysForItem(item)
-          .any((key) => _matchedEpcSet.contains(key));
-      map['isScanned'] = isMatched ? 1 : 0;
-      map['scannedStatus'] = isMatched ? 'Matched' : 'Unmatched';
-      return BulkItem.fromMap(map);
-    }).toList();
+    try {
+      // Single pass: local DB rows + API payload (Sparkle buildItemsForUpload).
+      final finalItems = <BulkItem>[];
+      final uploadItemsPayload = <Map<String, dynamic>>[];
+      final seenKeys = <String>{};
 
-    // 2. Prepare upload payload
-    final uploadItemsPayload = _scannedItems.map((item) {
-      final double grossWt = double.tryParse(item.grossWeight) ?? 0.0;
-      final double netWt = double.tryParse(item.netWeight) ?? 0.0;
-      final isMatched = _matchKeysForItem(item)
-          .any((key) => _matchedEpcSet.contains(key));
-      final String status = isMatched ? 'match' : 'unmatch';
+      for (var i = 0; i < _scannedItems.length; i++) {
+        final item = _scannedItems[i];
+        final isMatched = _matchKeysForItem(item)
+            .any((key) => _matchedEpcSet.contains(key));
 
-      return {
-        'ItemCode': item.itemCode,
-        'Status': status,
-        'GrossWeight': grossWt,
-        'NetWeight': netWt,
-        'Quantity': 1,
-        'CounterName': item.counterName,
-        'CategoryName': item.category,
-        'ProductName': item.productName,
-        'DesignName': item.design,
-        'PurityName': item.purity,
-        'CompanyName': '',
-        'BranchName': item.branchName,
-        'CounterId': item.counterId,
-        'CategoryId': item.categoryId,
-        'ProductId': item.productId,
-        'DesignId': item.designId,
-        'PurityId': 0,
-        'CompanyId': 0,
-        'BranchId': item.branchId,
-      };
-    }).toList();
+        final map = item.originalBulkItem.toMap();
+        map['isScanned'] = isMatched ? 1 : 0;
+        map['scannedStatus'] = isMatched ? 'Matched' : 'Unmatched';
+        finalItems.add(BulkItem.fromMap(map));
 
-    // 3. Save locally in SQLite
-    await viewModel.saveScanResults(finalItems);
+        final code = item.itemCode.trim();
+        if (code.isEmpty) continue;
+        final dedupeKey = (item.epc.trim().isNotEmpty
+                ? item.epc
+                : code)
+            .trim()
+            .toUpperCase();
+        if (dedupeKey.isEmpty || !seenKeys.add(dedupeKey)) continue;
 
-    // 4. Call stock verification API
-    final success = await viewModel.uploadVerification(
-      clientCode: employee.clientCode!,
-      items: uploadItemsPayload,
-    );
+        final grossWt = double.tryParse(item.grossWeight) ?? 0.0;
+        final netWt = double.tryParse(item.netWeight) ?? 0.0;
+        uploadItemsPayload.add({
+          'ItemCode': code,
+          'Status': isMatched ? 'match' : 'unmatch',
+          'GrossWeight': grossWt,
+          'NetWeight': netWt,
+          'Quantity': 1,
+          'CounterName': item.counterName,
+          'CategoryName': item.category,
+          'ProductName': item.productName,
+          'DesignName': item.design,
+          'PurityName': item.purity,
+          'CompanyName': '',
+          'BranchName': item.branchName,
+          'CounterId': item.counterId,
+          'CategoryId': item.categoryId,
+          'ProductId': item.productId,
+          'DesignId': item.designId,
+          'PurityId': 0,
+          'CompanyId': 0,
+          'BranchId': item.branchId,
+        });
 
-    setState(() => _isSaving = false);
+        // Keep UI responsive while building large payloads (2–5L).
+        if (i > 0 && i % 4000 == 0) {
+          await Future<void>.delayed(Duration.zero);
+          if (!mounted) return;
+        }
+      }
 
-    if (success) {
-      _showToast(context.sRead.stockVerificationUploaded);
-    } else {
-      _showToast(context.sRead.verificationUploadFailed(viewModel.errorMessage ?? ''));
+      // Local SQLite + file/API upload in parallel (same end result as Sparkle).
+      final uploadFuture = viewModel.uploadVerification(
+        clientCode: employee.clientCode!,
+        items: uploadItemsPayload,
+      );
+      unawaited(viewModel.saveScanResults(finalItems));
+      final success = await uploadFuture;
+
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+
+      if (success) {
+        _showResumeOnScanButton = false;
+        _showToast(context.sRead.stockVerificationUploaded);
+      } else {
+        _showToast(
+          context.sRead.verificationUploadFailed(viewModel.errorMessage ?? ''),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      _showToast(context.sRead.verificationUploadFailed(e.toString()));
     }
   }
 
@@ -714,8 +943,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: 52,
         width: double.infinity,
+        constraints: const BoxConstraints(minHeight: 52),
         decoration: BoxDecoration(
           gradient: const LinearGradient(
             colors: [Color(0xFF3053F0), Color(0xFFE82E5A)],
@@ -724,12 +953,14 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         ),
         child: Container(
           margin: const EdgeInsets.all(1.0), // Border width
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(3.0),
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 icon,
@@ -744,8 +975,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                   fontWeight: FontWeight.w600,
                   color: Colors.black87,
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                // Show full label inside this card (wrap below; no single-line clip).
+                softWrap: true,
               ),
             ],
           ),
@@ -796,75 +1028,16 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   // Get active items taking tab, drill-down, and search query filters into account
   List<ScannedBulkItem> _getFilteredScopeItems() {
     if (_selectedMenu == 'UNLABELLED') {
-      final dummyItem = BulkItem(
-        bulkItemId: 0,
-        productName: 'Unlabelled Item',
-        itemCode: '',
-        rfid: '',
-        grossWeight: '0.000',
-        stoneWeight: '0.000',
-        diamondWeight: '0.000',
-        netWeight: '0.000',
-        category: 'Unlabelled',
-        design: 'Unlabelled',
-        purity: '',
-        makingPerGram: '',
-        makingPercent: '',
-        fixMaking: '',
-        fixWastage: '',
-        stoneAmount: '',
-        diamondAmount: '',
-        sku: '',
-        epc: '',
-        vendor: '',
-        tid: '',
-        box: '',
-        designCode: '',
-        productCode: '',
-        imageUrl: '',
-        totalQty: 1,
-        pcs: 1,
-        matchedPcs: 1,
-        totalGwt: 0.0,
-        matchGwt: 0.0,
-        totalStoneWt: 0.0,
-        matchStoneWt: 0.0,
-        totalNetWt: 0.0,
-        matchNetWt: 0.0,
-        unmatchedQty: 0,
-        matchedQty: 1,
-        unmatchedGrossWt: 0.0,
-        mrp: 0.0,
-        counterName: '',
-        counterId: 0,
-        boxId: 0,
-        boxName: '',
-        branchId: 0,
-        branchName: '',
-        packetId: 0,
-        packetName: '',
-        scannedStatus: 'Matched',
-        categoryId: 0,
-        productId: 0,
-        branchType: '',
-        designId: 0,
-        isScanned: 1,
-        totalWt: 0.0,
-        categoryWt: '',
-        skuId: 0,
-        purityId: 0,
-        status: '',
-      );
-      
-      var list = _unlabelledEpcs.map((epc) {
-        final dummyMap = dummyItem.toMap();
-        dummyMap['epc'] = epc;
-        dummyMap['rfid'] = epc;
-        return ScannedBulkItem(BulkItem.fromMap(dummyMap), 'Matched');
-      }).toList();
+      var list = _unlabelledEpcs
+          .map((epc) => _unlabelledItemCache.putIfAbsent(
+                epc,
+                () => ScannedBulkItem.unlabelled(epc),
+              ))
+          .toList();
 
       if (_searchQuery.isNotEmpty) {
-        list = list.where((i) => i.epc.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
+        final q = _searchQuery.toLowerCase();
+        list = list.where((i) => i.epc.toLowerCase().contains(q)).toList();
       }
       return list;
     }
@@ -882,9 +1055,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   }
 
   // Helpers to get grouped rows at category, product or design levels
-  Map<String, List<ScannedBulkItem>> _getGroupedMap(List<ScannedBulkItem> items) {
-    final Map<String, List<ScannedBulkItem>> grouped = {};
-    for (var item in items) {
+  List<_GroupBucket> _getGroupedBuckets(List<ScannedBulkItem> items) {
+    final grouped = <String, _GroupBucket>{};
+    for (final item in items) {
       String key = '';
       if (_currentLevel == 'Category') {
         key = item.category.isNotEmpty ? item.category : 'Unknown';
@@ -894,13 +1067,18 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         key = item.design.isNotEmpty ? item.design : 'Unknown';
       }
 
-      if (!grouped.containsKey(key)) {
-        grouped[key] = [];
+      final bucket = grouped.putIfAbsent(key, () => _GroupBucket(key));
+      bucket.items.add(item);
+      final gw = item.parsedGrossWt;
+      bucket.totalWt += gw;
+      if (item.currentScannedStatus == 'Matched') {
+        bucket.matchedQty++;
+        bucket.matchedWt += gw;
       }
-      grouped[key]!.add(item);
     }
-    return grouped;
+    return grouped.values.toList(growable: false);
   }
+
 
   void _showDetailsDialog(BulkItem item) {
     // Kick off decode before dialog builds (inventory list has no row thumbs).
@@ -1280,7 +1458,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     final s = context.s;
     _ensureDisplayCache();
     final filteredItems = _cachedFilteredItems!;
-    final groupedMap = _cachedGroupedMap!;
+    final groupedBuckets = _cachedGroupedBuckets!;
 
     final totalCount = _cachedTotalCount;
     final matchedCount = _cachedMatchedCount;
@@ -1416,7 +1594,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
                 // Scrollable group or details list
                 Expanded(
-                  child: _buildMainList(filteredItems, groupedMap),
+                  child: _buildMainList(filteredItems, groupedBuckets),
                 ),
 
                 // Scanned summary info row matching compose
@@ -1490,7 +1668,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                                       _buildMenuCard(
                                         title: s.unlabelledItems,
                                         icon: Icons.label_off_outlined,
-                                        count: totalCount,
+                                        count: _unlabelledEpcs.length,
                                         onTap: () {
                                           setState(() {
                                             _selectedMenu = 'UNLABELLED';
@@ -1515,18 +1693,35 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                                         count: unmatchedCount,
                                         onTap: () async {
                                           setState(() => _showMenu = false);
+                                          final navigator = Navigator.of(context);
                                           if (_isScanning) {
                                             await _rfidService.stopScanning();
                                             await _rfidService.stopInventorySound();
                                             if (mounted) setState(() => _isScanning = false);
                                           }
-                                          final unmatched = _scannedItems
-                                              .where((item) => item.currentScannedStatus == 'Unmatched')
-                                              .map((item) => item.originalBulkItem)
-                                              .toList();
-                                          Navigator.pushNamed(context, '/search', arguments: {
+                                          final catalog = UnmatchedSearchCatalog.instance;
+                                          catalog.clear();
+                                          for (var i = 0; i < _scannedItems.length; i++) {
+                                            final item = _scannedItems[i];
+                                            if (item.currentScannedStatus != 'Unmatched') {
+                                              continue;
+                                            }
+                                            catalog.items.add(SearchItem(
+                                              epc: item.epc,
+                                              itemCode: item.itemCode,
+                                              productName: item.productName,
+                                              rfid: item.rfid,
+                                              tid: item.originalBulkItem.tid,
+                                              hex: item.originalBulkItem.box,
+                                            ));
+                                            if (i > 0 && i % 600 == 0) {
+                                              await Future<void>.delayed(Duration.zero);
+                                              if (!mounted) return;
+                                            }
+                                          }
+                                          if (!mounted) return;
+                                          navigator.pushNamed('/search', arguments: {
                                             'listKey': 'unmatchedItems',
-                                            'items': unmatched,
                                           });
                                         },
                                       ),
@@ -1550,7 +1745,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   Widget _buildMainList(
     List<ScannedBulkItem> filteredItems,
-    Map<String, List<ScannedBulkItem>> groupedMap,
+    List<_GroupBucket> groupedBuckets,
   ) {
     if (_isLoadingItems && _scannedItems.isEmpty) {
       return const Center(
@@ -1572,14 +1767,13 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         ListView.builder(
           itemCount: _currentLevel == 'DesignItems' || _selectedMenu == 'UNLABELLED'
               ? filteredItems.length
-              : groupedMap.length,
+              : groupedBuckets.length,
           itemBuilder: (context, index) {
             if (_currentLevel == 'DesignItems' || _selectedMenu == 'UNLABELLED') {
               final item = filteredItems[index];
               return _buildDesignItemRow(item);
             } else {
-              final entry = groupedMap.entries.elementAt(index);
-              return _buildGroupRow(entry.key, entry.value);
+              return _buildGroupRow(groupedBuckets[index]);
             }
           },
         ),
@@ -1713,6 +1907,21 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            final allSelected =
+                items.isNotEmpty && selected.length == items.length;
+
+            void toggleSelectAll(bool? checked) {
+              setDialogState(() {
+                if (checked == true) {
+                  selected
+                    ..clear()
+                    ..addAll(items);
+                } else {
+                  selected.clear();
+                }
+              });
+            }
+
             return AlertDialog(
               backgroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1729,6 +1938,38 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // Select All — same idea as Inventory Counter/Box multi-select.
+                    InkWell(
+                      onTap: () => toggleSelectAll(!allSelected),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6.0),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              height: 24,
+                              width: 24,
+                              child: Checkbox(
+                                activeColor: const Color(0xFF3053F0),
+                                value: allSelected,
+                                onChanged: toggleSelectAll,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                s.selectAll,
+                                style: AppFonts.poppins(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey[800],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 1),
                     Container(
                       constraints: const BoxConstraints(maxHeight: 200),
                       child: ListView.builder(
@@ -1760,7 +2001,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                                       onChanged: (val) {
                                         setDialogState(() {
                                           if (val == true) {
-                                            selected.add(item);
+                                            if (!selected.contains(item)) {
+                                              selected.add(item);
+                                            }
                                           } else {
                                             selected.remove(item);
                                           }
@@ -1910,20 +2153,12 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     );
   }
 
-  Widget _buildGroupRow(String label, List<ScannedBulkItem> items) {
-    final qty = items.length;
-    double grossWt = 0.0;
-    int mQty = 0;
-    double mWt = 0.0;
-
-    for (var i in items) {
-      final double gw = double.tryParse(i.grossWeight) ?? 0.0;
-      grossWt += gw;
-      if (i.currentScannedStatus == 'Matched') {
-        mQty++;
-        mWt += gw;
-      }
-    }
+  Widget _buildGroupRow(_GroupBucket bucket) {
+    final label = bucket.label;
+    final qty = bucket.items.length;
+    final grossWt = bucket.totalWt;
+    final mQty = bucket.matchedQty;
+    final mWt = bucket.matchedWt;
 
     final isMatched = qty > 0 && mQty == qty;
 
@@ -2002,7 +2237,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   }
 
   Widget _buildDesignItemRow(ScannedBulkItem item) {
-    final double grossWt = double.tryParse(item.grossWeight) ?? 0.0;
+    final double grossWt = item.parsedGrossWt;
     final isMatched = item.currentScannedStatus == 'Matched';
 
     return InkWell(
@@ -2165,6 +2400,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       onEmail: _showEmailReportDialog,
       onReset: _resetScanning,
       isScanning: _isScanning,
+      showResume: _showResumeOnScanButton,
     );
   }
 

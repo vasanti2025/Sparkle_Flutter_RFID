@@ -87,31 +87,35 @@ class RfidService {
 
     _eventSubscription = _eventChannel.receiveBroadcastStream().listen(
       (event) {
-        if (event == 'TRIGGER_CLICK') {
-          _triggerController.add(null);
-        } else if (event == 'BARCODE_TRIGGER') {
-          _barcodeTriggerController.add(null);
-        } else if (event is String && event.startsWith('BARCODE:')) {
-          final code = event.substring(8).trim();
-          if (code.isNotEmpty) _barcodeController.add(code);
-        } else if (event == 'TRAY_CONNECTED') {
-          _trayConnected = true;
-        } else if (event == 'TRAY_DISCONNECTED') {
-          _trayConnected = false;
-        } else if (event == 'R6_CONNECTED') {
-          _r6Connected = true;
-        } else if (event == 'R6_DISCONNECTED') {
-          _r6Connected = false;
-        } else if (event is String) {
-          if (event.startsWith('BATCH:')) {
-            final payload = event.substring(6);
-            if (payload.isEmpty) return;
-            for (final entry in payload.split('|')) {
-              _emitParsedTag(entry);
+        try {
+          if (event == 'TRIGGER_CLICK') {
+            _triggerController.add(null);
+          } else if (event == 'BARCODE_TRIGGER') {
+            _barcodeTriggerController.add(null);
+          } else if (event is String && event.startsWith('BARCODE:')) {
+            final code = event.substring(8).trim();
+            if (code.isNotEmpty) _barcodeController.add(code);
+          } else if (event == 'TRAY_CONNECTED') {
+            _trayConnected = true;
+          } else if (event == 'TRAY_DISCONNECTED') {
+            _trayConnected = false;
+          } else if (event == 'R6_CONNECTED') {
+            _r6Connected = true;
+          } else if (event == 'R6_DISCONNECTED') {
+            _r6Connected = false;
+          } else if (event is String) {
+            if (event.startsWith('BATCH:')) {
+              final payload = event.substring(6);
+              if (payload.isEmpty) return;
+              for (final entry in payload.split('|')) {
+                _emitParsedTag(entry);
+              }
+              return;
             }
-            return;
+            _emitParsedTag(event);
           }
-          _emitParsedTag(event);
+        } catch (e, st) {
+          debugPrint('RFID event parse error: $e\n$st');
         }
       },
       onError: (err) {
@@ -410,55 +414,69 @@ class RfidService {
     bool playStartSound = true,
     List<String>? searchTags,
   }) async {
-    if (_isScanning) {
-      await stopScanning();
-    }
     _power = power;
     await ensureReady();
 
-    if (_isSupported) {
-      try {
-        // BLE tray require an active Bluetooth connection before scan.
-        if (_trayModeEnabled) {
-          var status = await getTrayStatus();
-          if (status['connected'] != true) {
-            final address = status['address']?.toString() ?? '';
-            if (address.isNotEmpty) {
-              await applyTrayMode(enabled: true, address: address);
-              await waitForBleConnection(isR6: false, timeout: const Duration(seconds: 8));
-              status = await getTrayStatus();
-            }
-          }
-          if (status['connected'] != true) {
-            debugPrint('Tray mode on but tray not connected — cannot start scan');
-            return false;
-          }
-        }
+    if (!_isSupported) {
+      _isScanning = true;
+      _simulatedTagsPool = List.from(simulatedScopeTags);
+      _simulationIndex = 0;
+      _startSimulation();
+      return true;
+    }
 
-        // R6 sled: prefer connected, but always hand off to native startScanning
-        // which performs connectAndWait / initialize (Dart wait alone is not enough).
-        if (_r6ModeEnabled || (await PrefService.init()).isR6ModeEnabled()) {
-          final r6Ok = await _ensureR6ReadyForScan();
-          if (!r6Ok) {
-            debugPrint('R6 not connected yet — native startScanning will retry BLE connect');
+    try {
+      // Mandate a brief cool-down delay before starting to ensure UHF UART settles down.
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      if (_isScanning) {
+        await stopScanning();
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+      }
+
+      // BLE tray require an active Bluetooth connection before scan.
+      if (_trayModeEnabled) {
+        var status = await getTrayStatus();
+        if (status['connected'] != true) {
+          final address = status['address']?.toString() ?? '';
+          if (address.isNotEmpty) {
+            await applyTrayMode(enabled: true, address: address);
+            await waitForBleConnection(isR6: false, timeout: const Duration(seconds: 8));
+            status = await getTrayStatus();
           }
         }
+        if (status['connected'] != true) {
+          debugPrint('Tray mode on but tray not connected — cannot start scan');
+          return false;
+        }
+      }
 
-        // Inventory screen prepares scope before calling; other screens need
-        // a standard product-scan session (Order / Challan / Quotation / Search).
-        if (!inventory) {
-          await setInventoryScanMode(false);
+      // R6 sled: prefer connected, but always hand off to native startScanning
+      // which performs connectAndWait / initialize (Dart wait alone is not enough).
+      if (_r6ModeEnabled || (await PrefService.init()).isR6ModeEnabled()) {
+        final r6Ok = await _ensureR6ReadyForScan();
+        if (!r6Ok) {
+          debugPrint('R6 not connected yet — native startScanning will retry BLE connect');
         }
-        if (searchTags != null && searchTags.isNotEmpty) {
-          await setSearchTags(searchTags);
-        }
-        await prepareForScan();
-        // Inventory: skip setPower here — native prepareScan(power) sets it.
-        // Main-thread setPower + bg startScanning races UART under ~10k load.
-        if (!inventory) {
-          await setPower(power);
-        }
+      }
 
+      // Prepare scope & tags
+      if (searchTags != null && searchTags.isNotEmpty) {
+        await setSearchTags(searchTags);
+      }
+      await prepareForScan();
+      await setInventoryScanMode(inventory);
+
+      for (var attempt = 0; attempt < 4; attempt++) {
+        if (attempt > 0) {
+          await Future<void>.delayed(Duration(milliseconds: 120 * attempt));
+          if (searchTags != null && searchTags.isNotEmpty) {
+            await setSearchTags(searchTags);
+          }
+          await prepareForScan();
+          await setInventoryScanMode(inventory);
+        }
+        
         final started = await _methodChannel.invokeMethod<bool>('startScanning', {
               'power': power,
               'inventory': inventory,
@@ -470,19 +488,18 @@ class RfidService {
           if (_r6ModeEnabled) {
             _r6Connected = true;
           }
+          return true;
         }
-        return started;
-      } catch (e) {
-        debugPrint('Error starting native scan: $e');
-        return false;
+        try {
+          await _methodChannel.invokeMethod<bool>('stopScanning');
+        } catch (_) {}
+        _isScanning = false;
       }
-    } else {
-      // Fallback to simulated scanning
-      _isScanning = true;
-      _simulatedTagsPool = List.from(simulatedScopeTags);
-      _simulationIndex = 0;
-      _startSimulation();
-      return true;
+      return false;
+    } catch (e) {
+      debugPrint('Error starting native scan: $e');
+      _isScanning = false;
+      return false;
     }
   }
 
@@ -586,15 +603,39 @@ class RfidService {
   }
 
   Future<bool> setSearchTags(List<String> tags) async {
-    if (_isSupported) {
-      try {
-        return await _methodChannel.invokeMethod<bool>('setSearchTags', {'tags': tags}) ?? false;
-      } catch (e) {
-        debugPrint('Error setting search tags: $e');
-        return false;
+    if (!_isSupported) return true;
+    // Binder transactions fail above ~1MB — send large unmatched lists in chunks.
+    const chunk = 1500;
+    try {
+      if (tags.length <= chunk) {
+        return await _methodChannel.invokeMethod<bool>(
+              'setSearchTags',
+              {'tags': tags},
+            ) ??
+            false;
       }
+      final firstEnd = chunk < tags.length ? chunk : tags.length;
+      final firstOk = await _methodChannel.invokeMethod<bool>(
+            'setSearchTags',
+            {'tags': tags.sublist(0, firstEnd)},
+          ) ??
+          false;
+      if (!firstOk) return false;
+      for (var i = firstEnd; i < tags.length; i += chunk) {
+        final end = (i + chunk < tags.length) ? i + chunk : tags.length;
+        await _methodChannel.invokeMethod<bool>(
+          'addSearchTags',
+          {'tags': tags.sublist(i, end)},
+        );
+        if (i > 0 && (i - firstEnd) % (chunk * 4) == 0) {
+          await Future<void>.delayed(Duration.zero);
+        }
+      }
+      return true;
+    } catch (e) {
+      debugPrint('Error setting search tags: $e');
+      return false;
     }
-    return true;
   }
 
   Future<bool> setMatchEpcs(List<String> epcs) async {

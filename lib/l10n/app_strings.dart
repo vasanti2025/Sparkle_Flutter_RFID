@@ -322,6 +322,7 @@ class AppStrings {
   String get unmatchedItemsMenu => _t('unmatchedItemsMenu');
   String get unlabelledItems => _t('unlabelledItems');
   String get resumeScan => _t('resumeScan');
+  String get resume => _t('resume');
   String get searchUnmatchedMenu => _t('searchUnmatchedMenu');
   String get noItemsFoundUnderScope => _t('noItemsFoundUnderScope');
   String get allItemsMatchedScanStopped => _t('allItemsMatchedScanStopped');
@@ -485,6 +486,7 @@ class AppStrings {
   String get noProductsMatchingFilters => _t('noProductsMatchingFilters');
   String get tryResettingFilters => _t('tryResettingFilters');
   String get apiActiveCannotEdit => _t('apiActiveCannotEdit');
+  String get apiActiveCannotEditDelete => _t('apiActiveCannotEditDelete');
   String get generalDetails => _t('generalDetails');
   String get productTitleName => _t('productTitleName');
   String get nameRequired => _t('nameRequired');
@@ -618,10 +620,15 @@ class AppStrings {
 
   // Validations getters
   String get validationNameRequired => _t('validationNameRequired');
+  String get validationNameLettersOnly => _t('validationNameLettersOnly');
   String get validationMobileRequired => _t('validationMobileRequired');
   String get validationMobileDigits => _t('validationMobileDigits');
   String get validationPanDigits => _t('validationPanDigits');
+  String get validationPanInvalid => _t('validationPanInvalid');
   String get validationGstDigits => _t('validationGstDigits');
+  String get validationGstInvalid => _t('validationGstInvalid');
+  String get validationEmailInvalid => _t('validationEmailInvalid');
+  String get validationCityRequired => _t('validationCityRequired');
 
   // Product Management getters
   String get noLocalDataToExportSyncFirst => _t('noLocalDataToExportSyncFirst');
@@ -905,6 +912,7 @@ class AppStrings {
       'noProductsMatchingFilters': 'No products matching filters found.',
       'tryResettingFilters': 'Try resetting your filters or search query.',
       'apiActiveCannotEdit': 'This product is ApiActive and cannot be edited.',
+      'apiActiveCannotEditDelete': 'This is third party product so we can\'t do the edit and delete functionality.',
       'nameRequired': 'Name is required',
       'scanTagsToAddRows': 'Scan tags to add rows',
       'errorWithMessage': 'Error: {message}',
@@ -1125,6 +1133,7 @@ class AppStrings {
       'unmatchedItemsMenu': 'Unmatched Items',
       'unlabelledItems': 'Unlabelled Items',
       'resumeScan': 'Resume Scan',
+      'resume': 'Resume',
       'searchUnmatchedMenu': 'Search (Unmatched)',
       'noItemsFoundUnderScope': 'No items found under this scope',
       'allItemsMatchedScanStopped': 'All items matched. Scan stopped.',
@@ -1190,12 +1199,17 @@ class AppStrings {
       'fieldPanNumber': 'PAN Number',
       'fieldGstNumber': 'GST Number',
       'fieldStreetAddress': 'Street Address',
-      'fieldCity': 'City',
+      'fieldCity': 'City *',
       'validationNameRequired': 'Please enter customer name',
+      'validationNameLettersOnly': 'Customer name cannot contain numbers',
       'validationMobileRequired': 'Please enter mobile number',
       'validationMobileDigits': 'Enter a valid 10-digit mobile number',
       'validationPanDigits': 'PAN must be exactly 10 characters',
+      'validationPanInvalid': 'Invalid PAN format',
       'validationGstDigits': 'GST must be exactly 15 characters',
+      'validationGstInvalid': 'Invalid GST format',
+      'validationEmailInvalid': 'Invalid email address',
+      'validationCityRequired': 'Please enter city',
       'noLocalDataToExportSyncFirst': 'No local data to export. Sync data first.',
       'importExcel': 'Import\nExcel',
       'exportExcel': 'Export\nExcel',
@@ -1561,6 +1575,7 @@ class AppStrings {
       'noProductsMatchingFilters': 'फ़िल्टर से मेल खाते कोई उत्पाद नहीं मिले।',
       'tryResettingFilters': 'अपने फ़िल्टर या खोज क्वेरी को रीसेट करने का प्रयास करें।',
       'apiActiveCannotEdit': 'यह उत्पाद ApiActive है और संपादित नहीं किया जा सकता।',
+      'apiActiveCannotEditDelete': 'यह तृतीय-पक्ष उत्पाद है इसलिए हम संपादन और हटाने की कार्यक्षमता नहीं कर सकते।',
       'nameRequired': 'नाम आवश्यक है',
       'scanTagsToAddRows': 'पंक्तियाँ जोड़ने के लिए टैग स्कैन करें',
       'errorWithMessage': 'त्रुटि: {message}',
@@ -1766,6 +1781,7 @@ class AppStrings {
       'noRfidEpcInScope': 'इस दायरे के आइटम पर कोई RFID/EPC नहीं मिला',
       'allItemsAlreadyMatched': 'सभी आइटम पहले से ही मेल खाते हैं!',
       'previousScanRestored': 'पिछला स्कैन पुनर्स्थापित किया गया',
+      'resume': 'फिर से शुरू',
       'allItemsMatchedScanStopped': 'सभी आइटम मेल खा गए। स्कैन बंद कर दिया गया।',
       'scanResetSuccessful': 'स्कैन रीसेट सफल',
       'size': 'आकार',
@@ -2054,6 +2070,7 @@ class AppStrings {
       'noProductsMatchingFilters': 'لم يتم العثور على منتجات مطابقة للفلاتر.',
       'tryResettingFilters': 'حاول إعادة تعيين الفلاتر أو استعلام البحث.',
       'apiActiveCannotEdit': 'هذا المنتج ApiActive ولا يمكن تعديله.',
+      'apiActiveCannotEditDelete': 'هذا منتج من جهة خارجية لذا لا يمكننا تعديله أو حذفه.',
       'nameRequired': 'الاسم مطلوب',
       'scanTagsToAddRows': 'امسح العلامات لإضافة صفوف',
       'errorWithMessage': 'خطأ: {message}',
@@ -2177,12 +2194,17 @@ class AppStrings {
       'fieldPanNumber': 'رقم PAN',
       'fieldGstNumber': 'رقم ضريبة القيمة المضافة (GST)',
       'fieldStreetAddress': 'عنوان الشارع',
-      'fieldCity': 'المدينة',
+      'fieldCity': 'المدينة *',
       'validationNameRequired': 'يرجى إدخال اسم العميل',
+      'validationNameLettersOnly': 'لا يمكن أن يحتوي اسم العميل على أرقام',
       'validationMobileRequired': 'يرجى إدخال رقم الهاتف المحمول',
       'validationMobileDigits': 'أدخل رقم هاتف محمول صالحاً مكوناً من 10 أرقام',
       'validationPanDigits': 'يجب أن يتكون PAN من 10 أحرف بالضبط',
+      'validationPanInvalid': 'تنسيق PAN غير صالح',
       'validationGstDigits': 'يجب أن يتكون GST من 15 حرفاً بالضبط',
+      'validationGstInvalid': 'تنسيق GST غير صالح',
+      'validationEmailInvalid': 'عنوان البريد الإلكتروني غير صالح',
+      'validationCityRequired': 'يرجى إدخال المدينة',
       'noLocalDataToExportSyncFirst': 'لا توجد بيانات محلية للتصدير. يرجى مزامنة البيانات أولاً.',
       'importExcel': 'استيراد\nإكسل',
       'exportExcel': 'تصدير\nإكسل',
@@ -2282,6 +2304,7 @@ class AppStrings {
       'noRfidEpcInScope': 'لم يتم العثور على RFID/EPC على العناصر في هذا النطاق',
       'allItemsAlreadyMatched': 'جميع العناصر مطابقة بالفعل!',
       'previousScanRestored': 'تم استعادة المسح السابق',
+      'resume': 'استئناف',
       'allItemsMatchedScanStopped': 'تطابقت جميع العناصر. تم إيقاف المسح.',
       'scanResetSuccessful': 'تم إعادة ضبط المسح بنجاح',
       'size': 'الحجم',

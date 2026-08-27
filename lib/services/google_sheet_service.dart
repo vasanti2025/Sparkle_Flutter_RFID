@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:csv/csv.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 /// Google Sheet helpers matching Sparkle BulkViewModel / ImportExcelViewModel.
@@ -14,16 +15,18 @@ class GoogleSheetService {
     if (t.isEmpty) return null;
     final match = RegExp(r'/spreadsheets/d/([a-zA-Z0-9-_]+)').firstMatch(t);
     if (match != null) return match.group(1);
-    if (RegExp(r'^[a-zA-Z0-9-_]+$').hasMatch(t)) return t;
+    // Fallback: if it's alphanumeric and looks like an ID, return it
+    if (!t.contains('/') && t.length > 20) return t;
     return null;
   }
 
-  static String csvExportUrl(String sheetId) =>
-      'https://docs.google.com/spreadsheets/d/$sheetId/export?format=csv';
+  static String csvExportUrl(String sheetId) {
+    return 'https://docs.google.com/spreadsheets/d/$sheetId/export?format=csv';
+  }
 
   /// Sparkle [BulkViewModel.parseGoogleSheetHeaders] — first CSV row.
   static Future<List<String>> parseHeaders(String csvUrl) async {
-    final response = await http.get(Uri.parse(csvUrl)).timeout(const Duration(seconds: 60));
+    final response = await http.get(Uri.parse(csvUrl)).timeout(const Duration(seconds: 40));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       return const [];
     }
@@ -45,6 +48,12 @@ class GoogleSheetService {
     }
     final text = utf8.decode(response.bodyBytes, allowMalformed: true);
     if (text.trim().isEmpty) return const [];
+    
+    // Parse in background isolate to prevent UI thread blocking on large imports
+    return compute(_parseCsvDataInBackground, text);
+  }
+
+  static List<Map<String, String>> _parseCsvDataInBackground(String text) {
     final rows = const CsvToListConverter(shouldParseNumbers: false).convert(text);
     if (rows.isEmpty) return const [];
 

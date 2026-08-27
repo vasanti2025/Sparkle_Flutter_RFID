@@ -169,6 +169,13 @@ final class RfidBridge: NSObject {
       searchTags = Set(tags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() }.filter { !$0.isEmpty })
       matchEpcs.removeAll()
       result(true)
+    case "addSearchTags":
+      let tags = ((call.arguments as? [String: Any])?["tags"] as? [String]) ?? []
+      for tag in tags {
+        let key = tag.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        if !key.isEmpty { searchTags.insert(key) }
+      }
+      result(true)
     case "setMatchEpcs":
       let epcs = ((call.arguments as? [String: Any])?["epcs"] as? [String]) ?? []
       searchTags.removeAll()
