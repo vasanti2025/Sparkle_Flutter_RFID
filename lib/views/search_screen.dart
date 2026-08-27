@@ -49,7 +49,9 @@ class SearchItem {
 
   void applyScan({String? rssi, int? proximityPercent}) {
     if (rssi != null) this.rssi = rssi;
-    if (proximityPercent != null) this.proximityPercent = proximityPercent;
+    if (proximityPercent != null && proximityPercent > this.proximityPercent) {
+      this.proximityPercent = proximityPercent;
+    }
   }
 
   void clearScan() {
@@ -423,12 +425,18 @@ class _SearchScreenState extends State<SearchScreen> {
       if (index == null || index < 0 || index >= _searchItems.length) return;
 
       _lastRssiUpdateMs[index] = now;
-      _searchItems[index].applyScan(rssi: rssi, proximityPercent: proximity);
-      _dirtyIndices.add(index);
+      final item = _searchItems[index];
+      final previous = item.proximityPercent;
+      item.applyScan(rssi: rssi, proximityPercent: proximity);
       if (_isLargeUnmatched) {
         _playRssiSearchSound(rssi);
       }
-      _scheduleSearchUiUpdate();
+      // RSSI jitters even when the tag is still nearby — don't rebuild the
+      // colored progress unless the displayed % actually increased.
+      if (item.proximityPercent != previous) {
+        _dirtyIndices.add(index);
+        _scheduleSearchUiUpdate();
+      }
     } catch (e) {
       debugPrint('Search tag handler: $e');
     }
