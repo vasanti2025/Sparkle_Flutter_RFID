@@ -10,69 +10,38 @@ class DbService {
   static Database? _database;
   List<BulkItem>? _bulkItemsCache;
   Map<String, BulkItem>? _scanKeyIndex;
-  Map<String, int>? _scanKeyIdIndex;
   Map<String, String>? _tidToRfidCache;
   Map<String, List<String>>? _distinctValuesCache;
 
   void invalidateBulkCache() {
     _bulkItemsCache = null;
     _scanKeyIndex = null;
-    _scanKeyIdIndex = null;
+    _tidToRfidCache = null;
     _distinctValuesCache = null;
   }
 
   String _normalizeScanKey(String raw) => raw.trim().toUpperCase().replaceAll(' ', '');
 
-  Future<void> _ensureScanKeyIdIndex() async {
-    if (_scanKeyIdIndex != null) return;
-    final db = await database;
-    const pageSize = 4000;
-    var offset = 0;
-    final index = <String, int>{};
-    while (true) {
-      final maps = await db.query(
-        'bulk_items',
-        columns: ['bulkItemId', 'itemCode', 'rfid', 'epc', 'tid'],
-        limit: pageSize,
-        offset: offset,
-      );
-      if (maps.isEmpty) break;
-      for (final m in maps) {
-        final id = m['bulkItemId'] as int? ?? 0;
-        if (id == 0) continue;
-        for (final col in ['epc', 'rfid', 'itemCode', 'tid']) {
-          final key = _normalizeScanKey(m[col]?.toString() ?? '');
-          if (key.isNotEmpty) index[key] = id;
-        }
-      }
-      offset += maps.length;
-      if (maps.length < pageSize) break;
-    }
-    _scanKeyIdIndex = index;
-  }
-
-  Future<BulkItem?> _getBulkItemByBulkItemId(int bulkItemId) async {
-    final db = await database;
-    final maps = await db.query(
-      'bulk_items',
-      where: 'bulkItemId = ?',
-      whereArgs: [bulkItemId],
-      limit: 1,
-    );
-    if (maps.isEmpty) return null;
-    return BulkItem.fromMap(maps.first);
-  }
-
   void _cacheScanItem(String key, BulkItem item) {
     _scanKeyIndex ??= {};
-    _scanKeyIndex![key] = item;
-    if (_scanKeyIndex!.length > 400) {
+    void put(String raw) {
+      final k = _normalizeScanKey(raw);
+      if (k.isEmpty) return;
+      _scanKeyIndex![k] = item;
+    }
+    put(key);
+    put(item.epc);
+    put(item.tid);
+    put(item.rfid);
+    put(item.itemCode);
+    while (_scanKeyIndex!.length > 2000) {
       _scanKeyIndex!.remove(_scanKeyIndex!.keys.first);
     }
   }
 
+  /// Do not load 5L+ rows into RAM. Lookups use indexed SQL (see findBulkItemByScanKey).
   Future<void> warmScanKeyIndex() async {
-    await _ensureScanKeyIdIndex();
+    await database;
   }
 
   Future<BulkItem?> findBulkItemByScanKey(String raw) async {
@@ -80,18 +49,7 @@ class DbService {
     if (key.isEmpty) return null;
     final cached = findBulkItemByScanKeySync(raw);
     if (cached != null) return cached;
-
-    await _ensureScanKeyIdIndex();
-    final bulkItemId = _scanKeyIdIndex![key];
-    if (bulkItemId != null) {
-      final item = await _getBulkItemByBulkItemId(bulkItemId);
-      if (item != null) {
-        _cacheScanItem(key, item);
-        return item;
-      }
-    }
-
-    return _queryBulkItemByScanKey(key, _scanKeyIndex ??= {});
+    return _queryBulkItemByScanKeyIndexed(key);
   }
 
   BulkItem? findBulkItemByScanKeySync(String raw) {
@@ -101,29 +59,26 @@ class DbService {
   }
 
   List<String> scanKeysForNativeMatch({int limit = 8000}) {
-    if (_scanKeyIdIndex != null && _scanKeyIdIndex!.isNotEmpty) {
-      final keys = _scanKeyIdIndex!.keys;
-      if (keys.length <= limit) return keys.toList(growable: false);
-      return keys.take(limit).toList(growable: false);
-    }
-    if (_scanKeyIndex == null || _scanKeyIndex!.isEmpty) return const [];
-    final keys = _scanKeyIndex!.keys;
-    if (keys.length <= limit) return keys.toList(growable: false);
-    return keys.take(limit).toList(growable: false);
+    // Never send a partial LRU as a native allow-list — that drops real tags.
+    return const [];
   }
 
-  Future<BulkItem?> _queryBulkItemByScanKey(String key, Map<String, BulkItem> index) async {
+  /// Indexed equality on epc/tid/rfid/itemCode. Avoid UPPER() full-table scans on 5L rows.
+  Future<BulkItem?> _queryBulkItemByScanKeyIndexed(String key) async {
     final db = await database;
-    final maps = await db.query(
-      'bulk_items',
-      where: 'UPPER(itemCode) = ? OR UPPER(rfid) = ? OR UPPER(epc) = ? OR UPPER(tid) = ?',
-      whereArgs: [key, key, key, key],
-      limit: 1,
-    );
-    if (maps.isEmpty) return null;
-    final item = BulkItem.fromMap(maps.first);
-    _cacheScanItem(key, item);
-    return item;
+    for (final col in ['epc', 'tid', 'rfid', 'itemCode']) {
+      final maps = await db.query(
+        'bulk_items',
+        where: '$col = ?',
+        whereArgs: [key],
+        limit: 1,
+      );
+      if (maps.isEmpty) continue;
+      final item = BulkItem.fromMap(maps.first);
+      _cacheScanItem(key, item);
+      return item;
+    }
+    return null;
   }
 
   Future<List<BulkItem>> searchBulkItemsByCodePrefix(String query, {int limit = 25}) async {

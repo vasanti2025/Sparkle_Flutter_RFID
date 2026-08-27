@@ -526,6 +526,7 @@ class RfidService {
       // Permit scan only — native startScanning does init + prepareScan(power).
       await _methodChannel.invokeMethod<bool>('prepareForScan');
       await setInventoryScanMode(true);
+      await clearMatchEpcs();
       await clearInventoryScope();
 
       for (var attempt = 0; attempt < 4; attempt++) {

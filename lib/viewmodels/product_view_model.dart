@@ -3,7 +3,6 @@ import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import '../models/bulk_item.dart';
 import '../services/db_service.dart';
@@ -288,7 +287,9 @@ class ProductViewModel extends ChangeNotifier {
     });
 
     try {
-      await Isolate.spawn(SyncIsolate.run, params);
+      // Let the sync isolate take exclusive SQLite access (faster bulk insert).
+      await _dbService.resetConnection();
+      await Isolate.spawn(SyncIsolate.run, params, debugName: 'productSync');
     } catch (e) {
       _isLoading = false;
       _errorMessage = 'Failed to start sync: $e';

@@ -73,6 +73,9 @@ class LabelStockSyncService {
       });
 
       final dbPath = p.join(await getDatabasesPath(), 'sparkle_rfid.db');
+      try {
+        await dbService.resetConnection();
+      } catch (_) {}
       await Isolate.spawn(SyncIsolate.run, {
         'token': rootToken,
         'sendPort': receivePort.sendPort,

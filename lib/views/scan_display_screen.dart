@@ -81,6 +81,8 @@ class ScannedBulkItem {
 
     addKey(epc);
     addKey(rfid);
+    addKey(originalBulkItem.tid);
+    addKey(itemCode);
     return keys.toList(growable: false);
   }
 

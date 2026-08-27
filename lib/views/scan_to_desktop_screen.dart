@@ -326,7 +326,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
         await _rfidService.haltScan();
       }
 
-      final started = await _rfidService.startScanning(power: 20);
+      final started = await _rfidService.startScanning(power: _selectedPower);
       if (gen != _scanGeneration) {
         if (started) {
           await _rfidService.stopScanning();
