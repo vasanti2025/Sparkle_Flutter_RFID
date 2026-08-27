@@ -79,7 +79,6 @@ class _BootstrapAppState extends State<_BootstrapApp> {
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      setState(() => _fullReady = true);
       unawaited(_hydrateInBackground());
     });
   }
@@ -92,13 +91,22 @@ class _BootstrapAppState extends State<_BootstrapApp> {
       }
 
       await PrefService.init();
+      var resolvedLoggedIn = _prefService.hasValidSession();
 
-      // Absolute 1hr session — clear stale sessions before choosing home route.
-      if (_prefService.isLoggedIn() && _prefService.isSessionTimedOut()) {
-        await _prefService.logout();
+      // Employee JSON is enough to restore the session even if `logged_in` was
+      // missing or native bootstrap read the wrong type.
+      if (!resolvedLoggedIn && _prefService.getEmployee() != null) {
+        await _prefService.setLoggedIn(true);
+        resolvedLoggedIn = true;
       }
 
-      var resolvedLoggedIn = _prefService.hasValidSession();
+      if (mounted) {
+        setState(() {
+          _sessionLoggedIn = resolvedLoggedIn;
+          _fullReady = true;
+        });
+      }
+      _refreshViewModelsAfterHydrate();
 
       if (!resolvedLoggedIn &&
           _prefService.isRememberMe() &&
@@ -122,17 +130,16 @@ class _BootstrapAppState extends State<_BootstrapApp> {
             debugPrint('Silent autologin failed: $e');
           }
         }
+        if (mounted && resolvedLoggedIn) {
+          setState(() => _sessionLoggedIn = true);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            appNavigatorKey.currentState?.pushNamedAndRemoveUntil(
+              '/dashboard',
+              (route) => false,
+            );
+          });
+        }
       }
-
-      // Still marked logged-in but session data missing → force login screen.
-      if (!resolvedLoggedIn && _prefService.isLoggedIn()) {
-        await _prefService.logout();
-      }
-
-      if (mounted && resolvedLoggedIn != _sessionLoggedIn) {
-        setState(() => _sessionLoggedIn = resolvedLoggedIn);
-      }
-      _refreshViewModelsAfterHydrate();
 
       if (!_warmScheduled) {
         _warmScheduled = true;
@@ -142,6 +149,9 @@ class _BootstrapAppState extends State<_BootstrapApp> {
       }
     } catch (e, st) {
       debugPrint('STARTUP hydrate failed: $e\n$st');
+      if (mounted && !_fullReady) {
+        setState(() => _fullReady = true);
+      }
     }
   }
 

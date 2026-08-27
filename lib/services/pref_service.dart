@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/employee.dart';
 import '../models/clients.dart';
+import '../models/wholesale_master.dart';
 import 'pref_store.dart';
 
 class PrefService {
@@ -268,10 +270,11 @@ class PrefService {
 
   Employee? getEmployee() {
     final jsonStr = _store.getString(_keyEmployee);
-    if (jsonStr == null) return null;
+    if (jsonStr == null || jsonStr.trim().isEmpty) return null;
     try {
       return Employee.fromJson(jsonDecode(jsonStr) as Map<String, dynamic>);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('getEmployee parse failed: $e');
       return null;
     }
   }
@@ -306,6 +309,18 @@ class PrefService {
   bool isRememberMe() => _store.getBool(_keyRememberMe) ?? false;
   String getSavedUsername() => _store.getString(_keyUsername) ?? '';
   String getSavedPassword() => _store.getString(_keyPassword) ?? '';
+
+  /// Wholesale + Scan Display branch/counter flow is only for this ClientCode.
+  static const String wholesaleClientCode = 'LS000641';
+
+  bool isWholesaleLoginUser() {
+    bool matches(String? value) =>
+        (value ?? '').trim().toUpperCase() == wholesaleClientCode;
+    final emp = getEmployee();
+    return matches(emp?.clientCode) ||
+        matches(emp?.clients?.clientCode) ||
+        matches(getClient()?.clientCode);
+  }
 
   Future<void> setLoggedIn(bool loggedIn) async => _store.setBool(_keyLoggedIn, loggedIn);
   bool isLoggedIn() => _store.getBool(_keyLoggedIn) ?? false;
@@ -475,6 +490,77 @@ class PrefService {
   static const String keyDeviceId = 'stable_device_id';
   Future<void> saveDeviceId(String val) async => _store.setString(keyDeviceId, val);
   String getDeviceId() => _store.getString(keyDeviceId) ?? '';
+
+  static const String keyWholesaleBranchId = 'wholesale_branch_id';
+  static const String keyWholesaleBranchName = 'wholesale_branch_name';
+  static const String keyWholesaleCounterId = 'wholesale_counter_id';
+  static const String keyWholesaleCounterName = 'wholesale_counter_name';
+
+  static const String keyWholesaleAssignments = 'wholesale_assignments';
+
+  int getWholesaleBranchId() => _store.getInt(keyWholesaleBranchId) ?? 0;
+  String getWholesaleBranchName() => _store.getString(keyWholesaleBranchName) ?? '';
+  int getWholesaleCounterId() => _store.getInt(keyWholesaleCounterId) ?? 0;
+  String getWholesaleCounterName() => _store.getString(keyWholesaleCounterName) ?? '';
+
+  List<RfidDeviceAssignment> getWholesaleAssignments() {
+    final raw = _store.getString(keyWholesaleAssignments);
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          return decoded
+              .whereType<Map>()
+              .map((e) => RfidDeviceAssignment.fromJson(Map<String, dynamic>.from(e)))
+              .where((a) => a.isValid)
+              .toList();
+        }
+      } catch (_) {}
+    }
+    final branchId = getWholesaleBranchId();
+    final branchName = getWholesaleBranchName();
+    final counterId = getWholesaleCounterId();
+    final counterName = getWholesaleCounterName();
+    if (branchId > 0 || branchName.isNotEmpty || counterId > 0 || counterName.isNotEmpty) {
+      return [
+        RfidDeviceAssignment(
+          branchId: branchId,
+          branchName: branchName,
+          counterId: counterId,
+          counterName: counterName,
+        ),
+      ];
+    }
+    return [];
+  }
+
+  Future<void> saveWholesaleOption({
+    required int branchId,
+    required String branchName,
+    required int counterId,
+    required String counterName,
+    required String deviceId,
+    List<RfidDeviceAssignment>? assignments,
+  }) async {
+    await _store.setInt(keyWholesaleBranchId, branchId);
+    await _store.setString(keyWholesaleBranchName, branchName);
+    await _store.setInt(keyWholesaleCounterId, counterId);
+    await _store.setString(keyWholesaleCounterName, counterName);
+    await saveDeviceId(deviceId);
+    final rows = assignments ??
+        [
+          RfidDeviceAssignment(
+            branchId: branchId,
+            branchName: branchName,
+            counterId: counterId,
+            counterName: counterName,
+          ),
+        ];
+    await _store.setString(
+      keyWholesaleAssignments,
+      jsonEncode(rows.map((a) => a.toPrefJson()).toList()),
+    );
+  }
 
   Future<void> logout() async {
     // Clear login flag first so a killed mid-logout process cannot autologin.

@@ -9,6 +9,7 @@ import '../l10n/l10n_extension.dart';
 import '../models/bulk_item.dart';
 import '../viewmodels/product_view_model.dart';
 import '../viewmodels/dashboard_view_model.dart';
+import '../viewmodels/settings_view_model.dart';
 import '../services/pref_service.dart';
 import '../services/rfid_service.dart';
 import '../services/email_service.dart';
@@ -17,6 +18,8 @@ import '../utils/product_image.dart';
 import '../utils/tray_scan_auto_stop.dart';
 import 'search_screen.dart';
 import 'widgets/scan_bottom_bar.dart';
+import 'widgets/scan_branch_counter_dialog.dart';
+import '../models/wholesale_master.dart';
 
 String _normalizeInventoryScanKey(String raw) {
   var s = raw.trim();
@@ -185,6 +188,11 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   /// After user taps Stop with unmatched items left — bottom button shows Resume.
   bool _showResumeOnScanButton = false;
   int _selectedPower = 30; // Default power level
+  /// Scope size / matched count for O(1) auto-stop on large catalogs.
+  int _scanScopeItemCount = 0;
+  int _scanMatchedItemCount = 0;
+  RfidDeviceAssignment? _sessionLocation;
+  bool _locationPromptOpen = false;
 
   // Drawer / overlay menu and unlabelled items
   bool _showMenu = false;
@@ -434,6 +442,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       _selectedCategories.length,
       _selectedProducts.length,
       _selectedDesigns.length,
+      _matchedEpcSet.length,
       _scannedItems.length,
     );
   }
@@ -449,11 +458,11 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   void _recalculateScopeCounts() {
     final scope = _selectedMenu == 'UNLABELLED' ? _getFilteredScopeItems() : _getNavScopeItems();
-    
+
     int matched = 0;
     double totalWt = 0.0;
     double matchedWt = 0.0;
-    
+
     for (final item in scope) {
       final gw = item.parsedGrossWt;
       totalWt += gw;
@@ -462,7 +471,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         matchedWt += gw;
       }
     }
-    
+
     _matchedCount = matched;
     _totalGrossWt = totalWt;
     _totalMatchedWt = matchedWt;
@@ -487,7 +496,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         !_isScanning ||
         elapsed >= listInterval ||
         _cachedFilteredItems == null;
-    
+
     if (needListRefresh) {
       _lastListRefreshMs = now;
       final filteredItems = _getFilteredScopeItems();
@@ -495,7 +504,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       _cachedGroupedBuckets = _getGroupedBuckets(filteredItems);
       _cachedViewHash = _viewStateHash();
     }
-    
+
     _cachedMatchedCount = _matchedCount;
     _cachedTotalGrossWt = _totalGrossWt;
     _cachedTotalMatchedWt = _totalMatchedWt;
@@ -688,7 +697,35 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     if (_isScanning) {
       _stopScanning(fromUser: true);
     } else {
-      _startScanning();
+      unawaited(_startScanningAfterLocation());
+    }
+  }
+
+  Future<void> _startScanningAfterLocation() async {
+    if (!await _ensureBranchCounterForWholesale()) return;
+    _startScanning();
+  }
+
+  Future<bool> _ensureBranchCounterForWholesale() async {
+    final pref = context.read<PrefService>();
+    if (!pref.isWholesaleLoginUser()) return true;
+    final existing = _sessionLocation;
+    if (existing != null && existing.isValid) return true;
+    if (_locationPromptOpen) return false;
+    _locationPromptOpen = true;
+    try {
+      final picked = await showScanBranchCounterDialog(
+        context: context,
+        initial: existing ??
+            (pref.getWholesaleAssignments().isNotEmpty
+                ? pref.getWholesaleAssignments().first
+                : null),
+      );
+      if (picked == null) return false;
+      _sessionLocation = picked;
+      return true;
+    } finally {
+      _locationPromptOpen = false;
     }
   }
 
@@ -902,9 +939,34 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       );
       unawaited(viewModel.saveScanResults(finalItems));
       final success = await uploadFuture;
+    // 4. Call stock verification API
+    String? deviceCode;
+    if (pref.isWholesaleLoginUser()) {
+      deviceCode = (await settingsVm.ensureDeviceId()).trim();
+      if (!mounted) return;
+      if (_sessionLocation == null || !_sessionLocation!.isValid) {
+        if (!await _ensureBranchCounterForWholesale()) {
+          if (mounted) setState(() => _isSaving = false);
+          return;
+        }
+      }
+    }
+    if (!mounted) return;
+    final location = _sessionLocation;
+    final success = await viewModel.uploadVerification(
+      clientCode: employee.clientCode!,
+      items: uploadItemsPayload,
+      counterId: location?.counterId,
+      counterName: location?.counterName,
+      branchId: location?.branchId,
+      branchName: location?.branchName,
+      deviceCode: deviceCode,
+    );
 
       if (!mounted) return;
       setState(() => _isSaving = false);
+    if (!mounted) return;
+    setState(() => _isSaving = false);
 
       if (success) {
         _showResumeOnScanButton = false;
@@ -1722,6 +1784,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                                           if (!mounted) return;
                                           navigator.pushNamed('/search', arguments: {
                                             'listKey': 'unmatchedItems',
+                                            'items': unmatched,
                                           });
                                         },
                                       ),

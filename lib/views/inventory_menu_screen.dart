@@ -26,7 +26,7 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
       context: context,
       barrierDismissible: true,
       builder: (context) {
-        return _MultiSelectionDialog(
+        return InventoryMultiSelectionDialog(
           title: title,
           items: items,
           onConfirm: onConfirm,
@@ -237,22 +237,23 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
   }
 }
 
-class _MultiSelectionDialog extends StatefulWidget {
+class InventoryMultiSelectionDialog extends StatefulWidget {
   final String title;
   final List<String> items;
   final void Function(List<String> selected) onConfirm;
 
-  const _MultiSelectionDialog({
+  const InventoryMultiSelectionDialog({
+    super.key,
     required this.title,
     required this.items,
     required this.onConfirm,
   });
 
   @override
-  State<_MultiSelectionDialog> createState() => _MultiSelectionDialogState();
+  State<InventoryMultiSelectionDialog> createState() => _InventoryMultiSelectionDialogState();
 }
 
-class _MultiSelectionDialogState extends State<_MultiSelectionDialog> {
+class _InventoryMultiSelectionDialogState extends State<InventoryMultiSelectionDialog> {
   bool _expanded = true;
   final Set<String> _selected = {};
 

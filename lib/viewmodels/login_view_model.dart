@@ -131,6 +131,7 @@ class LoginViewModel extends ChangeNotifier {
     BuildContext context, {
     String? username,
     String? password,
+    bool silent = false,
   }) async {
     final user = username ?? _username;
     final pass = password ?? _password;
@@ -176,6 +177,10 @@ class LoginViewModel extends ChangeNotifier {
             'Your subscription has expired. Please contact support.',
           );
         } else if (daysRemaining >= 0 && daysRemaining <= 15) {
+          if (silent) {
+            await _completeLogin(response, username: user, password: pass);
+            return true;
+          }
           // Store response and show popup
           _pendingLoginResponse = response;
           _expiryWarningMessage =
