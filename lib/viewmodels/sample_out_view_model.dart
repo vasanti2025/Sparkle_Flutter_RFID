@@ -528,11 +528,13 @@ class SampleOutViewModel extends ChangeNotifier {
 
       final response = await _apiService.addSampleOut(payload);
       if (response != null) {
-        // Sparkle: after AddCustomerIssue → BulkViewModel.syncItems (label stock).
-        LabelStockSyncService.afterStockOut(
+        await LabelStockSyncService.afterStockOut(
           prefService: _prefService,
           dbService: _dbService,
           labelledStockIds: _productList.map((e) => e.labelledStockId),
+          itemCodes: _productList.map((e) => e.itemCode),
+          rfids: _productList.map((e) => e.rfidCode),
+          tids: _productList.map((e) => e.tid.isNotEmpty ? e.tid : e.tidNumber),
         );
         await fetchAllSampleOut();
         _isLoading = false;
@@ -606,6 +608,44 @@ class SampleOutViewModel extends ChangeNotifier {
 
       final response = await _apiService.updateSampleOut(payload);
       if (response != null) {
+        final previousIds = _selectedSampleOut!.issueItems
+            .map((e) => (e['LabelledStockId'] as num?)?.toInt() ??
+                int.tryParse('${e['LabelledStockId'] ?? ''}') ??
+                0)
+            .where((id) => id > 0)
+            .toSet();
+        final previousCodes = _selectedSampleOut!.issueItems
+            .map((e) => e['ItemCode']?.toString() ?? '')
+            .where((c) => c.trim().isNotEmpty)
+            .toSet();
+        final currentIds = _productList.map((e) => e.labelledStockId).where((id) => id > 0).toSet();
+        final currentCodes = _productList.map((e) => e.itemCode).where((c) => c.trim().isNotEmpty).toSet();
+        final addedIds = currentIds.difference(previousIds);
+        final addedCodes = currentCodes.difference(previousCodes);
+        final restoredIds = previousIds.difference(currentIds);
+        final restoredCodes = previousCodes.difference(currentCodes);
+        if (addedIds.isNotEmpty || addedCodes.isNotEmpty) {
+          await LabelStockSyncService.afterStockOut(
+            prefService: _prefService,
+            dbService: _dbService,
+            labelledStockIds: addedIds,
+            itemCodes: addedCodes,
+            rfids: _productList
+                .where((e) => addedIds.contains(e.labelledStockId) || addedCodes.contains(e.itemCode))
+                .map((e) => e.rfidCode),
+            tids: _productList
+                .where((e) => addedIds.contains(e.labelledStockId) || addedCodes.contains(e.itemCode))
+                .map((e) => e.tid.isNotEmpty ? e.tid : e.tidNumber),
+          );
+        }
+        if (restoredIds.isNotEmpty || restoredCodes.isNotEmpty) {
+          await LabelStockSyncService.afterStockIn(
+            prefService: _prefService,
+            dbService: _dbService,
+            labelledStockIds: restoredIds,
+            itemCodes: restoredCodes,
+          );
+        }
         await fetchAllSampleOut();
         _isLoading = false;
         notifyListeners();

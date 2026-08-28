@@ -589,10 +589,22 @@ class SampleInViewModel extends ChangeNotifier {
 
       final response = await _apiService.updateSampleOut(payload);
       if (response != null) {
-        // Refresh LabelStock so SampleIn items become Active again locally.
-        LabelStockSyncService.afterStockIn(
+        final returnedIds = <int>[];
+        final returnedCodes = <String>[];
+        for (final issue in issueItems) {
+          final itemCode = normSampleCode(issue['ItemCode']?.toString());
+          if (itemCode.isEmpty || !scannedNorm.contains(itemCode)) continue;
+          returnedCodes.add(itemCode);
+          final sid = (issue['LabelledStockId'] as num?)?.toInt() ??
+              int.tryParse('${issue['LabelledStockId'] ?? ''}') ??
+              0;
+          if (sid > 0) returnedIds.add(sid);
+        }
+        await LabelStockSyncService.afterStockIn(
           prefService: _prefService,
           dbService: _dbService,
+          labelledStockIds: returnedIds,
+          itemCodes: returnedCodes,
         );
         await fetchAllSampleIn();
         await fetchOpenSampleOuts();
