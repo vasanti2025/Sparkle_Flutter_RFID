@@ -9,10 +9,12 @@ import '../services/db_service.dart';
 import '../services/list_json_cache.dart';
 import '../services/pref_service.dart';
 
+import '../utils/tag_scan_batcher.dart';
+
 /// ViewModel for the Quotation create/edit screen and quotation list.
 /// Quotation line items reuse the [OrderItem] model since the data shape is
 /// identical to a custom order item.
-class QuotationViewModel extends ChangeNotifier {
+class QuotationViewModel extends ChangeNotifier with LiveScanGate {
   final PrefService _prefService;
   final DbService _dbService;
   final ApiService _apiService;
@@ -234,16 +236,20 @@ class QuotationViewModel extends ChangeNotifier {
     return null;
   }
 
-  Future<int> processScannedTags(List<String> epcs) async {
+  Future<int> processScannedTags(List<String> epcs, {bool fromLiveScan = true}) async {
     int addedCount = 0;
+    var lastNotifyMs = 0;
     await _dbService.warmScanKeyIndex();
+    if (!acceptLiveScan(fromLiveScan)) return 0;
 
     for (final epcRaw in epcs) {
+      if (!acceptLiveScan(fromLiveScan)) break;
       final epc = epcRaw.trim().toUpperCase().replaceAll(' ', '');
       if (epc.isEmpty) continue;
 
       final matchedItem = _dbService.findBulkItemByScanKeySync(epcRaw) ??
           await _dbService.findBulkItemByScanKey(epcRaw);
+      if (!acceptLiveScan(fromLiveScan)) break;
       if (matchedItem == null) continue;
 
       final exists = _productList.any((x) => x.tid == matchedItem.tid || x.epc == matchedItem.epc);
@@ -251,9 +257,15 @@ class QuotationViewModel extends ChangeNotifier {
 
       _productList.add(_buildItem(matchedItem));
       addedCount++;
+      if (!acceptLiveScan(fromLiveScan)) break;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - lastNotifyMs >= 80) {
+        notifyListeners();
+        lastNotifyMs = now;
+      }
     }
 
-    if (addedCount > 0) notifyListeners();
+    if (addedCount > 0 && acceptLiveScan(fromLiveScan)) notifyListeners();
     return addedCount;
   }
 

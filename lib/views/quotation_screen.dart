@@ -61,19 +61,22 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
     _trayAutoStop = TrayGscanAutoStopController(
       rfidService: _rfidService,
       onStop: () async {
-        await _rfidService.stopScanning();
-        if (mounted) setState(() {});
+        if (!mounted) return;
+        await _stopGscan(context.read<QuotationViewModel>());
       },
     );
     _tagBatcher = TagScanBatcher(
       onFlush: (tags) {
-        if (!mounted || !_rfidService.isScanning) return;
+        if (!mounted) return;
+        final vm = context.read<QuotationViewModel>();
+        final single = _isSingleScan;
+        if (!single && !vm.liveScanEnabled) return;
         final db = context.read<DbService>();
         _trayAutoStop.afterBatch(
           tags,
           (tag) => db.findBulkItemByScanKeySync(tag) != null,
         );
-        context.read<QuotationViewModel>().processScannedTags(tags);
+        unawaited(vm.processScannedTags(tags, fromLiveScan: !single));
       },
     );
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -275,10 +278,17 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
     );
   }
 
+  Future<void> _stopGscan(QuotationViewModel vm) async {
+    vm.abortLiveScan();
+    _tagBatcher.discardPending();
+    if (mounted) setState(() {});
+    await _rfidService.stopScanning();
+    if (mounted) setState(() {});
+  }
+
   void _toggleGscan(QuotationViewModel vm) async {
     if (_rfidService.isScanning) {
-      await _rfidService.stopScanning();
-      if (mounted) setState(() {});
+      await _stopGscan(vm);
       return;
     }
 
@@ -289,7 +299,10 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
       power: _power,
       inventory: !_isSingleScan,
     );
-    if (started) _trayAutoStop.onScanStarted();
+    if (started) {
+      vm.beginLiveScan();
+      _trayAutoStop.onScanStarted();
+    }
     if (mounted) setState(() {});
     if (!started && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

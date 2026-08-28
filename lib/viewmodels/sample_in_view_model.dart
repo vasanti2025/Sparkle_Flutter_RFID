@@ -12,7 +12,9 @@ import '../services/list_json_cache.dart';
 import '../services/pref_service.dart';
 import '../views/widgets/sample_print_pdf.dart';
 
-class SampleInViewModel extends ChangeNotifier {
+import '../utils/tag_scan_batcher.dart';
+
+class SampleInViewModel extends ChangeNotifier with LiveScanGate {
   final PrefService _prefService;
   final DbService _dbService;
   final ApiService _apiService;
@@ -337,12 +339,13 @@ class SampleInViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> processScannedTags(List<String> tags) async {
+  Future<bool> processScannedTags(List<String> tags, {bool fromLiveScan = true}) async {
     if (_selectedChallan == null || issueItems.isEmpty) return false;
 
     if (_issueBulkItems.isEmpty) {
       await loadIssueBulkItems();
     }
+    if (!acceptLiveScan(fromLiveScan)) return false;
 
     final issueItemCodes = issueItems
         .map((i) => normSampleCode(i['ItemCode']?.toString()))
@@ -351,8 +354,10 @@ class SampleInViewModel extends ChangeNotifier {
 
     final before = _scannedCodes.length;
     final updated = Set<String>.from(_scannedCodes);
+    var lastNotifyMs = 0;
 
     for (final tag in tags) {
+      if (!acceptLiveScan(fromLiveScan)) break;
       final scanned = normSampleCode(tag);
       if (scanned.isEmpty) continue;
 
@@ -368,26 +373,37 @@ class SampleInViewModel extends ChangeNotifier {
         }
       }
 
-      if (matched) continue;
+      if (!matched) {
+        var bulk = _findBulkItemByCode(scanned);
+        bulk ??= await _dbService.findBulkItemByScanKey(tag);
+        if (!acceptLiveScan(fromLiveScan)) break;
+        if (bulk == null) continue;
 
-      var bulk = _findBulkItemByCode(scanned);
-      bulk ??= await _dbService.findBulkItemByScanKey(tag);
-      if (bulk == null) continue;
+        final bulkItemCode = normSampleCode(bulk.itemCode);
+        if (!issueItemCodes.contains(bulkItemCode)) continue;
 
-      final bulkItemCode = normSampleCode(bulk.itemCode);
-      if (!issueItemCodes.contains(bulkItemCode)) continue;
+        updated.add(bulkItemCode);
+        final bulkRfid = normSampleCode(bulk.rfid);
+        final bulkTid = normSampleCode(bulk.tid);
+        if (bulkRfid.isNotEmpty) updated.add(bulkRfid);
+        if (bulkTid.isNotEmpty) updated.add(bulkTid);
+      }
 
-      updated.add(bulkItemCode);
-      final bulkRfid = normSampleCode(bulk.rfid);
-      final bulkTid = normSampleCode(bulk.tid);
-      if (bulkRfid.isNotEmpty) updated.add(bulkRfid);
-      if (bulkTid.isNotEmpty) updated.add(bulkTid);
+      _scannedCodes
+        ..clear()
+        ..addAll(updated);
+      if (!acceptLiveScan(fromLiveScan)) break;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - lastNotifyMs >= 80) {
+        notifyListeners();
+        lastNotifyMs = now;
+      }
     }
 
     _scannedCodes
       ..clear()
       ..addAll(updated);
-    notifyListeners();
+    if (acceptLiveScan(fromLiveScan)) notifyListeners();
     return _scannedCodes.length > before;
   }
 

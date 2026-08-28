@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 
 /// Coalesces high-frequency RFID tag events into batched callbacks (RFID handhelds).
 class TagScanBatcher {
@@ -34,6 +35,13 @@ class TagScanBatcher {
     _flush();
   }
 
+  /// Drop tags not yet flushed (used when GSCAN stops so totals freeze).
+  void discardPending() {
+    _timer?.cancel();
+    _timer = null;
+    _pending.clear();
+  }
+
   void _flush() {
     _timer = null;
     if (_disposed || _pending.isEmpty) return;
@@ -48,4 +56,20 @@ class TagScanBatcher {
     _timer = null;
     _pending.clear();
   }
+}
+
+/// Lets GSCAN screens freeze totals the moment the scanner stops.
+mixin LiveScanGate on ChangeNotifier {
+  bool _liveScanEnabled = false;
+  bool get liveScanEnabled => _liveScanEnabled;
+
+  void beginLiveScan() {
+    _liveScanEnabled = true;
+  }
+
+  void abortLiveScan() {
+    _liveScanEnabled = false;
+  }
+
+  bool acceptLiveScan(bool fromLiveScan) => !fromLiveScan || _liveScanEnabled;
 }

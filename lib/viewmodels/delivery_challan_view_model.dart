@@ -9,7 +9,9 @@ import '../services/label_stock_sync_service.dart';
 import '../services/list_json_cache.dart';
 import '../services/pref_service.dart';
 
-class DeliveryChallanViewModel extends ChangeNotifier {
+import '../utils/tag_scan_batcher.dart';
+
+class DeliveryChallanViewModel extends ChangeNotifier with LiveScanGate {
   final PrefService _prefService;
   final DbService _dbService;
   final ApiService _apiService;
@@ -509,15 +511,26 @@ class DeliveryChallanViewModel extends ChangeNotifier {
   }
 
   // Process a list of scanned tags (rfid scan)
-  void processScannedTags(List<String> tags) async {
+  Future<void> processScannedTags(List<String> tags, {bool fromLiveScan = true}) async {
     if (tags.isEmpty) return;
     await _dbService.warmScanKeyIndex();
+    if (!acceptLiveScan(fromLiveScan)) return;
     var changed = false;
+    var lastNotifyMs = 0;
     for (final epc in tags) {
+      if (!acceptLiveScan(fromLiveScan)) break;
       final err = await addProductByCodeOrRfid(epc, notify: false);
-      if (err == null) changed = true;
+      if (!acceptLiveScan(fromLiveScan)) break;
+      if (err == null) {
+        changed = true;
+        final now = DateTime.now().millisecondsSinceEpoch;
+        if (now - lastNotifyMs >= 80) {
+          notifyListeners();
+          lastNotifyMs = now;
+        }
+      }
     }
-    if (changed) notifyListeners();
+    if (changed && acceptLiveScan(fromLiveScan)) notifyListeners();
   }
 
   // Aggregates

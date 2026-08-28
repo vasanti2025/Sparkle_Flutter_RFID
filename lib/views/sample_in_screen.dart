@@ -49,16 +49,18 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
     _trayAutoStop = TrayGscanAutoStopController(
       rfidService: _rfidService,
       onStop: () async {
-        await _rfidService.stopScanning();
-        if (mounted) setState(() {});
+        if (!mounted) return;
+        await _stopGscan(context.read<SampleInViewModel>());
       },
     );
     _tagBatcher = TagScanBatcher(
       onFlush: (tags) {
-        if (!mounted || !_rfidService.isScanning) return;
+        if (!mounted) return;
         final vm = context.read<SampleInViewModel>();
+        final single = _isSingleScan;
+        if (!single && !vm.liveScanEnabled) return;
         _trayAutoStop.afterBatch(tags, vm.isTagInScanScope);
-        vm.processScannedTags(tags);
+        unawaited(vm.processScannedTags(tags, fromLiveScan: !single));
       },
     );
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -107,7 +109,10 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
   }
 
   Future<void> _matchBarcode(String code) async {
-    final matched = await context.read<SampleInViewModel>().processScannedTags([code]);
+    final matched = await context.read<SampleInViewModel>().processScannedTags(
+      [code],
+      fromLiveScan: false,
+    );
     if (!mounted) return;
     if (!matched) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -130,10 +135,17 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
     super.dispose();
   }
 
+  Future<void> _stopGscan(SampleInViewModel vm) async {
+    vm.abortLiveScan();
+    _tagBatcher.discardPending();
+    if (mounted) setState(() {});
+    await _rfidService.stopScanning();
+    if (mounted) setState(() {});
+  }
+
   Future<void> _toggleGscan(SampleInViewModel vm) async {
     if (_rfidService.isScanning) {
-      await _rfidService.stopScanning();
-      if (mounted) setState(() {});
+      await _stopGscan(vm);
       return;
     }
 
@@ -161,7 +173,10 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
       simulatedScopeTags: scopeTags,
       inventory: !_isSingleScan,
     );
-    if (started) _trayAutoStop.onScanStarted();
+    if (started) {
+      vm.beginLiveScan();
+      _trayAutoStop.onScanStarted();
+    }
     if (mounted) setState(() {});
     if (!started && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(context.sRead.failedToStartRfidScanner)));

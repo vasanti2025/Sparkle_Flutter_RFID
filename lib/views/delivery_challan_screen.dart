@@ -57,19 +57,22 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
     _trayAutoStop = TrayGscanAutoStopController(
       rfidService: _rfidService,
       onStop: () async {
-        await _rfidService.stopScanning();
-        if (mounted) setState(() {});
+        if (!mounted) return;
+        await _stopGscan(context.read<DeliveryChallanViewModel>());
       },
     );
     _tagBatcher = TagScanBatcher(
       onFlush: (tags) {
-        if (!mounted || !_rfidService.isScanning) return;
+        if (!mounted) return;
+        final vm = context.read<DeliveryChallanViewModel>();
+        final single = _isSingleScan;
+        if (!single && !vm.liveScanEnabled) return;
         final db = context.read<DbService>();
         _trayAutoStop.afterBatch(
           tags,
           (tag) => db.findBulkItemByScanKeySync(tag) != null,
         );
-        context.read<DeliveryChallanViewModel>().processScannedTags(tags);
+        unawaited(vm.processScannedTags(tags, fromLiveScan: !single));
       },
     );
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -159,10 +162,17 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
     super.dispose();
   }
 
+  Future<void> _stopGscan(DeliveryChallanViewModel vm) async {
+    vm.abortLiveScan();
+    _tagBatcher.discardPending();
+    if (mounted) setState(() {});
+    await _rfidService.stopScanning();
+    if (mounted) setState(() {});
+  }
+
   void _toggleGscan(DeliveryChallanViewModel vm) async {
     if (_rfidService.isScanning) {
-      await _rfidService.stopScanning();
-      if (mounted) setState(() {});
+      await _stopGscan(vm);
       return;
     }
 
@@ -171,7 +181,10 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
       power: _power,
       inventory: !_isSingleScan,
     );
-    if (started) _trayAutoStop.onScanStarted();
+    if (started) {
+      vm.beginLiveScan();
+      _trayAutoStop.onScanStarted();
+    }
     if (mounted) setState(() {});
     if (!started && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

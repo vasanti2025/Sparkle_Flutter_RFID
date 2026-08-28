@@ -11,7 +11,9 @@ import '../services/order_sync_service.dart';
 import '../services/pref_service.dart';
 import '../views/widgets/order_pdf.dart';
 
-class OrderViewModel extends ChangeNotifier {
+import '../utils/tag_scan_batcher.dart';
+
+class OrderViewModel extends ChangeNotifier with LiveScanGate {
   final PrefService _prefService;
   final DbService _dbService;
   final ApiService _apiService;
@@ -347,16 +349,20 @@ class OrderViewModel extends ChangeNotifier {
   }
 
   // Handle scanned Gscan tags or single scans
-  Future<int> processScannedTags(List<String> epcs) async {
+  Future<int> processScannedTags(List<String> epcs, {bool fromLiveScan = true}) async {
     int addedCount = 0;
+    var lastNotifyMs = 0;
     await _dbService.warmScanKeyIndex();
+    if (!acceptLiveScan(fromLiveScan)) return 0;
 
     for (final epcRaw in epcs) {
+      if (!acceptLiveScan(fromLiveScan)) break;
       final epc = epcRaw.trim().toUpperCase().replaceAll(' ', '');
       if (epc.isEmpty) continue;
 
       final matchedItem = _dbService.findBulkItemByScanKeySync(epcRaw) ??
           await _dbService.findBulkItemByScanKey(epcRaw);
+      if (!acceptLiveScan(fromLiveScan)) break;
       if (matchedItem == null) continue;
 
       // Duplicate check
@@ -440,9 +446,15 @@ class OrderViewModel extends ChangeNotifier {
 
       _productList.add(orderItem);
       addedCount++;
+      if (!acceptLiveScan(fromLiveScan)) break;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - lastNotifyMs >= 80) {
+        notifyListeners();
+        lastNotifyMs = now;
+      }
     }
 
-    if (addedCount > 0) notifyListeners();
+    if (addedCount > 0 && acceptLiveScan(fromLiveScan)) notifyListeners();
     return addedCount;
   }
 
