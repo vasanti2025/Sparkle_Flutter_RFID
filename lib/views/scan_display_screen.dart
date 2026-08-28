@@ -777,6 +777,13 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   void _stopScanning({bool fromUser = false}) async {
     if (!_isScanning && !_scanStartInProgress) return;
+    if (mounted) {
+      setState(() {
+        _isScanning = false;
+      });
+    } else {
+      _isScanning = false;
+    }
     _scanStartInProgress = false;
     _trayScanSession.reset();
     await _rfidService.stopScanning();
