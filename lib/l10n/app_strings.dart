@@ -136,6 +136,7 @@ class AppStrings {
   String get forgotPassword => _t('forgotPassword');
   String get useFaceDetectionLogin => _t('useFaceDetectionLogin');
   String get logIn => _t('logIn');
+  String get loginSuccess => _t('loginSuccess');
   String get logInWithFace => _t('logInWithFace');
   String get troubleLogin => _t('troubleLogin');
   String get contactUsClicked => _t('contactUsClicked');
@@ -1199,6 +1200,7 @@ class AppStrings {
       'forgotPassword': 'Forgot Password?',
       'useFaceDetectionLogin': 'Use face detection to continue login',
       'logIn': 'Login',
+      'loginSuccess': 'Login successful',
       'logInWithFace': 'Login with Face',
       'troubleLogin': 'Trouble login? ',
       'contactUsClicked': 'Contact us clicked',
@@ -1713,6 +1715,7 @@ class AppStrings {
       'forgotPassword': 'पासवर्ड भूल गए?',
       'useFaceDetectionLogin': 'लॉगिन जारी रखने के लिए फेस डिटेक्शन का उपयोग करें',
       'logIn': 'लॉग इन करें',
+      'loginSuccess': 'लॉगिन सफल',
       'logInWithFace': 'फेस के साथ लॉग इन करें',
       'troubleLogin': 'लॉगिन में परेशानी? ',
       'contactUsClicked': 'हमसे संपर्क करें पर क्लिक किया गया',
@@ -2222,6 +2225,7 @@ class AppStrings {
       'forgotPassword': 'هل نسيت كلمة المرور؟',
       'useFaceDetectionLogin': 'استخدم التعرف على الوجه لمتابعة تسجيل الدخول',
       'logIn': 'تسجيل الدخول',
+      'loginSuccess': 'تم تسجيل الدخول بنجاح',
       'logInWithFace': 'تسجيل الدخول بالوجه',
       'troubleLogin': 'تواجه مشكلة في تسجيل الدخول؟ ',
       'contactUsClicked': 'تم النقر على اتصل بنا',

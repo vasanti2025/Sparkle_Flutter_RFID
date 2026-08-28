@@ -87,22 +87,49 @@ class _LoginScreenState extends State<LoginScreen> {
       });
     }
     final err = viewModel.errorMessage;
-    if (err != null && err.isNotEmpty && err != _lastShownError) {
-      _lastShownError = err;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(err),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      });
+    if (err == null || err.isEmpty) {
+      if (_lastShownError != null) {
+        _lastShownError = null;
+        _clearLoginSnackBars();
+      }
+      return;
     }
+    if (err == _lastShownError) return;
+    _lastShownError = err;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // Login succeeded (or error was cleared) before this frame — do not show it.
+      final current = _loginVm?.errorMessage;
+      if (current == null || current.isEmpty || current != err) {
+        _clearLoginSnackBars();
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(err),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    });
+  }
+
+  void _clearLoginSnackBars() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
   }
 
   void _navigateAfterLogin(BuildContext context) {
+    _lastShownError = null;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(context.sRead.loginSuccess),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 2),
+      ),
+    );
     Navigator.pushReplacementNamed(context, '/dashboard');
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!context.mounted) return;
@@ -593,6 +620,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                 if (viewModel.selectedLoginMode == 'password') {
                                   FocusManager.instance.primaryFocus?.unfocus();
                                   _lastShownError = null;
+                                  _clearLoginSnackBars();
+                                  viewModel.clearErrorMessage();
                                   final username = _usernameController.value.text;
                                   final password = _passwordController.value.text;
                                   final success = await viewModel.login(
@@ -600,21 +629,14 @@ class _LoginScreenState extends State<LoginScreen> {
                                     username: username,
                                     password: password,
                                   );
-                                  if (!success && mounted) {
-                                    final err = viewModel.errorMessage;
-                                    if (err != null && err.isNotEmpty) {
-                                      setState(() {});
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(
-                                          content: Text(err),
-                                          backgroundColor: Colors.red,
-                                          duration: const Duration(seconds: 5),
-                                        ),
-                                      );
-                                    }
-                                  }
-                                  if (success && context.mounted) {
+                                  if (!mounted) return;
+                                  if (success) {
                                     _navigateAfterLogin(context);
+                                    return;
+                                  }
+                                  final err = viewModel.errorMessage;
+                                  if (err != null && err.isNotEmpty) {
+                                    setState(() {});
                                   }
                                 } else {
                                   // Navigate to Face detection placeholder
@@ -649,20 +671,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                     ),
-                    if (viewModel.errorMessage != null &&
-                        viewModel.errorMessage!.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                        child: Text(
-                          viewModel.errorMessage!,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Colors.red,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
                     const SizedBox(height: 24),
 
                     // Trouble Logging In?
