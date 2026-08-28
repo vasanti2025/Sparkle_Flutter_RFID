@@ -399,7 +399,7 @@ class HardwareControllerImpl(
     private fun useBleReader(): Boolean {
         return (trayModeEnabled || r6ModeEnabled) &&
             ::trayManager.isInitialized &&
-            trayManager.isConnected
+            (trayManager.isReallyConnected() || trayManager.isConnected)
     }
 
     private fun applyBleReaderMode() {
@@ -412,10 +412,22 @@ class HardwareControllerImpl(
         cancelBleReconnect()
         if (enabled && address.isNotEmpty()) {
             if (r6ModeEnabled && !trayManager.isReallyConnected()) {
-                Executors.newSingleThreadExecutor().execute {
-                    trayManager.connectAndWait(address, 28000L)
+                if (trayManager.isConnecting) {
+                    Log.i(TAG, "R6 BLE connect already in progress — skip")
+                } else {
+                    Executors.newSingleThreadExecutor().execute {
+                        trayManager.connectAndWait(address, 28000L)
+                    }
                 }
-            } else {
+            } else if (trayModeEnabled && !trayManager.isReallyConnected()) {
+                if (trayManager.isConnecting) {
+                    Log.i(TAG, "Tray BLE connect already in progress — skip")
+                } else {
+                    Executors.newSingleThreadExecutor().execute {
+                        trayManager.connectAndWait(address, 28000L)
+                    }
+                }
+            } else if (!trayManager.isReallyConnected()) {
                 trayManager.connect(address)
             }
         } else {
@@ -438,12 +450,8 @@ class HardwareControllerImpl(
                 !trayManager.isConnecting &&
                 address.isNotEmpty()
             ) {
-                if (r6ModeEnabled) {
-                    Executors.newSingleThreadExecutor().execute {
-                        trayManager.connectAndWait(address, 28000L)
-                    }
-                } else {
-                    trayManager.connect(address)
+                Executors.newSingleThreadExecutor().execute {
+                    trayManager.connectAndWait(address, 28000L)
                 }
             }
         }
@@ -458,8 +466,11 @@ class HardwareControllerImpl(
 
     private fun trayStatusMap(): HashMap<String, Any> {
         val map = HashMap<String, Any>()
+        val linked = ::trayManager.isInitialized &&
+            (trayManager.isReallyConnected() || trayManager.isConnected)
         map["enabled"] = trayModeEnabled
-        map["connected"] = trayModeEnabled && trayManager.isConnected
+        map["connected"] = trayModeEnabled && linked
+        map["connecting"] = trayModeEnabled && ::trayManager.isInitialized && trayManager.isConnecting
         map["address"] = trayDeviceAddress
         return map
     }
@@ -562,7 +573,16 @@ class HardwareControllerImpl(
                 return startR6InventoryGuarded(power, inventory, playStartSound)
             }
             if (!trayManager.isReallyConnected()) {
-                return false
+                val address = trayDeviceAddress.trim()
+                if (address.isEmpty()) {
+                    Log.e(TAG, "Tray mode on but no device address")
+                    return false
+                }
+                val linked = trayManager.connectAndWait(address, 28000L)
+                if (!linked) {
+                    Log.e(TAG, "Tray connectAndWait failed for $address")
+                    return false
+                }
             }
             return startTrayInventory(power, inventory, playStartSound)
         }
@@ -649,15 +669,36 @@ class HardwareControllerImpl(
                 trayManager.setPower(power)
             } catch (_: Throwable) {
             }
+            // GATT often needs a brief settle before startInventoryTag succeeds.
+            try {
+                Thread.sleep(400L)
+            } catch (_: InterruptedException) {
+            }
             trayManager.drainBuffer()
             if (inventory) {
                 startInventoryLoopSound()
             } else if (playStartSound) {
                 playSound(1, 0)
             }
-            isScanning = true
-            val started = trayManager.startInventory()
+            var started = false
+            for (attempt in 0 until 3) {
+                if (attempt > 0) {
+                    try {
+                        trayManager.stopInventory()
+                    } catch (_: Throwable) {
+                    }
+                    try {
+                        Thread.sleep(200L * attempt)
+                    } catch (_: InterruptedException) {
+                    }
+                    trayManager.drainBuffer()
+                }
+                started = trayManager.startInventory()
+                Log.i(TAG, "Tray startInventory attempt=${attempt + 1} => $started")
+                if (started) break
+            }
             if (started) {
+                isScanning = true
                 startPollingThread(inventory, useTray = true)
             } else {
                 isScanning = false
@@ -679,14 +720,34 @@ class HardwareControllerImpl(
                 trayManager.setPower(power)
             } catch (_: Throwable) {
             }
+            try {
+                Thread.sleep(400L)
+            } catch (_: InterruptedException) {
+            }
             trayManager.drainBuffer()
             if (inventory) {
                 startInventoryLoopSound()
             } else if (playStartSound) {
                 playSound(1, 0)
             }
+            var started = false
+            for (attempt in 0 until 3) {
+                if (attempt > 0) {
+                    try {
+                        trayManager.stopInventory()
+                    } catch (_: Throwable) {
+                    }
+                    try {
+                        Thread.sleep(200L * attempt)
+                    } catch (_: InterruptedException) {
+                    }
+                    trayManager.drainBuffer()
+                }
+                started = trayManager.startInventory()
+                Log.i(TAG, "R6 startInventory attempt=${attempt + 1} => $started")
+                if (started) break
+            }
             isScanning = true
-            trayManager.startInventory()
             startPollingThread(inventory, useTray = true)
             true
         } catch (e: Throwable) {

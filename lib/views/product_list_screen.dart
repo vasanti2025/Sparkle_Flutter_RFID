@@ -76,11 +76,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final viewModel = Provider.of<ProductViewModel>(context, listen: false);
       viewModel.addListener(_precacheLoadedImages);
-      if (viewModel.products.isEmpty) {
-        viewModel.loadNextPage();
-      } else {
-        _precacheLoadedImages();
-      }
+      viewModel.refreshList();
       _searchController.text = viewModel.searchQuery;
     });
   }

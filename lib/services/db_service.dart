@@ -196,7 +196,7 @@ class DbService {
 
     return await openDatabase(
       path,
-      version: 9,
+      version: 10,
       onConfigure: (db) async {
         await db.rawQuery('PRAGMA journal_mode=WAL;');
         await db.rawQuery('PRAGMA cache_size=-2048');
@@ -323,6 +323,7 @@ class DbService {
 
         await _createOrderOfflineTables(db);
         await _createPendingCustomersTable(db);
+        await _createHeldSampleStockTable(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -375,6 +376,9 @@ class DbService {
         }
         if (oldVersion < 9) {
           await _createPendingCustomersTable(db);
+        }
+        if (oldVersion < 10) {
+          await _createHeldSampleStockTable(db);
         }
       },
     );
@@ -1019,6 +1023,187 @@ class DbService {
     return count;
   }
 
+  String _normStockKey(String raw) =>
+      raw.trim().toUpperCase().replaceAll(' ', '').replaceAll('-', '');
+
+  List<String> _uniqueNormKeys(Iterable<String> raw) {
+    final out = <String>{};
+    for (final v in raw) {
+      final n = _normStockKey(v);
+      if (n.isNotEmpty) out.add(n);
+    }
+    return out.toList();
+  }
+
+  /// Snapshot matching labelled-stock rows, then remove them from [bulk_items]
+  /// so Product List count drops immediately after Sample Out / Delivery Challan.
+  Future<int> holdAndRemoveStock({
+    Iterable<int> labelledStockIds = const [],
+    Iterable<String> itemCodes = const [],
+    Iterable<String> rfids = const [],
+    Iterable<String> tids = const [],
+  }) async {
+    final ids = labelledStockIds.where((id) => id > 0).toSet().toList();
+    final codes = _uniqueNormKeys(itemCodes);
+    final rfidKeys = _uniqueNormKeys(rfids);
+    final tidKeys = _uniqueNormKeys(tids);
+    if (ids.isEmpty && codes.isEmpty && rfidKeys.isEmpty && tidKeys.isEmpty) {
+      return 0;
+    }
+
+    final db = await database;
+    await _createHeldSampleStockTable(db);
+
+    final clauses = <String>[];
+    final args = <Object?>[];
+    if (ids.isNotEmpty) {
+      clauses.add(
+        'bulkItemId IN (${List.filled(ids.length, '?').join(',')})',
+      );
+      args.addAll(ids);
+    }
+    if (codes.isNotEmpty) {
+      clauses.add(
+        'UPPER(REPLACE(REPLACE(TRIM(itemCode), \' \', \'\'), \'-\', \'\')) IN (${List.filled(codes.length, '?').join(',')})',
+      );
+      args.addAll(codes);
+    }
+    if (rfidKeys.isNotEmpty) {
+      clauses.add(
+        'UPPER(REPLACE(REPLACE(TRIM(rfid), \' \', \'\'), \'-\', \'\')) IN (${List.filled(rfidKeys.length, '?').join(',')})',
+      );
+      args.addAll(rfidKeys);
+    }
+    if (tidKeys.isNotEmpty) {
+      clauses.add(
+        'UPPER(REPLACE(REPLACE(TRIM(IFNULL(tid, \'\')), \' \', \'\'), \'-\', \'\')) IN (${List.filled(tidKeys.length, '?').join(',')})',
+      );
+      args.addAll(tidKeys);
+    }
+
+    final rows = await db.query(
+      'bulk_items',
+      where: clauses.join(' OR '),
+      whereArgs: args,
+    );
+    if (rows.isEmpty) return 0;
+
+    await db.transaction((txn) async {
+      for (final row in rows) {
+        final bulkId = (row['bulkItemId'] as num?)?.toInt() ?? 0;
+        await txn.insert(
+          'held_sample_stock',
+          {
+            'bulkItemId': bulkId,
+            'itemCode': (row['itemCode'] ?? '').toString(),
+            'rfid': (row['rfid'] ?? '').toString(),
+            'tid': (row['tid'] ?? '').toString(),
+            'payload': jsonEncode(row),
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+        if (bulkId > 0) {
+          await txn.delete(
+            'bulk_items',
+            where: 'bulkItemId = ?',
+            whereArgs: [bulkId],
+          );
+        } else {
+          await txn.delete(
+            'bulk_items',
+            where: 'id = ?',
+            whereArgs: [row['id']],
+          );
+        }
+      }
+    });
+    invalidateBulkCache();
+    return rows.length;
+  }
+
+  /// Put Sample In (returned) items back into [bulk_items] so Product List count
+  /// matches stock again.
+  Future<int> restoreHeldStock({
+    Iterable<int> labelledStockIds = const [],
+    Iterable<String> itemCodes = const [],
+  }) async {
+    final ids = labelledStockIds.where((id) => id > 0).toSet().toList();
+    final codes = _uniqueNormKeys(itemCodes);
+    if (ids.isEmpty && codes.isEmpty) return 0;
+
+    final db = await database;
+    await _createHeldSampleStockTable(db);
+
+    final clauses = <String>[];
+    final args = <Object?>[];
+    if (ids.isNotEmpty) {
+      clauses.add(
+        'bulkItemId IN (${List.filled(ids.length, '?').join(',')})',
+      );
+      args.addAll(ids);
+    }
+    if (codes.isNotEmpty) {
+      clauses.add(
+        'UPPER(REPLACE(REPLACE(TRIM(itemCode), \' \', \'\'), \'-\', \'\')) IN (${List.filled(codes.length, '?').join(',')})',
+      );
+      args.addAll(codes);
+    }
+
+    final held = await db.query(
+      'held_sample_stock',
+      where: clauses.join(' OR '),
+      whereArgs: args,
+    );
+    if (held.isEmpty) return 0;
+
+    var restored = 0;
+    await db.transaction((txn) async {
+      for (final h in held) {
+        Map<String, dynamic> payload;
+        try {
+          payload = Map<String, dynamic>.from(
+            jsonDecode(h['payload'] as String) as Map,
+          );
+        } catch (_) {
+          continue;
+        }
+        payload.remove('id');
+        final bulkId = (payload['bulkItemId'] as num?)?.toInt() ??
+            (h['bulkItemId'] as num?)?.toInt() ??
+            0;
+        if (bulkId > 0) {
+          await txn.delete(
+            'bulk_items',
+            where: 'bulkItemId = ?',
+            whereArgs: [bulkId],
+          );
+        }
+        try {
+          await txn.insert(
+            'bulk_items',
+            payload,
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        } catch (_) {
+          payload['epc'] = null;
+          await txn.insert(
+            'bulk_items',
+            payload,
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+        await txn.delete(
+          'held_sample_stock',
+          where: 'bulkItemId = ?',
+          whereArgs: [h['bulkItemId']],
+        );
+        restored++;
+      }
+    });
+    if (restored > 0) invalidateBulkCache();
+    return restored;
+  }
+
   // Update an item locally
   Future<int> updateItemLocally(BulkItem item) async {
     final db = await database;
@@ -1189,6 +1374,21 @@ class DbService {
     ''');
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_pending_customers_client ON pending_customers(client_code, sync_status)',
+    );
+  }
+
+  static Future<void> _createHeldSampleStockTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS held_sample_stock (
+        bulkItemId INTEGER PRIMARY KEY,
+        itemCode TEXT,
+        rfid TEXT,
+        tid TEXT,
+        payload TEXT NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_held_sample_itemCode ON held_sample_stock(itemCode)',
     );
   }
 

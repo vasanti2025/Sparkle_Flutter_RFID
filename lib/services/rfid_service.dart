@@ -30,11 +30,17 @@ class RfidService {
   bool _trayConnected = false;
   bool get trayConnected => _trayConnected;
 
+  bool _trayConnecting = false;
+  bool get trayConnecting => _trayConnecting;
+
   bool _r6ModeEnabled = false;
   bool get r6ModeEnabled => _r6ModeEnabled;
 
   bool _r6Connected = false;
   bool get r6Connected => _r6Connected;
+
+  bool _r6Connecting = false;
+  bool get r6Connecting => _r6Connecting;
 
   bool get bleReaderActive =>
       (_trayModeEnabled && _trayConnected) || (_r6ModeEnabled && _r6Connected);
@@ -64,6 +70,25 @@ class RfidService {
   Timer? _simulationTimer;
   List<String> _simulatedTagsPool = [];
   int _simulationIndex = 0;
+  final List<VoidCallback> _connectionListeners = [];
+
+  void addConnectionListener(VoidCallback listener) {
+    if (!_connectionListeners.contains(listener)) {
+      _connectionListeners.add(listener);
+    }
+  }
+
+  void removeConnectionListener(VoidCallback listener) {
+    _connectionListeners.remove(listener);
+  }
+
+  void _notifyConnectionListeners() {
+    for (final listener in List<VoidCallback>.from(_connectionListeners)) {
+      try {
+        listener();
+      } catch (_) {}
+    }
+  }
 
   Future<void> _initChannels() async {
     // Startup must NOT call initReader — Chainway UART init can block 1–2+ minutes.
@@ -97,12 +122,18 @@ class RfidService {
             if (code.isNotEmpty) _barcodeController.add(code);
           } else if (event == 'TRAY_CONNECTED') {
             _trayConnected = true;
+            _trayConnecting = false;
+            _notifyConnectionListeners();
           } else if (event == 'TRAY_DISCONNECTED') {
             _trayConnected = false;
+            _notifyConnectionListeners();
           } else if (event == 'R6_CONNECTED') {
             _r6Connected = true;
+            _r6Connecting = false;
+            _notifyConnectionListeners();
           } else if (event == 'R6_DISCONNECTED') {
             _r6Connected = false;
+            _notifyConnectionListeners();
           } else if (event is String) {
             if (event.startsWith('BATCH:')) {
               final payload = event.substring(6);
@@ -228,6 +259,11 @@ class RfidService {
         {'enabled': enabled, 'address': address},
       );
       _trayConnected = status?['connected'] == true;
+      _trayConnecting = status?['connecting'] == true;
+      if (_trayConnected) {
+        _trayConnecting = false;
+        _notifyConnectionListeners();
+      }
       return true;
     } catch (e) {
       debugPrint('Error applying tray mode: $e');
@@ -253,10 +289,16 @@ class RfidService {
         {'enabled': enabled, 'address': address},
       );
       _r6Connected = status?['connected'] == true;
+      _r6Connecting = status?['connecting'] == true;
+      if (_r6Connected) {
+        _r6Connecting = false;
+      }
+      _notifyConnectionListeners();
       return true;
     } catch (e) {
       debugPrint('Error applying R6 mode: $e');
       _r6Connected = false;
+      _r6Connecting = false;
       return false;
     }
   }
@@ -284,19 +326,32 @@ class RfidService {
 
   Future<Map<String, dynamic>> getTrayStatus() async {
     if (!_isSupported) {
-      return {'enabled': _trayModeEnabled, 'connected': false, 'address': ''};
+      return {
+        'enabled': _trayModeEnabled,
+        'connected': false,
+        'connecting': false,
+        'address': '',
+      };
     }
     try {
       final status = await _methodChannel.invokeMethod<Map<dynamic, dynamic>>('getTrayStatus');
       _trayConnected = status?['connected'] == true;
+      _trayConnecting = status?['connecting'] == true;
+      _trayModeEnabled = status?['enabled'] == true || _trayModeEnabled;
       return {
         'enabled': status?['enabled'] == true,
         'connected': status?['connected'] == true,
+        'connecting': status?['connecting'] == true,
         'address': status?['address']?.toString() ?? '',
       };
     } catch (e) {
       debugPrint('Error reading tray status: $e');
-      return {'enabled': _trayModeEnabled, 'connected': _trayConnected, 'address': ''};
+      return {
+        'enabled': _trayModeEnabled,
+        'connected': _trayConnected,
+        'connecting': false,
+        'address': '',
+      };
     }
   }
 
@@ -312,6 +367,8 @@ class RfidService {
     try {
       final status = await _methodChannel.invokeMethod<Map<dynamic, dynamic>>('getR6Status');
       _r6Connected = status?['connected'] == true;
+      _r6Connecting = status?['connecting'] == true;
+      if (_r6Connected) _r6Connecting = false;
       return {
         'enabled': status?['enabled'] == true,
         'connected': status?['connected'] == true,
@@ -376,6 +433,8 @@ class RfidService {
     var status = await getR6Status();
     if (status['connected'] == true) {
       _r6Connected = true;
+      _r6Connecting = false;
+      _notifyConnectionListeners();
       return true;
     }
 
@@ -389,22 +448,76 @@ class RfidService {
     }
 
     // Kick native connect once if idle. Native startScanning does the real
-    // connectAndWait (with pre-scan retry) — keep this wait short.
+    // connectAndWait (with pre-scan retry).
     final alreadyEnabled = status['enabled'] == true;
     final connecting = status['connecting'] == true;
-    if (!alreadyEnabled || (!connecting && status['connected'] != true)) {
-      if (!connecting) {
+    final nativeAddr = status['address']?.toString().trim() ?? '';
+    final sameDevice = nativeAddr.toLowerCase() == address.toLowerCase();
+    if (!alreadyEnabled || !sameDevice || (!connecting && status['connected'] != true)) {
+      if (!connecting || !sameDevice) {
         await applyR6Mode(enabled: true, address: address);
       }
     }
 
-    final ok = await waitForBleConnection(isR6: true, timeout: const Duration(seconds: 8));
+    final ok = await waitForBleConnection(
+      isR6: true,
+      timeout: const Duration(seconds: 12),
+    );
     _r6Connected = ok;
-    if (!ok) {
+    if (ok) {
+      _notifyConnectionListeners();
+    } else {
       debugPrint('R6 BLE not ready yet for $address — native will connectAndWait');
     }
     // Return true so inventory still reaches native R6 connectAndWait path.
     return true;
+  }
+
+  /// Apply saved tray BLE mode before Scan Display inventory.
+  /// Does not change R6 sled or UART handheld behavior.
+  Future<void> _ensureTrayReadyForInventoryScan() async {
+    final prefs = PrefService.instanceOrNull ?? await PrefService.init();
+    // Never steal the R6 sled path.
+    if (prefs.isR6ModeEnabled()) return;
+    if (!prefs.isTrayModeEnabled() && !_trayModeEnabled) return;
+
+    _trayModeEnabled = true;
+    var status = await getTrayStatus();
+    if (status['connected'] == true) {
+      _trayConnected = true;
+      _trayConnecting = false;
+      return;
+    }
+
+    var address = status['address']?.toString().trim() ?? '';
+    if (address.isEmpty) {
+      address = prefs.getTrayDeviceAddress().trim();
+    }
+    if (address.isEmpty) {
+      debugPrint('Tray mode on but no device address saved');
+      return;
+    }
+
+    final alreadyEnabled = status['enabled'] == true;
+    final connecting = status['connecting'] == true;
+    final nativeAddr = status['address']?.toString().trim() ?? '';
+    final sameDevice = nativeAddr.toLowerCase() == address.toLowerCase();
+    if (!alreadyEnabled || !sameDevice || (!connecting && status['connected'] != true)) {
+      if (!connecting || !sameDevice) {
+        await applyTrayMode(enabled: true, address: address);
+      }
+    }
+
+    final ok = await waitForBleConnection(
+      isR6: false,
+      timeout: const Duration(seconds: 12),
+    );
+    _trayConnected = ok;
+    if (ok) {
+      _notifyConnectionListeners();
+    } else {
+      debugPrint('Tray BLE not ready yet for $address — native will connectAndWait');
+    }
   }
 
   Future<bool> startScanning({
@@ -524,12 +637,20 @@ class RfidService {
       }
 
       // Permit scan only — native startScanning does init + prepareScan(power).
+      // Apply BLE mode from prefs so Scan Display does not fall through to UART.
+      final prefs = PrefService.instanceOrNull ?? await PrefService.init();
+      if (prefs.isR6ModeEnabled() || _r6ModeEnabled) {
+        await _ensureR6ReadyForScan();
+      } else {
+        await _ensureTrayReadyForInventoryScan();
+      }
       await _methodChannel.invokeMethod<bool>('prepareForScan');
       await setInventoryScanMode(true);
       await clearMatchEpcs();
       await clearInventoryScope();
 
-      for (var attempt = 0; attempt < 4; attempt++) {
+      final attempts = (_trayModeEnabled || _r6ModeEnabled) ? 2 : 4;
+      for (var attempt = 0; attempt < attempts; attempt++) {
         if (attempt > 0) {
           await Future<void>.delayed(Duration(milliseconds: 120 * attempt));
           await _methodChannel.invokeMethod<bool>('prepareForScan');
@@ -543,6 +664,14 @@ class RfidService {
             false;
         if (started) {
           _isScanning = true;
+          if (_trayModeEnabled) {
+            _trayConnected = true;
+            _notifyConnectionListeners();
+          } else if (_r6ModeEnabled) {
+            _r6Connected = true;
+            _r6Connecting = false;
+            _notifyConnectionListeners();
+          }
           return true;
         }
         try {

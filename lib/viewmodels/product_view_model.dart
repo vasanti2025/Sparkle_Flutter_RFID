@@ -168,6 +168,16 @@ class ProductViewModel extends ChangeNotifier {
     _purityOptions = [];
   }
 
+  /// Drop in-memory Product List so the next open reloads from SQLite.
+  void invalidateStockList() {
+    _products.clear();
+    _offset = 0;
+    _hasReachedEnd = false;
+    _isListLoading = false;
+    _filteredTotalCount = 0;
+    notifyListeners();
+  }
+
   /// Force-start sync even if a previous attempt left `_isLoading` stuck.
   Future<void> syncProducts({bool force = false}) async {
     if (_isLoading && !force) return;
@@ -270,6 +280,7 @@ class ProductViewModel extends ChangeNotifier {
           _syncSubscription?.cancel();
           _syncSubscription = null;
           _dbService.resetConnection();
+          invalidateStockList();
           notifyListeners();
           break;
         case 'error':

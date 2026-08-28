@@ -660,11 +660,13 @@ class DeliveryChallanViewModel extends ChangeNotifier {
 
       final response = await _apiService.addDeliveryChallan(payload);
       if (response != null) {
-        // Sparkle: after AddDeliveryChallan → BulkViewModel.syncItems (label stock).
-        LabelStockSyncService.afterStockOut(
+        await LabelStockSyncService.afterStockOut(
           prefService: _prefService,
           dbService: _dbService,
           labelledStockIds: _productList.map((e) => e.labelledStockId),
+          itemCodes: _productList.map((e) => e.itemCode),
+          rfids: _productList.map((e) => e.rfidCode),
+          tids: _productList.map((e) => e.tid),
         );
         await fetchAllChallans();
         _isLoading = false;

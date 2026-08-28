@@ -22,7 +22,19 @@ class SettingsViewModel extends ChangeNotifier {
     required ApiService apiService,
   })  : _prefService = prefService,
         _dbService = dbService,
-        _apiService = apiService;
+        _apiService = apiService {
+    RfidService().addConnectionListener(_onRfidConnectionChanged);
+  }
+
+  void _onRfidConnectionChanged() {
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    RfidService().removeConnectionListener(_onRfidConnectionChanged);
+    super.dispose();
+  }
 
   PrefService get pref => _prefService;
 
@@ -209,11 +221,13 @@ class SettingsViewModel extends ChangeNotifier {
   String get trayDeviceName => _prefService.getTrayDeviceName();
   String get trayDeviceAddress => _prefService.getTrayDeviceAddress();
   bool get trayConnected => RfidService().trayConnected;
+  bool get trayConnecting => RfidService().trayConnecting;
 
   bool get r6ModeEnabled => _prefService.isR6ModeEnabled();
   String get r6DeviceName => _prefService.getR6DeviceName();
   String get r6DeviceAddress => _prefService.getR6DeviceAddress();
   bool get r6Connected => RfidService().r6Connected;
+  bool get r6Connecting => RfidService().r6Connecting;
 
   Future<List<Map<String, String>>> listBondedTrayDevices() {
     return RfidService().listBondedBluetoothDevices();
@@ -227,7 +241,10 @@ class SettingsViewModel extends ChangeNotifier {
     final address = value ? _prefService.getTrayDeviceAddress() : '';
     await RfidService().applyTrayMode(enabled: value, address: address);
     if (value && address.isNotEmpty) {
-      await RfidService().waitForBleConnection(isR6: false);
+      await RfidService().waitForBleConnection(
+        isR6: false,
+        timeout: const Duration(seconds: 20),
+      );
     }
     notifyListeners();
     return RfidService().trayConnected || !value || address.isEmpty;
@@ -240,7 +257,10 @@ class SettingsViewModel extends ChangeNotifier {
     await _prefService.saveTrayDevice(name: name, address: address);
     if (_prefService.isTrayModeEnabled()) {
       await RfidService().applyTrayMode(enabled: true, address: address);
-      await RfidService().waitForBleConnection(isR6: false);
+      await RfidService().waitForBleConnection(
+        isR6: false,
+        timeout: const Duration(seconds: 20),
+      );
     }
     notifyListeners();
   }
@@ -258,7 +278,10 @@ class SettingsViewModel extends ChangeNotifier {
     final address = value ? _prefService.getR6DeviceAddress() : '';
     await RfidService().applyR6Mode(enabled: value, address: address);
     if (value && address.isNotEmpty) {
-      await RfidService().waitForBleConnection(isR6: true);
+      await RfidService().waitForBleConnection(
+        isR6: true,
+        timeout: const Duration(seconds: 20),
+      );
     }
     notifyListeners();
     return RfidService().r6Connected || !value || address.isEmpty;
@@ -271,7 +294,10 @@ class SettingsViewModel extends ChangeNotifier {
     await _prefService.saveR6Device(name: name, address: address);
     if (_prefService.isR6ModeEnabled()) {
       await RfidService().applyR6Mode(enabled: true, address: address);
-      await RfidService().waitForBleConnection(isR6: true);
+      await RfidService().waitForBleConnection(
+        isR6: true,
+        timeout: const Duration(seconds: 20),
+      );
     }
     notifyListeners();
   }

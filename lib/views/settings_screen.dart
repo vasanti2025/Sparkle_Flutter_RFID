@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:rfid_flutter/utils/app_fonts.dart';
@@ -954,12 +955,34 @@ class _TrayModeRow extends StatefulWidget {
 
 class _TrayModeRowState extends State<_TrayModeRow> {
   bool _busy = false;
+  Timer? _statusPoll;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.vm.refreshTrayStatus();
+    });
+    _statusPoll = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      if (widget.vm.trayModeEnabled && !widget.vm.trayConnected) {
+        widget.vm.refreshTrayStatus();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _statusPoll?.cancel();
+    super.dispose();
+  }
 
   String _trailingText() {
     if (!widget.vm.trayModeEnabled) return widget.s.trayModeDisabled;
     final name = widget.vm.trayDeviceName.trim();
     if (name.isEmpty) return widget.s.selectTrayDevice;
     if (widget.vm.trayConnected) return '$name (${widget.s.trayConnected})';
+    if (widget.vm.trayConnecting) return '$name (${widget.s.connectingBluetooth})';
     return '$name (${widget.s.trayNotConnected})';
   }
 
@@ -1096,12 +1119,34 @@ class _R6ModeRow extends StatefulWidget {
 
 class _R6ModeRowState extends State<_R6ModeRow> {
   bool _busy = false;
+  Timer? _statusPoll;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.vm.refreshR6Status();
+    });
+    _statusPoll = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      if (widget.vm.r6ModeEnabled && !widget.vm.r6Connected) {
+        widget.vm.refreshR6Status();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _statusPoll?.cancel();
+    super.dispose();
+  }
 
   String _trailingText() {
     if (!widget.vm.r6ModeEnabled) return widget.s.r6ModeDisabled;
     final name = widget.vm.r6DeviceName.trim();
     if (name.isEmpty) return widget.s.selectR6Device;
     if (widget.vm.r6Connected) return '$name (${widget.s.trayConnected})';
+    if (widget.vm.r6Connecting) return '$name (${widget.s.connectingBluetooth})';
     return '$name (${widget.s.trayNotConnected})';
   }
 

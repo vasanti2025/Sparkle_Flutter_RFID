@@ -5,6 +5,7 @@ import 'package:provider/single_child_widget.dart';
 import 'app_routes.dart';
 import 'services/api_service.dart';
 import 'services/db_service.dart';
+import 'services/label_stock_sync_service.dart';
 import 'services/pref_service.dart';
 import 'viewmodels/bulk_product_view_model.dart';
 import 'viewmodels/daily_rate_view_model.dart';
@@ -28,12 +29,16 @@ List<SingleChildWidget> buildExtendedProviders({
 }) {
   return [
     ChangeNotifierProvider<ProductViewModel>(
-      lazy: true,
-      create: (_) => ProductViewModel(
-        prefService: prefService,
-        dbService: dbService,
-        apiService: apiService,
-      ),
+      lazy: false,
+      create: (_) {
+        final vm = ProductViewModel(
+          prefService: prefService,
+          dbService: dbService,
+          apiService: apiService,
+        );
+        LabelStockSyncService.onLocalStockChanged = vm.invalidateStockList;
+        return vm;
+      },
     ),
     ChangeNotifierProvider<OrderViewModel>(
       lazy: true,

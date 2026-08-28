@@ -10,12 +10,21 @@ import 'db_service.dart';
 import 'pref_service.dart';
 import 'sync_isolate.dart';
 
-/// Refreshes local LabelStock (`bulk_items`) after Delivery Challan / Sample Out /
-/// Sample In — same idea as Sparkle `BulkViewModel.syncItems`.
+/// Keeps local LabelStock (`bulk_items`) in line with Sample Out / Sample In /
+/// Delivery Challan so Product List counts match immediately.
 class LabelStockSyncService {
   LabelStockSyncService._();
 
   static bool _syncing = false;
+
+  /// Called after local stock rows change so Product List drops its stale cache.
+  static void Function()? onLocalStockChanged;
+
+  static void _notifyStockChanged() {
+    try {
+      onLocalStockChanged?.call();
+    } catch (_) {}
+  }
 
   /// Drop sold / sample-out rows immediately so they cannot be scanned again
   /// while the full server sync is still running.
@@ -23,18 +32,53 @@ class LabelStockSyncService {
     DbService db,
     Iterable<int> labelledStockIds,
   ) async {
-    final ids = labelledStockIds.where((id) => id > 0).toSet();
-    if (ids.isEmpty) return;
-    for (final id in ids) {
-      try {
-        await db.deleteItemLocally(id);
-      } catch (e, st) {
-        debugPrint('LabelStock local delete failed id=$id: $e\n$st');
-      }
+    await db.holdAndRemoveStock(labelledStockIds: labelledStockIds);
+    _notifyStockChanged();
+  }
+
+  /// Sample Out / Delivery Challan: hold rows then remove from active stock.
+  static Future<void> afterStockOut({
+    required PrefService prefService,
+    required DbService dbService,
+    required Iterable<int> labelledStockIds,
+    Iterable<String> itemCodes = const [],
+    Iterable<String> rfids = const [],
+    Iterable<String> tids = const [],
+  }) async {
+    try {
+      final removed = await dbService.holdAndRemoveStock(
+        labelledStockIds: labelledStockIds,
+        itemCodes: itemCodes,
+        rfids: rfids,
+        tids: tids,
+      );
+      debugPrint('LabelStock afterStockOut removed=$removed');
+      _notifyStockChanged();
+    } catch (e, st) {
+      debugPrint('LabelStock afterStockOut failed: $e\n$st');
     }
   }
 
-  /// Full wipe + re-download of Active/ApiActive labelled stock (Sparkle syncItems).
+  /// Sample In: returned items become Active again locally (from held snapshot).
+  static Future<void> afterStockIn({
+    required PrefService prefService,
+    required DbService dbService,
+    Iterable<int> labelledStockIds = const [],
+    Iterable<String> itemCodes = const [],
+  }) async {
+    try {
+      final restored = await dbService.restoreHeldStock(
+        labelledStockIds: labelledStockIds,
+        itemCodes: itemCodes,
+      );
+      debugPrint('LabelStock afterStockIn restored=$restored');
+      _notifyStockChanged();
+    } catch (e, st) {
+      debugPrint('LabelStock afterStockIn failed: $e\n$st');
+    }
+  }
+
+  /// Full wipe + re-download of Active/ApiActive labelled stock (manual sync).
   static Future<void> syncFromServer({
     required PrefService prefService,
     required DbService dbService,
@@ -98,6 +142,7 @@ class LabelStockSyncService {
         },
       );
       await dbService.resetConnection();
+      _notifyStockChanged();
     } catch (e, st) {
       debugPrint('LabelStock sync failed: $e\n$st');
       try {
@@ -106,25 +151,5 @@ class LabelStockSyncService {
     } finally {
       _syncing = false;
     }
-  }
-
-  /// Delivery Challan / Sample Out create — Sparkle: remove from stock + syncItems.
-  static void afterStockOut({
-    required PrefService prefService,
-    required DbService dbService,
-    required Iterable<int> labelledStockIds,
-  }) {
-    unawaited(() async {
-      await removeLocalByLabelledStockIds(dbService, labelledStockIds);
-      await syncFromServer(prefService: prefService, dbService: dbService);
-    }());
-  }
-
-  /// Sample In — returned items become Active again on server; refresh local DB.
-  static void afterStockIn({
-    required PrefService prefService,
-    required DbService dbService,
-  }) {
-    unawaited(syncFromServer(prefService: prefService, dbService: dbService));
   }
 }
