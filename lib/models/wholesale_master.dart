@@ -5,8 +5,9 @@ class WholesaleBranch {
   const WholesaleBranch({required this.id, required this.name});
 
   factory WholesaleBranch.fromJson(Map<String, dynamic> json) {
+    // Prefer BranchId so it matches GetAllCounters.BranchId (e.g. 1 → Counter1/2/3).
     return WholesaleBranch(
-      id: readWholesaleInt(json, const ['Id', 'id', 'BranchId', 'branchId']),
+      id: readWholesaleInt(json, const ['BranchId', 'branchId', 'Id', 'id']),
       name: readWholesaleString(json, const ['BranchName', 'branchName', 'Name', 'name']),
     );
   }
@@ -24,9 +25,18 @@ class WholesaleCounter {
   });
 
   factory WholesaleCounter.fromJson(Map<String, dynamic> json) {
+    // GetAllCounters: Id=5, BranchId=1, CounterName/CounterNumber="Counter1"
+    final name = readWholesaleString(json, const [
+      'CounterName',
+      'counterName',
+      'CounterNumber',
+      'counterNumber',
+      'Name',
+      'name',
+    ]);
     return WholesaleCounter(
       id: readWholesaleInt(json, const ['Id', 'id', 'CounterId', 'counterId']),
-      name: readWholesaleString(json, const ['CounterName', 'counterName', 'Name', 'name']),
+      name: name,
       branchId: readWholesaleInt(json, const ['BranchId', 'branchId']),
     );
   }
@@ -58,17 +68,6 @@ class RfidDeviceAssignment {
     );
   }
 
-  Map<String, dynamic> toApiJson() {
-    if (branchId <= 0 || counterId <= 0) return <String, dynamic>{};
-    return {
-      'BranchId': branchId,
-      'BranchName': branchName,
-      'CounterId': counterId,
-      'CounterName': counterName,
-      'CounterNumber': counterName.trim().isNotEmpty ? counterName.trim() : '$counterId',
-    };
-  }
-
   Map<String, dynamic> toPrefJson() => {
         'BranchId': branchId,
         'BranchName': branchName,
@@ -77,9 +76,42 @@ class RfidDeviceAssignment {
       };
 }
 
-/// Swagger: each assignment is one branch + one counter (ints, not arrays).
+/// Assign API shape (Swagger) — one object per branch, CounterId always an array:
+///   { "BranchId": 1, "CounterId": [3, 4, 5] }
 List<Map<String, dynamic>> wholesaleAssignmentsToApi(List<RfidDeviceAssignment> assignments) {
-  return assignments.map((a) => a.toApiJson()).where((m) => m.isNotEmpty).toList();
+  final byBranch = <int, List<int>>{};
+  for (final a in assignments) {
+    if (a.branchId <= 0 || a.counterId <= 0) {
+      // ignore: avoid_print
+      print(
+        'wholesaleAssignmentsToApi DROP row branchId=${a.branchId} '
+        'counterId=${a.counterId} name=${a.counterName}',
+      );
+      continue;
+    }
+    final list = byBranch.putIfAbsent(a.branchId, () => <int>[]);
+    if (!list.contains(a.counterId)) list.add(a.counterId);
+  }
+  if (byBranch.isEmpty) {
+    // ignore: avoid_print
+    print('wholesaleAssignmentsToApi => empty (no BranchId/CounterId pairs)');
+    return const [];
+  }
+
+  final out = <Map<String, dynamic>>[];
+  for (final entry in byBranch.entries) {
+    final counterIds = List<int>.from(entry.value)..sort();
+    out.add({
+      'BranchId': entry.key,
+      'CounterId': counterIds,
+    });
+    // ignore: avoid_print
+    print(
+      'wholesaleAssignmentsToApi branch=${entry.key} '
+      'counters=$counterIds (count=${counterIds.length})',
+    );
+  }
+  return out;
 }
 
 class RfidDeviceInfo {
@@ -100,9 +132,14 @@ class RfidDeviceInfo {
   Object get apiDeviceId => id > 0 ? id : (int.tryParse(deviceId) ?? (deviceId.isNotEmpty ? deviceId : deviceCode));
 
   factory RfidDeviceInfo.fromJson(Map<String, dynamic> json) {
+    // Prefer table Id; only treat DeviceId as numeric Id when it parses as int
+    // (hex DeviceCode strings must not become Id = 0 / wrong value).
+    final tableId = readWholesaleInt(json, const ['Id', 'id', 'RFIDDeviceId']);
+    final deviceIdRaw = readWholesaleString(json, const ['DeviceId', 'deviceId']);
+    final deviceIdAsInt = int.tryParse(deviceIdRaw) ?? 0;
     return RfidDeviceInfo(
-      id: readWholesaleInt(json, const ['Id', 'id', 'DeviceId', 'RFIDDeviceId']),
-      deviceId: readWholesaleString(json, const ['DeviceId', 'deviceId']),
+      id: tableId > 0 ? tableId : deviceIdAsInt,
+      deviceId: deviceIdRaw,
       deviceCode: readWholesaleString(json, const ['DeviceCode', 'deviceCode']),
       deviceName: readWholesaleString(json, const ['DeviceName', 'deviceName', 'Name']),
       assignments: parseWholesaleAssignments(json),
@@ -153,30 +190,60 @@ String readWholesaleString(Map<String, dynamic> json, List<String> keys) {
 }
 
 List<Map<String, dynamic>> extractAssignmentMaps(dynamic data) {
-  List<dynamic>? list;
-  if (data is List) {
-    list = data;
-  } else if (data is Map) {
-    for (final key in [
+  final out = <Map<String, dynamic>>[];
+
+  void walk(dynamic node) {
+    if (node is List) {
+      for (final item in node) {
+        walk(item);
+      }
+      return;
+    }
+    if (node is! Map) return;
+    final map = Map<String, dynamic>.from(node);
+
+    var nestedAssignments = false;
+    for (final key in const [
       'Assignments',
       'assignments',
+      'RFIDDeviceAssignments',
+    ]) {
+      if (map[key] is List) {
+        nestedAssignments = true;
+        walk(map[key]);
+      }
+    }
+    if (nestedAssignments) return;
+
+    for (final key in const [
       'data',
       'Data',
       'result',
       'Result',
-      'RFIDDeviceAssignments',
+      'Devices',
+      'devices',
+      'RFIDDevices',
+      'rfidDevices',
     ]) {
-      if (data[key] is List) {
-        list = data[key] as List;
-        break;
+      if (map[key] is List) {
+        walk(map[key]);
+        return;
       }
     }
-    if (list == null && (data['BranchId'] != null || data['branchId'] != null || data['BranchName'] != null)) {
-      list = [data];
+
+    if (map['BranchId'] != null ||
+        map['branchId'] != null ||
+        map['BranchName'] != null ||
+        map['branchName'] != null ||
+        map['CounterId'] != null ||
+        map['counterId'] != null ||
+        map['CounterName'] != null) {
+      out.add(map);
     }
   }
-  if (list == null) return [];
-  return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+
+  walk(data);
+  return out;
 }
 
 List<RfidDeviceAssignment> parseWholesaleAssignments(dynamic data) {

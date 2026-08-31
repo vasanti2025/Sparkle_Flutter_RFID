@@ -322,45 +322,123 @@ class SettingsViewModel extends ChangeNotifier {
   String? _wholesaleError;
   String? get wholesaleError => _wholesaleError;
 
-  List<WholesaleCounter> countersForBranch(int? branchId) {
-    if (branchId == null || branchId <= 0) return _wholesaleCounters;
-    final filtered = _wholesaleCounters
-        .where((c) => c.branchId == 0 || c.branchId == branchId)
-        .toList();
-    return filtered.isNotEmpty ? filtered : _wholesaleCounters;
-  }
-
-  List<WholesaleBranch> get scanPopupBranches {
-    final fromAssign = <int, WholesaleBranch>{};
-    for (final assignment in _wholesaleAssignments) {
-      if (assignment.branchId <= 0) continue;
-      fromAssign[assignment.branchId] = WholesaleBranch(
-        id: assignment.branchId,
-        name: assignment.branchName,
-      );
+  /// Master counters for a branch from GetAllCounters (BranchId match).
+  List<WholesaleCounter> countersForBranch(int? branchId, {String branchName = ''}) {
+    if (branchId == null || branchId <= 0) {
+      return List<WholesaleCounter>.from(_wholesaleCounters);
     }
-    if (fromAssign.isNotEmpty) return fromAssign.values.toList();
-    return _wholesaleBranches;
+    // Strict: only counters belonging to this BranchId (e.g. Counter1/2/3 for Branch 1).
+    final filtered = _wholesaleCounters.where((c) => c.branchId == branchId).toList();
+    if (filtered.isNotEmpty) {
+      filtered.sort((a, b) => a.name.compareTo(b.name));
+      return filtered;
+    }
+    // Fallback: counters with no BranchId set.
+    final unscoped = _wholesaleCounters.where((c) => c.branchId <= 0).toList();
+    return unscoped.isNotEmpty ? unscoped : const [];
   }
 
-  List<WholesaleCounter> scanPopupCountersFor(int? branchId) {
-    final fromAssign = <int, WholesaleCounter>{};
+  /// True when GetRFID returned data for this handset's stable DeviceId.
+  bool get hasDeviceAssignments =>
+      _stableDeviceId.isNotEmpty && _wholesaleAssignments.isNotEmpty;
+
+  /// Branches registered for THIS DeviceId only (Scan + Wholesale view).
+  List<WholesaleBranch> get assignedBranchesForDevice {
+    final fromAssign = <String, WholesaleBranch>{};
     for (final assignment in _wholesaleAssignments) {
-      if (assignment.counterId <= 0) continue;
-      if (branchId != null &&
-          branchId > 0 &&
-          assignment.branchId > 0 &&
-          assignment.branchId != branchId) {
+      if (!assignment.hasBranch) continue;
+      final branch = _resolvedBranch(assignment);
+      final key = branch.id > 0 ? 'id:${branch.id}' : 'name:${branch.name.toLowerCase()}';
+      fromAssign[key] = branch;
+    }
+    return fromAssign.values.toList();
+  }
+
+  /// Counters registered for THIS DeviceId + selected branch only.
+  List<WholesaleCounter> assignedCountersForBranch(int? branchId, {String branchName = ''}) {
+    final fromAssign = <String, WholesaleCounter>{};
+    for (final assignment in _wholesaleAssignments) {
+      if (!assignment.hasCounter) continue;
+      if (!_assignmentMatchesBranch(assignment, branchId, branchName: branchName)) {
         continue;
       }
-      fromAssign[assignment.counterId] = WholesaleCounter(
-        id: assignment.counterId,
-        name: assignment.counterName,
-        branchId: assignment.branchId,
-      );
+      final counter = _resolvedCounter(assignment);
+      final key = counter.id > 0
+          ? 'id:${counter.branchId}:${counter.id}'
+          : 'name:${counter.branchId}:${counter.name.toLowerCase()}';
+      fromAssign[key] = counter;
     }
-    if (fromAssign.isNotEmpty) return fromAssign.values.toList();
-    return countersForBranch(branchId);
+    return fromAssign.values.toList();
+  }
+
+  List<RfidDeviceAssignment> assignmentsForBranch(int? branchId, {String branchName = ''}) {
+    return _wholesaleAssignments
+        .where((a) => _assignmentMatchesBranch(a, branchId, branchName: branchName))
+        .toList();
+  }
+
+  WholesaleBranch _resolvedBranch(RfidDeviceAssignment assignment) {
+    // Prefer assignment name/id from DeviceCode API — master list can rename
+    // (e.g. BranchId 2 → "Main Branch" while assignment says "1007").
+    var id = assignment.branchId;
+    var name = assignment.branchName.trim();
+    if (id > 0) {
+      for (final branch in _wholesaleBranches) {
+        if (branch.id != id) continue;
+        if (name.isEmpty) name = branch.name;
+        break;
+      }
+    } else if (name.isNotEmpty) {
+      for (final branch in _wholesaleBranches) {
+        if (branch.name.trim().toLowerCase() != name.toLowerCase()) continue;
+        id = branch.id;
+        break;
+      }
+    }
+    return WholesaleBranch(id: id, name: name);
+  }
+
+  WholesaleCounter _resolvedCounter(RfidDeviceAssignment assignment) {
+    final branch = _resolvedBranch(assignment);
+    var id = assignment.counterId;
+    var name = assignment.counterName.trim();
+    if (id > 0) {
+      for (final counter in _wholesaleCounters) {
+        if (counter.id != id) continue;
+        if (name.isEmpty) name = counter.name;
+        break;
+      }
+    } else if (name.isNotEmpty) {
+      for (final counter in _wholesaleCounters) {
+        if (counter.name.trim().toLowerCase() != name.toLowerCase()) continue;
+        if (branch.id > 0 && counter.branchId > 0 && counter.branchId != branch.id) {
+          continue;
+        }
+        id = counter.id;
+        break;
+      }
+    }
+    return WholesaleCounter(id: id, name: name, branchId: branch.id);
+  }
+
+  bool _assignmentMatchesBranch(RfidDeviceAssignment assignment, int? branchId, {String branchName = ''}) {
+    if (branchId == null || branchId <= 0) {
+      final name = branchName.trim().toLowerCase();
+      if (name.isEmpty) return true;
+      return assignment.branchName.trim().toLowerCase() == name;
+    }
+    final resolved = _resolvedBranch(assignment);
+    if (resolved.id > 0) return resolved.id == branchId;
+    return assignment.branchId == branchId;
+  }
+
+  /// Scan Display: only branches for matching DeviceId.
+  List<WholesaleBranch> get scanPopupBranches => assignedBranchesForDevice;
+
+  /// Scan Display: only counters for that branch on matching DeviceId.
+  List<WholesaleCounter> scanPopupCountersFor(int? branchId, {String branchName = ''}) {
+    if (_stableDeviceId.isEmpty) return const [];
+    return assignedCountersForBranch(branchId, branchName: branchName);
   }
 
   Future<String> ensureDeviceId() async {
@@ -382,8 +460,15 @@ class SettingsViewModel extends ChangeNotifier {
   List<RfidDeviceAssignment> _wholesaleAssignments = [];
   List<RfidDeviceAssignment> get wholesaleAssignments => _wholesaleAssignments;
 
-  Object? _rfidApiDeviceId;
-  Object? get rfidApiDeviceId => _rfidApiDeviceId;
+  /// Stable handset id for API `DeviceId` — never regenerated once saved.
+  String _stableDeviceId = '';
+  String get stableDeviceId => _stableDeviceId;
+
+  /// API `DeviceCode` for this handset — short codes like "1", "2", ...
+  String _rfidDeviceCode = '';
+  String get rfidDeviceCode => _rfidDeviceCode;
+
+  Object? get rfidApiDeviceId => _stableDeviceId.isNotEmpty ? _stableDeviceId : null;
 
   Future<void> loadWholesaleMasters() async {
     _loadingWholesale = true;
@@ -398,11 +483,11 @@ class SettingsViewModel extends ChangeNotifier {
         _wholesaleError = 'deviceConfigNotFound';
         return;
       }
-      final deviceId = await ensureDeviceId();
+      final stableId = await ensureDeviceId();
       final results = await Future.wait([
         _apiService.getWholesaleBranches(clientCode),
         _apiService.getAllCounters(clientCode),
-        _loadDeviceAndAssignments(clientCode, deviceId),
+        _loadDeviceAndAssignments(clientCode, stableId),
       ]);
       _wholesaleBranches = results[0] as List<WholesaleBranch>;
       _wholesaleCounters = results[1] as List<WholesaleCounter>;
@@ -417,55 +502,118 @@ class SettingsViewModel extends ChangeNotifier {
   bool _deviceMatches(RfidDeviceInfo device, String storedId) {
     final stored = storedId.trim().toLowerCase();
     if (stored.isEmpty) return false;
-    return device.deviceId.trim().toLowerCase() == stored ||
-        device.deviceCode.trim().toLowerCase() == stored ||
-        device.id.toString() == storedId.trim();
+    final ids = <String>[
+      device.deviceId.trim().toLowerCase(),
+      device.deviceCode.trim().toLowerCase(),
+      if (device.id > 0) device.id.toString(),
+    ].where((id) => id.isNotEmpty).toList();
+    for (final id in ids) {
+      if (id == stored) return true;
+      if (id.length >= 4 &&
+          stored.length >= 4 &&
+          (stored.endsWith(id) || id.endsWith(stored))) {
+        return true;
+      }
+    }
+    if (stored.length >= 2) {
+      final short = 'a${stored.substring(stored.length - 2)}';
+      if (ids.contains(short)) return true;
+    }
+    return false;
+  }
+
+  List<RfidDeviceAssignment> _uniqueAssignments(Iterable<RfidDeviceAssignment> items) {
+    final seen = <String>{};
+    final out = <RfidDeviceAssignment>[];
+    for (final item in items) {
+      if (!item.isValid) continue;
+      final key =
+          '${item.branchId}|${item.counterId}|${item.branchName.toLowerCase()}|${item.counterName.toLowerCase()}';
+      if (seen.add(key)) out.add(item);
+    }
+    return out;
+  }
+
+  String _deviceCodeFromMatch(RfidDeviceInfo device) {
+    final code = device.deviceCode.trim();
+    if (code.isNotEmpty) return code;
+    if (device.id > 0) return '${device.id}';
+    final asInt = int.tryParse(device.deviceId.trim());
+    if (asInt != null && asInt > 0) return '$asInt';
+    return '';
   }
 
   Future<List<RfidDeviceAssignment>> _loadDeviceAndAssignments(
     String clientCode,
-    String storedDeviceCode,
+    String stableDeviceId,
   ) async {
-    final deviceCode = storedDeviceCode.trim();
-    _rfidApiDeviceId = deviceCode;
-    var assignments = <RfidDeviceAssignment>[];
+    // DeviceId = stable handset id (never changes). All branch/counters key off this.
+    final stableId = stableDeviceId.trim();
+    _stableDeviceId = stableId;
+    var resolvedCode = _rfidDeviceCode;
 
-    assignments = await _apiService.getRFIDDeviceAssignments(
-      clientCode: clientCode,
-      deviceCode: deviceCode,
-      deviceId: int.tryParse(deviceCode) ?? 0,
+    final devices = await _apiService.getAllRFIDDevices(
+      clientCode,
+      deviceCode: stableId,
+    );
+    RfidDeviceInfo? matched;
+    for (final device in devices) {
+      if (_deviceMatches(device, stableId)) {
+        matched = device;
+        break;
+      }
+    }
+    if (matched == null && stableId.isNotEmpty) {
+      matched = await _apiService.getRFIDDeviceById(
+        clientCode: clientCode,
+        deviceId: stableId,
+      );
+    }
+    if (matched != null) {
+      final code = _deviceCodeFromMatch(matched);
+      if (code.isNotEmpty) resolvedCode = code;
+    }
+    _rfidDeviceCode = resolvedCode;
+
+    debugPrint(
+      'GetRFIDDeviceAssignments DeviceCode=$stableId (device stable id)',
     );
 
+    // Swagger: DeviceCode = this device's id — all branch/counters for it.
+    var assignments = await _apiService.getRFIDDeviceAssignments(
+      clientCode: clientCode,
+      deviceCode: stableId,
+    );
+    if (assignments.isEmpty && matched != null && matched.assignments.isNotEmpty) {
+      assignments = matched.assignments;
+    }
+
+    // Prefs only if saved for the SAME DeviceId — never another device's data.
     if (assignments.isEmpty) {
-      final devices = await _apiService.getAllRFIDDevices(clientCode);
-      RfidDeviceInfo? matched;
-      for (final device in devices) {
-        if (_deviceMatches(device, deviceCode)) {
-          matched = device;
-          break;
-        }
-      }
-      if (matched != null) {
-        assignments = matched.assignments;
-        final matchedCode = matched.deviceCode.trim().isNotEmpty
-            ? matched.deviceCode.trim()
-            : deviceCode;
-        _rfidApiDeviceId = matchedCode;
-        if (assignments.isEmpty) {
-          assignments = await _apiService.getRFIDDeviceAssignments(
-            clientCode: clientCode,
-            deviceCode: matchedCode,
-            deviceId: matched.id,
-          );
-        }
+      final prefsDeviceId = _prefService.getDeviceId().trim();
+      if (prefsDeviceId.isNotEmpty &&
+          prefsDeviceId.toLowerCase() == stableId.toLowerCase()) {
+        assignments = _prefService.getWholesaleAssignments();
       }
     }
 
-    if (assignments.isEmpty) {
-      assignments = _prefService.getWholesaleAssignments();
-    }
+    assignments = _uniqueAssignments(assignments);
     _wholesaleAssignments = assignments;
+    debugPrint(
+      'DeviceId=$stableId assignments=${assignments.length} '
+      'branches=${assignedBranchesForDevice.length}',
+    );
     return assignments;
+  }
+
+  int _resolveWholesaleBranchId(int branchId, String branchName) {
+    if (branchId > 0) return branchId;
+    final name = branchName.trim().toLowerCase();
+    if (name.isEmpty) return 0;
+    for (final b in _wholesaleBranches) {
+      if (b.name.trim().toLowerCase() == name) return b.id;
+    }
+    return 0;
   }
 
   Future<bool> saveWholesaleOption({
@@ -478,43 +626,112 @@ class SettingsViewModel extends ChangeNotifier {
   }) async {
     final employee = _prefService.getEmployee();
     final clientCode = employee?.clientCode ?? '';
-    if (clientCode.isEmpty || deviceId.trim().isEmpty) return false;
+    debugPrint('========== Wholesale SAVE start ==========');
+    debugPrint('clientCode=$clientCode deviceId=$deviceId');
+    debugPrint('branchId=$branchId branchName=$branchName');
+    debugPrint(
+      'incomingAssignments=${assignments?.map((a) => '${a.branchId}/${a.counterId}:${a.counterName}').toList()}',
+    );
 
-    final rows = (assignments ?? const <RfidDeviceAssignment>[]).where((a) => a.isValid).toList();
-    if (rows.isEmpty) {
+    if (clientCode.isEmpty || deviceId.trim().isEmpty) {
+      debugPrint('Wholesale SAVE aborted: missing clientCode or deviceId');
+      return false;
+    }
+
+    final resolvedBranchId = _resolveWholesaleBranchId(branchId, branchName);
+    final rows = <RfidDeviceAssignment>[];
+    for (final a in (assignments ?? const <RfidDeviceAssignment>[])) {
+      if (!a.hasCounter) continue;
+      final bid = _resolveWholesaleBranchId(
+        a.branchId,
+        a.branchName.isNotEmpty ? a.branchName : branchName,
+      );
+      final bname = a.branchName.trim().isNotEmpty ? a.branchName.trim() : branchName.trim();
+      final cid = a.counterId > 0 ? a.counterId : 0;
+      if (bid <= 0 || cid <= 0) {
+        debugPrint(
+          'Wholesale SAVE skip row: need BranchId>0 and CounterId>0 '
+          '(got branchId=$bid counterId=$cid name=${a.counterName})',
+        );
+        continue;
+      }
       rows.add(RfidDeviceAssignment(
-        branchId: branchId,
+        branchId: bid,
+        branchName: bname,
+        counterId: cid,
+        counterName: a.counterName,
+      ));
+    }
+    if (rows.isEmpty && resolvedBranchId > 0 && counterId > 0) {
+      rows.add(RfidDeviceAssignment(
+        branchId: resolvedBranchId,
         branchName: branchName,
         counterId: counterId,
         counterName: counterName,
       ));
     }
-    if (rows.every((a) => !a.isValid)) return false;
+    if (rows.isEmpty) {
+      debugPrint(
+        'Wholesale SAVE aborted: no valid rows (BranchId + CounterId required). '
+        'resolvedBranchId=$resolvedBranchId',
+      );
+      return false;
+    }
 
     _savingWholesale = true;
     notifyListeners();
     try {
-      final numericDeviceId = _rfidApiDeviceId is int
-          ? _rfidApiDeviceId as int
-          : int.tryParse('${_rfidApiDeviceId ?? ''}') ?? 0;
+      final stableId = deviceId.trim().isNotEmpty ? deviceId.trim() : await ensureDeviceId();
+      if (_stableDeviceId != stableId) {
+        await _loadDeviceAndAssignments(clientCode, stableId);
+      }
+
+      // Keep other branches for this DeviceId; replace only the edited branch rows.
+      final editedBranchId = rows.first.branchId;
+      final editedBranchName = rows.first.branchName.trim().toLowerCase();
+      final others = _wholesaleAssignments.where((a) {
+        if (editedBranchId > 0 && a.branchId > 0) {
+          return a.branchId != editedBranchId;
+        }
+        return a.branchName.trim().toLowerCase() != editedBranchName;
+      }).toList();
+      final merged = _uniqueAssignments([...others, ...rows]);
+
+      // Send ALL branches/counters for this DeviceCode so none are dropped.
+      // Swagger: { BranchId: 1, CounterId: [3,4,5] } with ReplaceAll true.
+      // ignore: avoid_print
+      print(
+        'Wholesale SAVE calling Assign DeviceCode=$stableId '
+        'rows=${rows.length} merged=${merged.length} replaceAll=true',
+      );
+      for (final r in merged) {
+        // ignore: avoid_print
+        print('  -> BranchId=${r.branchId} CounterId=${r.counterId} (${r.counterName})');
+      }
+
       final ok = await _apiService.assignRFIDDeviceToBranchCounter(
         clientCode: clientCode,
-        deviceCode: deviceId.trim(),
-        deviceId: numericDeviceId,
-        replaceAll: false,
-        assignments: rows,
+        deviceCode: stableId,
+        deviceId: stableId,
+        replaceAll: true,
+        assignments: merged,
       );
+      // ignore: avoid_print
+      print('Wholesale SAVE Assign result=$ok');
       if (!ok) return false;
+
       final first = rows.first;
       await _prefService.saveWholesaleOption(
         branchId: first.branchId,
         branchName: first.branchName,
         counterId: first.counterId,
         counterName: first.counterName,
-        deviceId: deviceId.trim(),
-        assignments: rows,
+        deviceId: stableId,
+        assignments: merged,
       );
-      _wholesaleAssignments = rows;
+
+      // Reload GetRFID for this DeviceId so Scan/Wholesale see all counters.
+      await _loadDeviceAndAssignments(clientCode, stableId);
       notifyListeners();
       return true;
     } finally {

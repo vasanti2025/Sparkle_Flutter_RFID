@@ -31,6 +31,7 @@ class _ScanBranchCounterDialogState extends State<_ScanBranchCounterDialog> {
   WholesaleBranch? _branch;
   WholesaleCounter? _counter;
   bool _loading = true;
+  String _deviceId = '';
 
   @override
   void initState() {
@@ -38,39 +39,54 @@ class _ScanBranchCounterDialogState extends State<_ScanBranchCounterDialog> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
+  void _applyBranch(WholesaleBranch branch, SettingsViewModel vm) {
+    _branch = branch;
+    // Only counters registered for THIS DeviceId + this branch.
+    final counters = vm.scanPopupCountersFor(branch.id, branchName: branch.name);
+    _counter = counters.length == 1 ? counters.first : null;
+  }
+
   Future<void> _load() async {
     final vm = context.read<SettingsViewModel>();
+    // GetRFID by this handset DeviceId — branches/counters only if DeviceId matches.
     await vm.loadWholesaleMasters();
     if (!mounted) return;
 
-    final initial = widget.initial ??
-        (vm.pref.getWholesaleAssignments().isNotEmpty
-            ? vm.pref.getWholesaleAssignments().first
-            : null);
+    _deviceId = vm.stableDeviceId;
+    final branches = vm.scanPopupBranches;
+    final initial = widget.initial;
 
     WholesaleBranch? branch;
-    final branches = vm.scanPopupBranches;
-    if (initial != null) {
+    if (initial != null && branches.isNotEmpty) {
       for (final b in branches) {
-        if ((initial.branchId > 0 && b.id == initial.branchId) ||
-            (initial.branchName.isNotEmpty &&
-                b.name.toLowerCase() == initial.branchName.toLowerCase())) {
+        final idMatch = initial.branchId > 0 && b.id == initial.branchId;
+        final nameMatch = initial.branchName.isNotEmpty &&
+            b.name.toLowerCase() == initial.branchName.toLowerCase();
+        if (idMatch || nameMatch) {
           branch = b;
           break;
         }
       }
     }
+    if (branch == null && branches.length == 1) {
+      branch = branches.first;
+    }
 
     WholesaleCounter? counter;
-    final counters = vm.scanPopupCountersFor(branch?.id);
-    if (initial != null) {
-      for (final c in counters) {
-        if ((initial.counterId > 0 && c.id == initial.counterId) ||
-            (initial.counterName.isNotEmpty &&
-                c.name.toLowerCase() == initial.counterName.toLowerCase())) {
-          counter = c;
-          break;
+    if (branch != null) {
+      final counters = vm.scanPopupCountersFor(branch.id, branchName: branch.name);
+      if (initial != null) {
+        for (final c in counters) {
+          if ((initial.counterId > 0 && c.id == initial.counterId) ||
+              (initial.counterName.isNotEmpty &&
+                  c.name.toLowerCase() == initial.counterName.toLowerCase())) {
+            counter = c;
+            break;
+          }
         }
+      }
+      if (counter == null && counters.length == 1) {
+        counter = counters.first;
       }
     }
 
@@ -84,7 +100,16 @@ class _ScanBranchCounterDialogState extends State<_ScanBranchCounterDialog> {
   Future<void> _pickBranch() async {
     final vm = context.read<SettingsViewModel>();
     final branches = vm.scanPopupBranches;
-    if (branches.isEmpty) return;
+    if (branches.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'No branch for this DeviceId${_deviceId.isEmpty ? '' : ' ($_deviceId)'}',
+          ),
+        ),
+      );
+      return;
+    }
     final picked = await showScrollableOptionSheet<WholesaleBranch>(
       context: context,
       options: branches,
@@ -92,25 +117,35 @@ class _ScanBranchCounterDialogState extends State<_ScanBranchCounterDialog> {
       title: context.sRead.selectBranch,
     );
     if (picked == null || !mounted) return;
-    setState(() {
-      _branch = picked;
-      if (_counter != null &&
-          _counter!.branchId > 0 &&
-          _counter!.branchId != picked.id) {
-        _counter = null;
-      }
-    });
+    setState(() => _applyBranch(picked, vm));
   }
 
   Future<void> _pickCounter() async {
+    final s = context.sRead;
     final vm = context.read<SettingsViewModel>();
-    final counters = vm.scanPopupCountersFor(_branch?.id);
-    if (counters.isEmpty) return;
+    if (_branch == null || (_branch!.id <= 0 && _branch!.name.trim().isEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s.pleaseSelectBranch)));
+      return;
+    }
+    final counters = vm.scanPopupCountersFor(
+      _branch!.id,
+      branchName: _branch!.name,
+    );
+    if (counters.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'No counter for this branch on DeviceId${_deviceId.isEmpty ? '' : ' ($_deviceId)'}',
+          ),
+        ),
+      );
+      return;
+    }
     final picked = await showScrollableOptionSheet<WholesaleCounter>(
       context: context,
       options: counters,
       labelOf: (c) => c.name.isNotEmpty ? c.name : '${c.id}',
-      title: context.sRead.selectCounter,
+      title: s.selectCounter,
     );
     if (picked == null || !mounted) return;
     setState(() => _counter = picked);
@@ -147,6 +182,7 @@ class _ScanBranchCounterDialogState extends State<_ScanBranchCounterDialog> {
     final counterLabel = _counter == null
         ? s.selectCounter
         : (_counter!.name.isNotEmpty ? _counter!.name : '${_counter!.id}');
+    final hasDeviceData = vm.hasDeviceAssignments;
 
     return AlertDialog(
       title: Text('${s.branch} / ${s.counter}', style: AppFonts.poppins(fontWeight: FontWeight.bold)),
@@ -154,23 +190,32 @@ class _ScanBranchCounterDialogState extends State<_ScanBranchCounterDialog> {
           ? const SizedBox(height: 80, child: Center(child: CircularProgressIndicator()))
           : Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _picker(s.branch, branchLabel, _pickBranch),
+                if (!hasDeviceData)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      'No branch/counter for this DeviceId. Save in Wholesale option first.',
+                      style: AppFonts.poppins(fontSize: 12, color: Colors.red.shade700),
+                    ),
+                  ),
+                _picker(s.branch, branchLabel, hasDeviceData ? _pickBranch : null),
                 const SizedBox(height: 12),
-                _picker(s.counter, counterLabel, _pickCounter),
+                _picker(s.counter, counterLabel, hasDeviceData ? _pickCounter : null),
               ],
             ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: Text(s.cancel)),
         TextButton(
-          onPressed: _loading || vm.loadingWholesale ? null : _confirm,
+          onPressed: _loading || vm.loadingWholesale || !hasDeviceData ? null : _confirm,
           child: Text(s.start),
         ),
       ],
     );
   }
 
-  Widget _picker(String label, String value, VoidCallback onTap) {
+  Widget _picker(String label, String value, VoidCallback? onTap) {
     return InkWell(
       onTap: onTap,
       child: InputDecorator(

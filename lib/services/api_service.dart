@@ -1382,13 +1382,25 @@ class ApiService {
     return int.tryParse(text) ?? text;
   }
 
-  Future<List<RfidDeviceInfo>> getAllRFIDDevices(String clientCode) async {
+  Future<List<RfidDeviceInfo>> getAllRFIDDevices(
+    String clientCode, {
+    String deviceCode = '',
+  }) async {
     if (clientCode.trim().isEmpty) return [];
     try {
+      final payload = <String, dynamic>{
+        'ClientCode': clientCode,
+        if (deviceCode.trim().isNotEmpty) 'DeviceCode': deviceCode.trim(),
+      };
+      debugPrint('========== GetAllRFIDDevice REQUEST ==========');
+      debugPrint(jsonEncode(payload));
       final response = await _dio.post(
         'api/RFIDDevice/GetAllRFIDDevice',
-        data: {'ClientCode': clientCode},
+        data: payload,
       );
+      debugPrint('========== GetAllRFIDDevice RESPONSE ==========');
+      debugPrint('status=${response.statusCode}');
+      debugPrint(_encodeApiBody(response.data));
       if (response.statusCode != 200) return [];
       var maps = _asObjectList(response.data);
       if (maps.isEmpty && response.data is Map) {
@@ -1415,13 +1427,20 @@ class ApiService {
     required Object deviceId,
   }) async {
     try {
+      final payload = {
+        'ClientCode': clientCode,
+        'DeviceId': _deviceIdPayload(deviceId),
+        if (deviceId is String && deviceId.trim().isNotEmpty) 'DeviceCode': deviceId.trim(),
+      };
+      debugPrint('========== GetRFIDDevicesById REQUEST ==========');
+      debugPrint(jsonEncode(payload));
       final response = await _dio.post(
         'api/RFIDDevice/GetRFIDDevicesById',
-        data: {
-          'ClientCode': clientCode,
-          'DeviceId': _deviceIdPayload(deviceId),
-        },
+        data: payload,
       );
+      debugPrint('========== GetRFIDDevicesById RESPONSE ==========');
+      debugPrint('status=${response.statusCode}');
+      debugPrint(_encodeApiBody(response.data));
       if (response.statusCode != 200 || response.data == null) return null;
       final maps = _asObjectList(response.data);
       if (maps.isNotEmpty) return RfidDeviceInfo.fromJson(maps.first);
@@ -1438,25 +1457,33 @@ class ApiService {
   Future<List<RfidDeviceAssignment>> getRFIDDeviceAssignments({
     required String clientCode,
     String deviceCode = '',
-    int deviceId = 0,
+    Object? deviceId,
     int branchId = 0,
     int counterId = 0,
   }) async {
     try {
+      // Swagger: DeviceCode = this device's stable id (e.g. LOyalString).
+      final code = deviceCode.trim().isNotEmpty
+          ? deviceCode.trim()
+          : '${deviceId ?? ''}'.trim();
+      final payload = {
+        'ClientCode': clientCode,
+        'DeviceCode': code,
+      };
+      debugPrint('========== GetRFIDDeviceAssignments REQUEST ==========');
+      debugPrint(jsonEncode(payload));
       final response = await _dio.post(
         'api/RFIDDevice/GetRFIDDeviceAssignments',
-        data: {
-          'ClientCode': clientCode,
-          'DeviceId': deviceId,
-          'DeviceCode': deviceCode.trim(),
-          'BranchId': branchId,
-          'CounterId': counterId,
-        },
+        data: payload,
       );
+      debugPrint('========== GetRFIDDeviceAssignments RESPONSE ==========');
+      debugPrint('status=${response.statusCode}');
+      debugPrint(_encodeApiBody(response.data));
       if (response.statusCode != 200) return [];
       return parseWholesaleAssignments(response.data);
     } catch (e) {
-      debugPrint('Error getRFIDDeviceAssignments: $e');
+      debugPrint('========== GetRFIDDeviceAssignments ERROR ==========');
+      debugPrint('$e');
       return [];
     }
   }
@@ -1464,22 +1491,51 @@ class ApiService {
   Future<bool> assignRFIDDeviceToBranchCounter({
     required String clientCode,
     required String deviceCode,
-    int deviceId = 0,
+    Object? deviceId,
     required List<RfidDeviceAssignment> assignments,
     bool replaceAll = false,
   }) async {
+    void log(String msg) {
+      // ignore: avoid_print
+      print(msg);
+      debugPrint(msg);
+    }
+
     try {
+      log('========== AssignRFIDDeviceToBranchCounter INPUT ==========');
+      log('clientCode=$clientCode deviceCode=$deviceCode replaceAll=$replaceAll');
+      log(
+        'rawAssignments=${jsonEncode(assignments.map((a) => {
+              'BranchId': a.branchId,
+              'BranchName': a.branchName,
+              'CounterId': a.counterId,
+              'CounterName': a.counterName,
+            }).toList())}',
+      );
+
       final payloadAssignments = wholesaleAssignmentsToApi(assignments);
-      if (payloadAssignments.isEmpty) return false;
-      final parsedDeviceId = deviceId > 0 ? deviceId : (int.tryParse(deviceCode.trim()) ?? 0);
+      log('apiAssignments=${jsonEncode(payloadAssignments)}');
+
+      if (payloadAssignments.isEmpty) {
+        log(
+          '========== AssignRFIDDeviceToBranchCounter SKIPPED ========== '
+          'Empty Assignments. Need BranchId>0 and CounterId>0 on every row.',
+        );
+        return false;
+      }
+
+      // Swagger: DeviceCode = stable device string; Assignments use CounterId arrays.
+      final code = deviceCode.trim().isNotEmpty
+          ? deviceCode.trim()
+          : '${deviceId ?? ''}'.trim();
       final payload = {
         'ClientCode': clientCode,
-        'DeviceId': parsedDeviceId,
-        'DeviceCode': deviceCode.trim(),
+        'DeviceCode': code,
         'ReplaceAll': replaceAll,
         'Assignments': payloadAssignments,
       };
-      debugPrint('AssignRFIDDeviceToBranchCounter payload: ${jsonEncode(payload)}');
+      log('========== AssignRFIDDeviceToBranchCounter REQUEST ==========');
+      log(jsonEncode(payload));
       final response = await _dio.post(
         'api/RFIDDevice/AssignRFIDDeviceToBranchCounter',
         data: payload,
@@ -1487,20 +1543,42 @@ class ApiService {
           validateStatus: (status) => status != null && status < 500,
         ),
       );
-      debugPrint(
-        'AssignRFIDDeviceToBranchCounter status=${response.statusCode} body=${response.data}',
-      );
-      if (response.statusCode != 200) return false;
+      log('========== AssignRFIDDeviceToBranchCounter RESPONSE ==========');
+      log('status=${response.statusCode}');
+      log(_encodeApiBody(response.data));
+      if (response.statusCode != 200) {
+        log('Assign failed: non-200 status');
+        return false;
+      }
       final data = response.data;
       if (data is Map) {
         final status = data['Status'] ?? data['status'] ?? data['Success'] ?? data['success'];
-        if (status is bool) return status;
-        if (status != null && status.toString().toLowerCase() == 'false') return false;
+        if (status is bool) {
+          log('Assign Status bool=$status');
+          return status;
+        }
+        if (status != null && status.toString().toLowerCase() == 'false') {
+          log('Assign failed: Status/Success=false in body');
+          return false;
+        }
       }
+      log('========== AssignRFIDDeviceToBranchCounter SUCCESS ==========');
       return true;
-    } catch (e) {
-      debugPrint('Error assignRFIDDeviceToBranchCounter: $e');
+    } catch (e, st) {
+      log('========== AssignRFIDDeviceToBranchCounter ERROR ==========');
+      log('$e');
+      log('$st');
       return false;
+    }
+  }
+
+  String _encodeApiBody(dynamic data) {
+    try {
+      if (data == null) return 'null';
+      if (data is String) return data;
+      return jsonEncode(data);
+    } catch (_) {
+      return data.toString();
     }
   }
 
@@ -1512,10 +1590,12 @@ class ApiService {
     required int counterId,
     required String counterName,
     required String deviceId,
+    String deviceCode = '',
   }) async {
     return assignRFIDDeviceToBranchCounter(
       clientCode: clientCode,
-      deviceCode: deviceId,
+      deviceCode: deviceCode.isNotEmpty ? deviceCode : deviceId,
+      deviceId: deviceId,
       assignments: [
         RfidDeviceAssignment(
           branchId: branchId,

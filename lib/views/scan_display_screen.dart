@@ -716,12 +716,11 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     if (_locationPromptOpen) return false;
     _locationPromptOpen = true;
     try {
+      // DeviceCode fetch fills branches/counters inside the dialog.
+      // Do not seed from stale prefs — that overwrote API names (e.g. 1007 → Main Branch).
       final picked = await showScanBranchCounterDialog(
         context: context,
-        initial: existing ??
-            (pref.getWholesaleAssignments().isNotEmpty
-                ? pref.getWholesaleAssignments().first
-                : null),
+        initial: existing,
       );
       if (picked == null) return false;
       _sessionLocation = picked;
