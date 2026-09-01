@@ -31,7 +31,7 @@ class _ScanBranchCounterDialogState extends State<_ScanBranchCounterDialog> {
   WholesaleBranch? _branch;
   WholesaleCounter? _counter;
   bool _loading = true;
-  String _deviceId = '';
+  bool _noAssignments = false;
 
   @override
   void initState() {
@@ -41,23 +41,29 @@ class _ScanBranchCounterDialogState extends State<_ScanBranchCounterDialog> {
 
   void _applyBranch(WholesaleBranch branch, SettingsViewModel vm) {
     _branch = branch;
-    // Only counters registered for THIS DeviceId + this branch.
+    // Only counters assigned for THIS DeviceCode + this branch (Wholesale option).
     final counters = vm.scanPopupCountersFor(branch.id, branchName: branch.name);
     _counter = counters.length == 1 ? counters.first : null;
   }
 
   Future<void> _load() async {
     final vm = context.read<SettingsViewModel>();
-    // GetRFID by this handset DeviceId — branches/counters only if DeviceId matches.
+    // Load DeviceCode assignments — Scan popup shows only what Wholesale saved.
     await vm.loadWholesaleMasters();
     if (!mounted) return;
 
-    _deviceId = vm.stableDeviceId;
     final branches = vm.scanPopupBranches;
-    final initial = widget.initial;
+    if (!vm.hasDeviceAssignments || branches.isEmpty) {
+      setState(() {
+        _noAssignments = true;
+        _loading = false;
+      });
+      return;
+    }
 
+    final initial = widget.initial;
     WholesaleBranch? branch;
-    if (initial != null && branches.isNotEmpty) {
+    if (initial != null) {
       for (final b in branches) {
         final idMatch = initial.branchId > 0 && b.id == initial.branchId;
         final nameMatch = initial.branchName.isNotEmpty &&
@@ -93,20 +99,18 @@ class _ScanBranchCounterDialogState extends State<_ScanBranchCounterDialog> {
     setState(() {
       _branch = branch;
       _counter = counter;
+      _noAssignments = false;
       _loading = false;
     });
   }
 
   Future<void> _pickBranch() async {
+    final s = context.sRead;
     final vm = context.read<SettingsViewModel>();
     final branches = vm.scanPopupBranches;
     if (branches.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'No branch for this DeviceId${_deviceId.isEmpty ? '' : ' ($_deviceId)'}',
-          ),
-        ),
+        SnackBar(content: Text(s.scanAddWholesaleBranchCounter)),
       );
       return;
     }
@@ -114,7 +118,7 @@ class _ScanBranchCounterDialogState extends State<_ScanBranchCounterDialog> {
       context: context,
       options: branches,
       labelOf: (b) => b.name.isNotEmpty ? b.name : '${b.id}',
-      title: context.sRead.selectBranch,
+      title: s.selectBranch,
     );
     if (picked == null || !mounted) return;
     setState(() => _applyBranch(picked, vm));
@@ -133,11 +137,7 @@ class _ScanBranchCounterDialogState extends State<_ScanBranchCounterDialog> {
     );
     if (counters.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'No counter for this branch on DeviceId${_deviceId.isEmpty ? '' : ' ($_deviceId)'}',
-          ),
-        ),
+        SnackBar(content: Text(s.scanAddWholesaleBranchCounter)),
       );
       return;
     }
@@ -176,41 +176,55 @@ class _ScanBranchCounterDialogState extends State<_ScanBranchCounterDialog> {
   Widget build(BuildContext context) {
     final s = context.s;
     final vm = context.watch<SettingsViewModel>();
+
+    if (_loading || vm.loadingWholesale) {
+      return AlertDialog(
+        title: Text('${s.branch} / ${s.counter}', style: AppFonts.poppins(fontWeight: FontWeight.bold)),
+        content: const SizedBox(
+          height: 80,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+
+    // First time / no DeviceCode assignment → tell user to set Wholesale option.
+    if (_noAssignments || !vm.hasDeviceAssignments) {
+      return AlertDialog(
+        title: Text(s.wholesaleOption, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
+        content: Text(
+          s.scanAddWholesaleBranchCounter,
+          style: AppFonts.poppins(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(s.ok),
+          ),
+        ],
+      );
+    }
+
     final branchLabel = _branch == null
         ? s.selectBranch
         : (_branch!.name.isNotEmpty ? _branch!.name : '${_branch!.id}');
     final counterLabel = _counter == null
         ? s.selectCounter
         : (_counter!.name.isNotEmpty ? _counter!.name : '${_counter!.id}');
-    final hasDeviceData = vm.hasDeviceAssignments;
 
     return AlertDialog(
       title: Text('${s.branch} / ${s.counter}', style: AppFonts.poppins(fontWeight: FontWeight.bold)),
-      content: _loading || vm.loadingWholesale
-          ? const SizedBox(height: 80, child: Center(child: CircularProgressIndicator()))
-          : Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (!hasDeviceData)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Text(
-                      'No branch/counter for this DeviceId. Save in Wholesale option first.',
-                      style: AppFonts.poppins(fontSize: 12, color: Colors.red.shade700),
-                    ),
-                  ),
-                _picker(s.branch, branchLabel, hasDeviceData ? _pickBranch : null),
-                const SizedBox(height: 12),
-                _picker(s.counter, counterLabel, hasDeviceData ? _pickCounter : null),
-              ],
-            ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _picker(s.branch, branchLabel, _pickBranch),
+          const SizedBox(height: 12),
+          _picker(s.counter, counterLabel, _pickCounter),
+        ],
+      ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: Text(s.cancel)),
-        TextButton(
-          onPressed: _loading || vm.loadingWholesale || !hasDeviceData ? null : _confirm,
-          child: Text(s.start),
-        ),
+        TextButton(onPressed: _confirm, child: Text(s.start)),
       ],
     );
   }

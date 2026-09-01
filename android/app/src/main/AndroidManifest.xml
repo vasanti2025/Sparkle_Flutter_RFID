@@ -18,8 +18,8 @@
     <application
         android:label="Sparkle RFID"
         android:name=".SparkleApplication"
-        android:icon="@mipmap/logo_sparkle"
-        android:roundIcon="@mipmap/logo_sparkle_round"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:extractNativeLibs="true"
         android:largeHeap="true"
         android:usesCleartextTraffic="true"

@@ -580,6 +580,15 @@ class AppStrings {
   String get failedToLoadBranchesCounters => _t('failedToLoadBranchesCounters');
   String get addCounter => _t('addCounter');
   String get pleaseAddAssignment => _t('pleaseAddAssignment');
+  String get deleteBranch => _t('deleteBranch');
+  String get deleteCounter => _t('deleteCounter');
+  String get confirmDeleteBranch => _t('confirmDeleteBranch');
+  String get confirmDeleteCounter => _t('confirmDeleteCounter');
+  String get branchDeletedSuccessfully => _t('branchDeletedSuccessfully');
+  String get counterDeletedSuccessfully => _t('counterDeletedSuccessfully');
+  String get branchDeleteFailed => _t('branchDeleteFailed');
+  String get counterDeleteFailed => _t('counterDeleteFailed');
+  String get scanAddWholesaleBranchCounter => _t('scanAddWholesaleBranchCounter');
   String get faceData => _t('faceData');
   String get addFaceLoginData => _t('addFaceLoginData');
   String get localWifiMode => _t('localWifiMode');
@@ -1360,6 +1369,16 @@ class AppStrings {
       'failedToLoadBranchesCounters': 'Failed to load branches and counters.',
       'addCounter': 'Add Counter',
       'pleaseAddAssignment': 'Please add at least one branch and counter.',
+      'deleteBranch': 'Delete Branch',
+      'deleteCounter': 'Delete Counter',
+      'confirmDeleteBranch': 'Are you sure you want to delete this branch?',
+      'confirmDeleteCounter': 'Are you sure you want to delete this counter?',
+      'branchDeletedSuccessfully': 'Branch deleted successfully',
+      'counterDeletedSuccessfully': 'Counter deleted successfully',
+      'branchDeleteFailed': 'Failed to delete branch',
+      'counterDeleteFailed': 'Failed to delete counter',
+      'scanAddWholesaleBranchCounter':
+          'Please add Branch and Counter in Settings → Wholesale option first. Only what you set there will appear here.',
       'faceData': 'Face Data',
       'addFaceLoginData': 'Add face login data',
       'localWifiMode': 'Local WiFi Mode',
@@ -1866,6 +1885,16 @@ class AppStrings {
       'failedToLoadBranchesCounters': 'शाखाएं और काउंटर लोड नहीं हो सके।',
       'addCounter': 'काउंटर जोड़ें',
       'pleaseAddAssignment': 'कृपया कम से कम एक शाखा और काउंटर जोड़ें।',
+      'deleteBranch': 'शाखा हटाएं',
+      'deleteCounter': 'काउंटर हटाएं',
+      'confirmDeleteBranch': 'क्या आप वाकई इस शाखा को हटाना चाहते हैं?',
+      'confirmDeleteCounter': 'क्या आप वाकई इस काउंटर को हटाना चाहते हैं?',
+      'branchDeletedSuccessfully': 'शाखा सफलतापूर्वक हटाई गई',
+      'counterDeletedSuccessfully': 'काउंटर सफलतापूर्वक हटाया गया',
+      'branchDeleteFailed': 'शाखा हटाने में विफल',
+      'counterDeleteFailed': 'काउंटर हटाने में विफल',
+      'scanAddWholesaleBranchCounter':
+          'कृपया पहले Settings → Wholesale option में Branch और Counter जोड़ें। वहीं जो सेट होगा वही यहाँ दिखेगा।',
       'faceData': 'फेस डेटा',
       'addFaceLoginData': 'फेस लॉगिन डेटा जोड़ें',
       'localWifiMode': 'स्थानीय वाईफाई मोड',
@@ -2398,6 +2427,16 @@ class AppStrings {
       'failedToLoadBranchesCounters': 'فشل تحميل الفروع والعدادات.',
       'addCounter': 'إضافة عداد',
       'pleaseAddAssignment': 'يرجى إضافة فرع وعداد واحد على الأقل.',
+      'deleteBranch': 'حذف الفرع',
+      'deleteCounter': 'حذف العداد',
+      'confirmDeleteBranch': 'هل أنت متأكد أنك تريد حذف هذا الفرع؟',
+      'confirmDeleteCounter': 'هل أنت متأكد أنك تريد حذف هذا العداد؟',
+      'branchDeletedSuccessfully': 'تم حذف الفرع بنجاح',
+      'counterDeletedSuccessfully': 'تم حذف العداد بنجاح',
+      'branchDeleteFailed': 'فشل حذف الفرع',
+      'counterDeleteFailed': 'فشل حذف العداد',
+      'scanAddWholesaleBranchCounter':
+          'يرجى إضافة الفرع والعداد أولاً من Settings → Wholesale option. ما يتم تعيينه هناك فقط سيظهر هنا.',
       'faceData': 'بيانات الوجه',
       'addFaceLoginData': 'إضافة بيانات تسجيل الدخول بالوجه',
       'localWifiMode': 'وضع الواي فاي المحلي',

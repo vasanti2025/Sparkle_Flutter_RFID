@@ -739,6 +739,44 @@ class SettingsViewModel extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  Future<bool> deleteWholesaleBranch(int branchId) async {
+    final clientCode = _prefService.getEmployee()?.clientCode ?? '';
+    if (clientCode.isEmpty || branchId <= 0) return false;
+    _savingWholesale = true;
+    notifyListeners();
+    try {
+      final ok = await _apiService.deleteBranch(
+        clientCode: clientCode,
+        id: branchId,
+      );
+      if (!ok) return false;
+      await loadWholesaleMasters();
+      return true;
+    } finally {
+      _savingWholesale = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> deleteWholesaleCounter(int counterId) async {
+    final clientCode = _prefService.getEmployee()?.clientCode ?? '';
+    if (clientCode.isEmpty || counterId <= 0) return false;
+    _savingWholesale = true;
+    notifyListeners();
+    try {
+      final ok = await _apiService.deleteCounter(
+        clientCode: clientCode,
+        id: counterId,
+      );
+      if (!ok) return false;
+      await loadWholesaleMasters();
+      return true;
+    } finally {
+      _savingWholesale = false;
+      notifyListeners();
+    }
+  }
 }
 
 class FileInfo {

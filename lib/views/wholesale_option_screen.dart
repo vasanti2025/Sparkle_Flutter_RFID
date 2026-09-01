@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -17,36 +16,16 @@ class WholesaleOptionScreen extends StatefulWidget {
   State<WholesaleOptionScreen> createState() => _WholesaleOptionScreenState();
 }
 
-class _CounterEditors {
-  final idCtrl = TextEditingController();
-  final nameCtrl = TextEditingController();
-  int id = 0;
-  bool isAssignedAlready = false;
+class _CounterCheckItem {
+  final WholesaleCounter counter;
+  final bool assignedAlready;
+  bool selected;
 
-  void apply(RfidDeviceAssignment assignment, {bool assignedAlready = false}) {
-    id = assignment.counterId;
-    idCtrl.text = assignment.counterId > 0 ? '${assignment.counterId}' : '';
-    nameCtrl.text = assignment.counterName;
-    isAssignedAlready = assignedAlready;
-  }
-
-  void applyCounter(WholesaleCounter counter, {bool assignedAlready = false}) {
-    id = counter.id;
-    idCtrl.text = counter.id > 0 ? '${counter.id}' : '';
-    nameCtrl.text = counter.name;
-    isAssignedAlready = assignedAlready;
-  }
-
-  void clear() {
-    id = 0;
-    idCtrl.clear();
-    nameCtrl.clear();
-  }
-
-  void dispose() {
-    idCtrl.dispose();
-    nameCtrl.dispose();
-  }
+  _CounterCheckItem({
+    required this.counter,
+    required this.assignedAlready,
+    required this.selected,
+  });
 }
 
 class _WholesaleOptionScreenState extends State<WholesaleOptionScreen> {
@@ -54,7 +33,7 @@ class _WholesaleOptionScreenState extends State<WholesaleOptionScreen> {
   final _branchIdCtrl = TextEditingController();
   final _branchNameCtrl = TextEditingController();
   int _branchId = 0;
-  final List<_CounterEditors> _counters = [];
+  final List<_CounterCheckItem> _counters = [];
   bool _bootstrapping = true;
 
   @override
@@ -68,9 +47,6 @@ class _WholesaleOptionScreenState extends State<WholesaleOptionScreen> {
     _deviceIdCtrl.dispose();
     _branchIdCtrl.dispose();
     _branchNameCtrl.dispose();
-    for (final row in _counters) {
-      row.dispose();
-    }
     super.dispose();
   }
 
@@ -87,35 +63,25 @@ class _WholesaleOptionScreenState extends State<WholesaleOptionScreen> {
     setState(() => _bootstrapping = false);
   }
 
-  void _clearCounters() {
-    for (final row in _counters) {
-      row.dispose();
-    }
-    _counters.clear();
-  }
-
   void _applyAssignments(List<RfidDeviceAssignment> assignments) {
-    _clearCounters();
-    if (assignments.isEmpty) {
-      _counters.add(_CounterEditors());
-      return;
-    }
+    _counters.clear();
+    if (assignments.isEmpty) return;
     final first = assignments.first;
     _branchId = first.branchId;
     _branchIdCtrl.text = first.branchId > 0 ? '${first.branchId}' : '';
     _branchNameCtrl.text = first.branchName;
-    _setCountersForBranch(
+    _loadCountersForBranch(
       branchId: first.branchId,
       branchName: first.branchName,
     );
   }
 
-  void _setCountersForBranch({
+  void _loadCountersForBranch({
     required int branchId,
     required String branchName,
   }) {
     final vm = context.read<SettingsViewModel>();
-    _clearCounters();
+    _counters.clear();
 
     final assigned = vm.assignmentsForBranch(
       branchId > 0 ? branchId : null,
@@ -130,44 +96,50 @@ class _WholesaleOptionScreenState extends State<WholesaleOptionScreen> {
         if (a.counterName.trim().isNotEmpty) a.counterName.trim().toLowerCase(),
     };
 
-    // Always show GetAllCounters for this branch; mark DeviceId-assigned ones.
     final master = vm.countersForBranch(
       branchId > 0 ? branchId : null,
       branchName: branchName,
     );
+
     if (master.isNotEmpty) {
       for (final counter in master) {
         final already = assignedIds.contains(counter.id) ||
             assignedNames.contains(counter.name.trim().toLowerCase());
         _counters.add(
-          _CounterEditors()..applyCounter(counter, assignedAlready: already),
+          _CounterCheckItem(
+            counter: counter,
+            assignedAlready: already,
+            selected: already, // already assigned stay checked
+          ),
         );
       }
-      // ignore: avoid_print
-      print(
-        'Wholesale auto-fill counters: branchId=$branchId '
+      debugPrint(
+        'Wholesale checkbox counters: branchId=$branchId '
         'total=${master.length} assignedAlready=${assignedIds.length}',
       );
       return;
     }
 
-    // Fallback: only DeviceId assignments if master list empty.
-    if (assigned.isNotEmpty) {
-      for (final assignment in assigned) {
-        _counters.add(
-          _CounterEditors()..apply(assignment, assignedAlready: true),
-        );
-      }
-      return;
+    // Fallback: only DeviceId assignments.
+    for (final a in assigned) {
+      if (a.counterId <= 0 && a.counterName.trim().isEmpty) continue;
+      _counters.add(
+        _CounterCheckItem(
+          counter: WholesaleCounter(
+            id: a.counterId,
+            name: a.counterName,
+            branchId: a.branchId,
+          ),
+          assignedAlready: true,
+          selected: true,
+        ),
+      );
     }
-
-    _counters.add(_CounterEditors());
   }
 
   Future<void> _pickBranch() async {
     final s = context.sRead;
     final vm = context.read<SettingsViewModel>();
-    // Full branch master so seller can assign a new branch to this DeviceId.
     final branches = vm.wholesaleBranches;
     if (branches.isEmpty) {
       _toast(s.pleaseSelectBranch);
@@ -184,82 +156,34 @@ class _WholesaleOptionScreenState extends State<WholesaleOptionScreen> {
       _branchId = picked.id;
       _branchIdCtrl.text = picked.id > 0 ? '${picked.id}' : '';
       _branchNameCtrl.text = picked.name;
-      // Auto-fill Counter1, Counter2, ... for this branch.
-      _setCountersForBranch(branchId: picked.id, branchName: picked.name);
+      _loadCountersForBranch(branchId: picked.id, branchName: picked.name);
     });
   }
 
-  Future<void> _pickCounter(_CounterEditors row) async {
-    final s = context.sRead;
-    final vm = context.read<SettingsViewModel>();
-    final branchId = int.tryParse(_branchIdCtrl.text.trim()) ?? _branchId;
-    final branchName = _branchNameCtrl.text.trim();
-    if (branchId <= 0 && branchName.isEmpty) {
-      _toast(s.pleaseSelectBranch);
-      return;
-    }
-    final counters = vm.countersForBranch(
-      branchId > 0 ? branchId : null,
-      branchName: branchName,
-    );
-    if (counters.isEmpty) {
-      _toast(s.pleaseSelectCounter);
-      return;
-    }
-    final picked = await showScrollableOptionSheet<WholesaleCounter>(
-      context: context,
-      options: counters,
-      labelOf: (c) => c.name.isNotEmpty ? c.name : '${c.id}',
-      title: s.selectCounter,
-    );
-    if (picked == null || !mounted) return;
-    setState(() => row.applyCounter(picked));
-  }
-
-  List<RfidDeviceAssignment> _buildAssignments({
+  List<RfidDeviceAssignment> _buildSelectedAssignments({
     required int branchId,
     required String branchName,
-    required List<WholesaleCounter> counterOptions,
   }) {
-    final out = <RfidDeviceAssignment>[];
-    for (var i = 0; i < _counters.length; i++) {
-      final row = _counters[i];
-      var counterId = int.tryParse(row.idCtrl.text.trim()) ?? row.id;
-      final counterName = row.nameCtrl.text.trim();
-      if (counterId <= 0 && counterName.isNotEmpty) {
-        for (final c in counterOptions) {
-          if (c.name.trim().toLowerCase() == counterName.toLowerCase()) {
-            counterId = c.id;
-            row.id = c.id;
-            row.idCtrl.text = c.id > 0 ? '${c.id}' : '';
-            break;
-          }
-        }
-      }
-      // ignore: avoid_print
-      print(
-        'Wholesale build row[$i] branchId=$branchId '
-        'counterId=$counterId name=$counterName idCtrl=${row.idCtrl.text} row.id=${row.id}',
-      );
-      if (counterId <= 0 && counterName.isEmpty) continue;
-      out.add(
-        RfidDeviceAssignment(
-          branchId: branchId,
-          branchName: branchName,
-          counterId: counterId,
-          counterName: counterName,
-        ),
-      );
-    }
-    return out;
+    return _counters
+        .where((item) => item.selected && item.counter.id > 0)
+        .map(
+          (item) => RfidDeviceAssignment(
+            branchId: branchId,
+            branchName: branchName,
+            counterId: item.counter.id,
+            counterName: item.counter.name,
+          ),
+        )
+        .toList();
   }
 
-  Future<void> _save() async {
+  Future<void> _assign() async {
     final s = context.sRead;
     final vm = context.read<SettingsViewModel>();
     final deviceId = _deviceIdCtrl.text.trim();
     var branchId = int.tryParse(_branchIdCtrl.text.trim()) ?? _branchId;
     final branchName = _branchNameCtrl.text.trim();
+
     if (deviceId.isEmpty) {
       _toast(s.pleaseEnterDeviceId);
       return;
@@ -268,7 +192,6 @@ class _WholesaleOptionScreenState extends State<WholesaleOptionScreen> {
       _toast(s.pleaseSelectBranch);
       return;
     }
-    // Resolve BranchId from name if missing — Assign API needs BranchId > 0.
     if (branchId <= 0 && branchName.isNotEmpty) {
       for (final b in vm.wholesaleBranches) {
         if (b.name.trim().toLowerCase() == branchName.toLowerCase()) {
@@ -280,40 +203,23 @@ class _WholesaleOptionScreenState extends State<WholesaleOptionScreen> {
       }
     }
     if (branchId <= 0) {
-      // ignore: avoid_print
-      print('Wholesale _save blocked: BranchId is 0 (name=$branchName)');
       _toast(s.pleaseSelectBranch);
       return;
     }
 
-    final counterOptions = vm.countersForBranch(branchId, branchName: branchName);
-    final assignments = _buildAssignments(
+    final assignments = _buildSelectedAssignments(
       branchId: branchId,
       branchName: branchName,
-      counterOptions: counterOptions,
     );
-    // ignore: avoid_print
-    print('========== Wholesale UI SAVE ==========');
-    // ignore: avoid_print
-    print('deviceId=$deviceId branchId=$branchId branchName=$branchName');
-    // ignore: avoid_print
-    print('counterRows=${_counters.length} builtAssignments=${assignments.length}');
-    // ignore: avoid_print
-    print(
-      'assignments=${assignments.map((a) => '{b=${a.branchId},c=${a.counterId},${a.counterName}}').toList()}',
+    debugPrint('========== Wholesale UI ASSIGN (checkbox) ==========');
+    debugPrint('deviceId=$deviceId branchId=$branchId');
+    debugPrint(
+      'selected=${assignments.map((a) => a.counterId).toList()} '
+      'count=${assignments.length}',
     );
+
     if (assignments.isEmpty) {
-      _toast(s.pleaseAddAssignment);
-      return;
-    }
-    final missingIds = assignments.where((a) => a.branchId <= 0 || a.counterId <= 0).toList();
-    if (missingIds.isNotEmpty) {
-      // ignore: avoid_print
-      print(
-        'Wholesale _save blocked: ${missingIds.length} rows missing BranchId/CounterId: '
-        '${missingIds.map((a) => a.counterName).toList()}',
-      );
-      _toast('${s.pleaseAddAssignment} (Counter ID required)');
+      _toast(s.pleaseSelectCounter);
       return;
     }
 
@@ -328,7 +234,89 @@ class _WholesaleOptionScreenState extends State<WholesaleOptionScreen> {
     );
     if (!mounted) return;
     _toast(ok ? s.wholesaleSaved : s.wholesaleSaveFailed);
-    if (ok) Navigator.pop(context);
+    if (ok) {
+      // Refresh checkboxes so newly assigned show "Assigned already".
+      setState(() {
+        _loadCountersForBranch(branchId: branchId, branchName: branchName);
+      });
+    }
+  }
+
+  Future<bool> _confirmDelete({
+    required String title,
+    required String message,
+  }) async {
+    final s = context.sRead;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(s.cancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(s.delete, style: const TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    return result == true;
+  }
+
+  Future<void> _deleteBranch() async {
+    final s = context.sRead;
+    final vm = context.read<SettingsViewModel>();
+    final branchId = int.tryParse(_branchIdCtrl.text.trim()) ?? _branchId;
+    if (branchId <= 0) {
+      _toast(s.pleaseSelectBranch);
+      return;
+    }
+    final confirmed = await _confirmDelete(
+      title: s.deleteBranch,
+      message: s.confirmDeleteBranch,
+    );
+    if (!confirmed || !mounted) return;
+
+    final ok = await vm.deleteWholesaleBranch(branchId);
+    if (!mounted) return;
+    _toast(ok ? s.branchDeletedSuccessfully : s.branchDeleteFailed);
+    if (ok) {
+      setState(() {
+        _branchId = 0;
+        _branchIdCtrl.clear();
+        _branchNameCtrl.clear();
+        _counters.clear();
+      });
+    }
+  }
+
+  Future<void> _deleteCounter(_CounterCheckItem item) async {
+    final s = context.sRead;
+    final vm = context.read<SettingsViewModel>();
+    final counterId = item.counter.id;
+    if (counterId <= 0) return;
+
+    final confirmed = await _confirmDelete(
+      title: s.deleteCounter,
+      message: s.confirmDeleteCounter,
+    );
+    if (!confirmed || !mounted) return;
+
+    final ok = await vm.deleteWholesaleCounter(counterId);
+    if (!mounted) return;
+    _toast(ok ? s.counterDeletedSuccessfully : s.counterDeleteFailed);
+    if (ok) {
+      setState(() {
+        _loadCountersForBranch(
+          branchId: _branchId,
+          branchName: _branchNameCtrl.text.trim(),
+        );
+      });
+    }
   }
 
   void _toast(String message) {
@@ -341,6 +329,7 @@ class _WholesaleOptionScreenState extends State<WholesaleOptionScreen> {
     final s = locale.strings;
     final vm = context.watch<SettingsViewModel>();
     final branchName = _branchNameCtrl.text.trim();
+    final selectedCount = _counters.where((c) => c.selected).length;
 
     return Directionality(
       textDirection: locale.textDirection,
@@ -363,46 +352,80 @@ class _WholesaleOptionScreenState extends State<WholesaleOptionScreen> {
                               label: s.branch,
                               value: branchName.isNotEmpty
                                   ? branchName
-                                  : (_branchId > 0 ? '$_branchId' : s.selectBranch),
+                                  : (_branchId > 0
+                                      ? '$_branchId'
+                                      : s.selectBranch),
                               onTap: _pickBranch,
+                              onDelete: _branchId > 0 &&
+                                      !vm.savingWholesale &&
+                                      !vm.loadingWholesale
+                                  ? _deleteBranch
+                                  : null,
+                              deleteTooltip: s.deleteBranch,
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 12),
                             ProductTextField(
                               label: s.branchId,
                               controller: _branchIdCtrl,
                               keyboardType: TextInputType.number,
-                              onChanged: (value) {
-                                final id = int.tryParse(value.trim()) ?? 0;
-                                setState(() {
-                                  _branchId = id;
-                                  _setCountersForBranch(
-                                    branchId: id,
-                                    branchName: _branchNameCtrl.text.trim(),
-                                  );
-                                });
-                              },
+                              readOnly: true,
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 12),
                             ProductTextField(
                               label: s.branchName,
                               controller: _branchNameCtrl,
+                              readOnly: true,
                             ),
                             const SizedBox(height: 16),
-                            ...List.generate(_counters.length, (index) {
-                              final row = _counters[index];
-                              final branchId =
-                                  int.tryParse(_branchIdCtrl.text.trim()) ?? _branchId;
-                              return _CounterCard(
-                                index: index,
-                                row: row,
-                                counterOptions: vm.countersForBranch(
-                                  branchId > 0 ? branchId : null,
-                                  branchName: branchName,
-                                ),
-                                onPickCounter: () => _pickCounter(row),
-                              );
-                            }),
+                            Text(
+                              s.counter,
+                              style: GoogleFonts.poppins(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              selectedCount > 0
+                                  ? '$selectedCount selected'
+                                  : s.selectCounter,
+                              style: GoogleFonts.poppins(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
                             const SizedBox(height: 8),
+                            if (_counters.isEmpty)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 24),
+                                child: Text(
+                                  _branchId > 0 || branchName.isNotEmpty
+                                      ? 'No counters for this branch'
+                                      : s.pleaseSelectBranch,
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 13,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              )
+                            else
+                              ...List.generate(_counters.length, (index) {
+                                final item = _counters[index];
+                                return _CounterCheckboxTile(
+                                  item: item,
+                                  onChanged: (checked) {
+                                    setState(
+                                      () => item.selected = checked ?? false,
+                                    );
+                                  },
+                                  onDelete: vm.savingWholesale ||
+                                          vm.loadingWholesale
+                                      ? null
+                                      : () => _deleteCounter(item),
+                                );
+                              }),
+                            const SizedBox(height: 12),
                             ProductTextField(
                               label: s.deviceId,
                               controller: _deviceIdCtrl,
@@ -413,7 +436,10 @@ class _WholesaleOptionScreenState extends State<WholesaleOptionScreen> {
                       ),
                       productGradientButton(
                         label: vm.savingWholesale ? s.loadingEllipsis : s.assign,
-                        onPressed: vm.savingWholesale || vm.loadingWholesale ? null : _save,
+                        onPressed:
+                            vm.savingWholesale || vm.loadingWholesale
+                                ? null
+                                : _assign,
                       ),
                     ],
                   ),
@@ -428,11 +454,15 @@ class _PickerField extends StatelessWidget {
   final String label;
   final String value;
   final VoidCallback onTap;
+  final VoidCallback? onDelete;
+  final String? deleteTooltip;
 
   const _PickerField({
     required this.label,
     required this.value,
     required this.onTap,
+    this.onDelete,
+    this.deleteTooltip,
   });
 
   @override
@@ -457,7 +487,26 @@ class _PickerField extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
                 borderSide: BorderSide(color: Colors.grey.shade400),
               ),
-              suffixIcon: const Icon(Icons.arrow_drop_down, color: Colors.grey),
+              suffixIcon: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (onDelete != null)
+                    IconButton(
+                      tooltip: deleteTooltip,
+                      onPressed: onDelete,
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                      icon: const Icon(Icons.delete_outline, color: Colors.red, size: 22),
+                    ),
+                  const Icon(Icons.arrow_drop_down, color: Colors.grey),
+                  const SizedBox(width: 4),
+                ],
+              ),
+              suffixIconConstraints: BoxConstraints(
+                minWidth: onDelete != null ? 72 : 40,
+                minHeight: 40,
+              ),
             ),
             child: Text(value, style: GoogleFonts.poppins(fontSize: 13)),
           ),
@@ -467,151 +516,75 @@ class _PickerField extends StatelessWidget {
   }
 }
 
-class _CounterCard extends StatelessWidget {
-  final int index;
-  final _CounterEditors row;
-  final List<WholesaleCounter> counterOptions;
-  final VoidCallback onPickCounter;
+class _CounterCheckboxTile extends StatelessWidget {
+  final _CounterCheckItem item;
+  final ValueChanged<bool?> onChanged;
+  final VoidCallback? onDelete;
 
-  const _CounterCard({
-    required this.index,
-    required this.row,
-    required this.counterOptions,
-    required this.onPickCounter,
+  const _CounterCheckboxTile({
+    required this.item,
+    required this.onChanged,
+    this.onDelete,
   });
 
   @override
   Widget build(BuildContext context) {
     final s = context.s;
+    final counter = item.counter;
+    final title = counter.name.isNotEmpty ? counter.name : '${counter.id}';
+    final subtitle = counter.id > 0 ? 'ID: ${counter.id}' : null;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 14),
+      margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F7F7),
+        color: item.selected ? const Color(0xFFF3EEFF) : const Color(0xFFF7F7F7),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: row.isAssignedAlready ? const Color(0xFF5231A7) : const Color(0xFFE8E8E8),
+          color: item.assignedAlready || item.selected
+              ? const Color(0xFF5231A7)
+              : const Color(0xFFE8E8E8),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '${s.counter} ${index + 1}',
-                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13),
+      child: CheckboxListTile(
+        value: item.selected,
+        onChanged: onChanged,
+        controlAffinity: ListTileControlAffinity.leading,
+        activeColor: const Color(0xFF5231A7),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        secondary: IconButton(
+          tooltip: s.deleteCounter,
+          onPressed: onDelete,
+          icon: Icon(
+            Icons.delete_outline,
+            color: onDelete == null ? Colors.grey : Colors.red,
+          ),
+        ),
+        title: Text(
+          title,
+          style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (subtitle != null)
+              Text(
+                subtitle,
+                style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade700),
+              ),
+            if (item.assignedAlready) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Assigned already',
+                style: GoogleFonts.poppins(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF5231A7),
                 ),
               ),
-              if (row.isAssignedAlready)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF5231A7).withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    'Assigned already',
-                    style: GoogleFonts.poppins(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFF5231A7),
-                    ),
-                  ),
-                ),
             ],
-          ),
-          const SizedBox(height: 8),
-          _EditableCounterField(
-            label: s.counter,
-            hint: s.selectCounter,
-            controller: row.nameCtrl,
-            onOpenList: onPickCounter,
-            onChanged: (value) {
-              // Keep name editable. If typed name matches a known counter, fill its Id.
-              WholesaleCounter? match;
-              final q = value.trim().toLowerCase();
-              for (final c in counterOptions) {
-                if (c.name.trim().toLowerCase() == q) {
-                  match = c;
-                  break;
-                }
-              }
-              if (match != null) {
-                row.id = match.id;
-                row.idCtrl.text = match.id > 0 ? '${match.id}' : '';
-              }
-            },
-          ),
-          const SizedBox(height: 12),
-          ProductTextField(
-            label: s.counterId,
-            controller: row.idCtrl,
-            keyboardType: TextInputType.number,
-            onChanged: (value) {
-              row.id = int.tryParse(value.trim()) ?? 0;
-            },
-          ),
-          const SizedBox(height: 12),
-          ProductTextField(
-            label: s.counterName,
-            controller: row.nameCtrl,
-          ),
-        ],
+          ],
+        ),
       ),
-    );
-  }
-}
-
-/// Editable counter name field + dropdown button to pick from list.
-class _EditableCounterField extends StatelessWidget {
-  final String label;
-  final String hint;
-  final TextEditingController controller;
-  final VoidCallback onOpenList;
-  final ValueChanged<String> onChanged;
-
-  const _EditableCounterField({
-    required this.label,
-    required this.hint,
-    required this.controller,
-    required this.onOpenList,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87),
-        ),
-        const SizedBox(height: 4),
-        TextField(
-          controller: controller,
-          style: GoogleFonts.poppins(fontSize: 13),
-          onChanged: onChanged,
-          decoration: InputDecoration(
-            isDense: true,
-            hintText: hint,
-            hintStyle: GoogleFonts.poppins(fontSize: 13, color: Colors.grey),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: Colors.grey.shade400),
-            ),
-            suffixIcon: IconButton(
-              icon: const Icon(Icons.arrow_drop_down, color: Colors.grey),
-              onPressed: onOpenList,
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

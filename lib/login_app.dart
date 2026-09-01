@@ -237,10 +237,12 @@ class _HoldSplash extends StatelessWidget {
     return const ColoredBox(
       color: Colors.white,
       child: Center(
-        child: Image(
-          image: AssetImage('assets/branding/sparkle_logo.png'),
-          width: 180,
-          fit: BoxFit.contain,
+        child: FractionallySizedBox(
+          widthFactor: 0.5,
+          child: Image(
+            image: AssetImage('assets/branding/splash_logo.png'),
+            fit: BoxFit.contain,
+          ),
         ),
       ),
     );

@@ -1376,6 +1376,53 @@ class ApiService {
     }
   }
 
+  /// POST api/ClientOnboarding/DeleteBranchMaster — body: ClientCode + Id.
+  /// Swagger UI label is "Delete Branch"; actual route is DeleteBranchMaster.
+  Future<bool> deleteBranch({
+    required String clientCode,
+    required int id,
+  }) async {
+    if (clientCode.trim().isEmpty || id <= 0) return false;
+    try {
+      final payload = {'ClientCode': clientCode, 'Id': id};
+      debugPrint('========== DeleteBranchMaster REQUEST ==========');
+      debugPrint(jsonEncode(payload));
+      final response = await _dio.post(
+        'api/ClientOnboarding/DeleteBranchMaster',
+        data: payload,
+      );
+      debugPrint('========== DeleteBranchMaster RESPONSE ==========');
+      debugPrint('status=${response.statusCode} data=${response.data}');
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('Error deleteBranch: $e');
+      return false;
+    }
+  }
+
+  /// POST api/ClientOnboarding/DeleteCounter — body: ClientCode + Id.
+  Future<bool> deleteCounter({
+    required String clientCode,
+    required int id,
+  }) async {
+    if (clientCode.trim().isEmpty || id <= 0) return false;
+    try {
+      final payload = {'ClientCode': clientCode, 'Id': id};
+      debugPrint('========== DeleteCounter REQUEST ==========');
+      debugPrint(jsonEncode(payload));
+      final response = await _dio.post(
+        'api/ClientOnboarding/DeleteCounter',
+        data: payload,
+      );
+      debugPrint('========== DeleteCounter RESPONSE ==========');
+      debugPrint('status=${response.statusCode} data=${response.data}');
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('Error deleteCounter: $e');
+      return false;
+    }
+  }
+
   Object _deviceIdPayload(Object deviceId) {
     if (deviceId is int) return deviceId;
     final text = deviceId.toString().trim();
