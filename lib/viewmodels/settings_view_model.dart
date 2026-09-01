@@ -432,13 +432,42 @@ class SettingsViewModel extends ChangeNotifier {
     return assignment.branchId == branchId;
   }
 
-  /// Scan Display: only branches for matching DeviceId.
-  List<WholesaleBranch> get scanPopupBranches => assignedBranchesForDevice;
+  /// Last branch chosen in Wholesale option (Assign) — Scan popup uses only this.
+  int get lastSelectedWholesaleBranchId => _prefService.getWholesaleBranchId();
+  String get lastSelectedWholesaleBranchName =>
+      _prefService.getWholesaleBranchName();
 
-  /// Scan Display: only counters for that branch on matching DeviceId.
+  /// Scan Display: only the last Wholesale-selected branch (not every device branch).
+  List<WholesaleBranch> get scanPopupBranches {
+    final lastId = lastSelectedWholesaleBranchId;
+    final lastName = lastSelectedWholesaleBranchName.trim();
+    final all = assignedBranchesForDevice;
+    if (all.isEmpty) return const [];
+    if (lastId > 0 || lastName.isNotEmpty) {
+      final matched = all.where((b) {
+        if (lastId > 0 && b.id == lastId) return true;
+        if (lastName.isNotEmpty &&
+            b.name.trim().toLowerCase() == lastName.toLowerCase()) {
+          return true;
+        }
+        return false;
+      }).toList();
+      if (matched.isNotEmpty) return matched;
+    }
+    // Fallback: if prefs missing, show at most the first assigned branch.
+    return all.take(1).toList();
+  }
+
+  /// Scan Display: only counters assigned for that last-selected branch.
   List<WholesaleCounter> scanPopupCountersFor(int? branchId, {String branchName = ''}) {
     if (_stableDeviceId.isEmpty) return const [];
-    return assignedCountersForBranch(branchId, branchName: branchName);
+    final bid = (branchId != null && branchId > 0)
+        ? branchId
+        : lastSelectedWholesaleBranchId;
+    final bname = branchName.trim().isNotEmpty
+        ? branchName
+        : lastSelectedWholesaleBranchName;
+    return assignedCountersForBranch(bid > 0 ? bid : null, branchName: bname);
   }
 
   Future<String> ensureDeviceId() async {
@@ -686,25 +715,15 @@ class SettingsViewModel extends ChangeNotifier {
         await _loadDeviceAndAssignments(clientCode, stableId);
       }
 
-      // Keep other branches for this DeviceId; replace only the edited branch rows.
-      final editedBranchId = rows.first.branchId;
-      final editedBranchName = rows.first.branchName.trim().toLowerCase();
-      final others = _wholesaleAssignments.where((a) {
-        if (editedBranchId > 0 && a.branchId > 0) {
-          return a.branchId != editedBranchId;
-        }
-        return a.branchName.trim().toLowerCase() != editedBranchName;
-      }).toList();
-      final merged = _uniqueAssignments([...others, ...rows]);
-
-      // Send ALL branches/counters for this DeviceCode so none are dropped.
-      // Swagger: { BranchId: 1, CounterId: [3,4,5] } with ReplaceAll true.
+      // Only THIS branch + selected counters — last Assign wins for Scan Display.
+      // replaceAll:true clears any previously assigned branches on this DeviceCode.
+      final onlySelected = _uniqueAssignments(rows);
       // ignore: avoid_print
       print(
         'Wholesale SAVE calling Assign DeviceCode=$stableId '
-        'rows=${rows.length} merged=${merged.length} replaceAll=true',
+        'rows=${onlySelected.length} replaceAll=true (last branch only)',
       );
-      for (final r in merged) {
+      for (final r in onlySelected) {
         // ignore: avoid_print
         print('  -> BranchId=${r.branchId} CounterId=${r.counterId} (${r.counterName})');
       }
@@ -714,23 +733,23 @@ class SettingsViewModel extends ChangeNotifier {
         deviceCode: stableId,
         deviceId: stableId,
         replaceAll: true,
-        assignments: merged,
+        assignments: onlySelected,
       );
       // ignore: avoid_print
       print('Wholesale SAVE Assign result=$ok');
       if (!ok) return false;
 
-      final first = rows.first;
+      final first = onlySelected.first;
       await _prefService.saveWholesaleOption(
         branchId: first.branchId,
         branchName: first.branchName,
         counterId: first.counterId,
         counterName: first.counterName,
         deviceId: stableId,
-        assignments: merged,
+        assignments: onlySelected,
       );
 
-      // Reload GetRFID for this DeviceId so Scan/Wholesale see all counters.
+      // Fresh GetRFIDDeviceAssignments for this DeviceCode.
       await _loadDeviceAndAssignments(clientCode, stableId);
       notifyListeners();
       return true;
@@ -751,6 +770,41 @@ class SettingsViewModel extends ChangeNotifier {
         id: branchId,
       );
       if (!ok) return false;
+
+      // Drop deleted branch from device assignments + prefs, then re-Assign.
+      final remaining = _wholesaleAssignments
+          .where((a) => a.branchId != branchId)
+          .toList();
+      final stableId = await ensureDeviceId();
+      await _apiService.assignRFIDDeviceToBranchCounter(
+        clientCode: clientCode,
+        deviceCode: stableId,
+        deviceId: stableId,
+        replaceAll: true,
+        assignments: remaining,
+      );
+      if (remaining.isEmpty) {
+        await _prefService.saveWholesaleOption(
+          branchId: 0,
+          branchName: '',
+          counterId: 0,
+          counterName: '',
+          deviceId: stableId,
+          assignments: const [],
+        );
+      } else {
+        final first = remaining.first;
+        await _prefService.saveWholesaleOption(
+          branchId: first.branchId,
+          branchName: first.branchName,
+          counterId: first.counterId,
+          counterName: first.counterName,
+          deviceId: stableId,
+          assignments: remaining,
+        );
+      }
+
+      // Fresh Get: branches, counters, and device assignments.
       await loadWholesaleMasters();
       return true;
     } finally {
@@ -770,6 +824,40 @@ class SettingsViewModel extends ChangeNotifier {
         id: counterId,
       );
       if (!ok) return false;
+
+      final remaining = _wholesaleAssignments
+          .where((a) => a.counterId != counterId)
+          .toList();
+      final stableId = await ensureDeviceId();
+      await _apiService.assignRFIDDeviceToBranchCounter(
+        clientCode: clientCode,
+        deviceCode: stableId,
+        deviceId: stableId,
+        replaceAll: true,
+        assignments: remaining,
+      );
+      if (remaining.isEmpty) {
+        await _prefService.saveWholesaleOption(
+          branchId: 0,
+          branchName: '',
+          counterId: 0,
+          counterName: '',
+          deviceId: stableId,
+          assignments: const [],
+        );
+      } else {
+        final first = remaining.first;
+        await _prefService.saveWholesaleOption(
+          branchId: first.branchId,
+          branchName: first.branchName,
+          counterId: first.counterId,
+          counterName: first.counterName,
+          deviceId: stableId,
+          assignments: remaining,
+        );
+      }
+
+      // Fresh Get after counter delete.
       await loadWholesaleMasters();
       return true;
     } finally {

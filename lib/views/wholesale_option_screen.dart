@@ -285,11 +285,13 @@ class _WholesaleOptionScreenState extends State<WholesaleOptionScreen> {
     if (!mounted) return;
     _toast(ok ? s.branchDeletedSuccessfully : s.branchDeleteFailed);
     if (ok) {
+      // Get APIs already refreshed in VM — clear / re-apply from fresh data.
       setState(() {
         _branchId = 0;
         _branchIdCtrl.clear();
         _branchNameCtrl.clear();
         _counters.clear();
+        _applyAssignments(vm.wholesaleAssignments);
       });
     }
   }
@@ -310,11 +312,16 @@ class _WholesaleOptionScreenState extends State<WholesaleOptionScreen> {
     if (!mounted) return;
     _toast(ok ? s.counterDeletedSuccessfully : s.counterDeleteFailed);
     if (ok) {
+      // Fresh Get already ran — reload checkboxes for current branch.
       setState(() {
-        _loadCountersForBranch(
-          branchId: _branchId,
-          branchName: _branchNameCtrl.text.trim(),
-        );
+        if (_branchId > 0 || _branchNameCtrl.text.trim().isNotEmpty) {
+          _loadCountersForBranch(
+            branchId: _branchId,
+            branchName: _branchNameCtrl.text.trim(),
+          );
+        } else {
+          _applyAssignments(vm.wholesaleAssignments);
+        }
       });
     }
   }

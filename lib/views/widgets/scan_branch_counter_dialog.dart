@@ -52,6 +52,7 @@ class _ScanBranchCounterDialogState extends State<_ScanBranchCounterDialog> {
     await vm.loadWholesaleMasters();
     if (!mounted) return;
 
+    // Only last Wholesale-selected branch (+ its assigned counters).
     final branches = vm.scanPopupBranches;
     if (!vm.hasDeviceAssignments || branches.isEmpty) {
       setState(() {
@@ -62,8 +63,9 @@ class _ScanBranchCounterDialogState extends State<_ScanBranchCounterDialog> {
     }
 
     final initial = widget.initial;
-    WholesaleBranch? branch;
-    if (initial != null) {
+    // Prefer the single last-selected branch from Wholesale Assign.
+    WholesaleBranch? branch = branches.length == 1 ? branches.first : null;
+    if (branch == null && initial != null) {
       for (final b in branches) {
         final idMatch = initial.branchId > 0 && b.id == initial.branchId;
         final nameMatch = initial.branchName.isNotEmpty &&
@@ -74,26 +76,22 @@ class _ScanBranchCounterDialogState extends State<_ScanBranchCounterDialog> {
         }
       }
     }
-    if (branch == null && branches.length == 1) {
-      branch = branches.first;
-    }
+    branch ??= branches.first;
 
     WholesaleCounter? counter;
-    if (branch != null) {
-      final counters = vm.scanPopupCountersFor(branch.id, branchName: branch.name);
-      if (initial != null) {
-        for (final c in counters) {
-          if ((initial.counterId > 0 && c.id == initial.counterId) ||
-              (initial.counterName.isNotEmpty &&
-                  c.name.toLowerCase() == initial.counterName.toLowerCase())) {
-            counter = c;
-            break;
-          }
+    final counters = vm.scanPopupCountersFor(branch.id, branchName: branch.name);
+    if (initial != null) {
+      for (final c in counters) {
+        if ((initial.counterId > 0 && c.id == initial.counterId) ||
+            (initial.counterName.isNotEmpty &&
+                c.name.toLowerCase() == initial.counterName.toLowerCase())) {
+          counter = c;
+          break;
         }
       }
-      if (counter == null && counters.length == 1) {
-        counter = counters.first;
-      }
+    }
+    if (counter == null && counters.length == 1) {
+      counter = counters.first;
     }
 
     setState(() {
