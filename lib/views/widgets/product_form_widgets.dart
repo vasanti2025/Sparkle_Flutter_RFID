@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../l10n/l10n_extension.dart';
@@ -13,7 +15,7 @@ const actionGradient = LinearGradient(
   colors: [Color(0xFF3053F0), Color(0xFFE82E5A)],
 );
 
-/// Matches Kotlin [FilterDropdown] — gradient stroke, compact height, transparent fill.
+/// Matches Kotlin [FilterDropdown] — gradient stroke, compact height, popup under the field.
 class FilterDropdown extends StatelessWidget {
   final String label;
   final List<String> options;
@@ -30,8 +32,24 @@ class FilterDropdown extends StatelessWidget {
     required this.onAdd,
   });
 
+  static const _addValue = '__ADD_NEW__';
+
+  List<String> get _uniqueOptions {
+    final seen = <String>{};
+    final unique = <String>[];
+    for (final option in options) {
+      final name = option.trim();
+      if (name.isEmpty || name == _addValue) continue;
+      if (seen.add(name)) unique.add(name);
+    }
+    return unique;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final unique = _uniqueOptions;
+    final display = selected.isNotEmpty ? selected : label;
+
     return Container(
       height: 40,
       decoration: BoxDecoration(
@@ -39,46 +57,78 @@ class FilterDropdown extends StatelessWidget {
         borderRadius: BorderRadius.circular(6),
       ),
       padding: const EdgeInsets.all(1),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(5),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: DropdownButtonHideUnderline(
-          child: DropdownButton<String>(
-            isExpanded: true,
-            menuMaxHeight: kDropdownMenuMaxHeight,
-            value: selected.isEmpty ? null : selected,
-            hint: Text(
-              label,
-              style: GoogleFonts.poppins(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500),
-              overflow: TextOverflow.ellipsis,
-            ),
-            icon: Icon(Icons.arrow_drop_down, color: Colors.grey[400], size: 20),
-            items: [
-              ...options.map(
-                (o) => DropdownMenuItem(
-                  value: o,
-                  child: Text(o, style: GoogleFonts.poppins(fontSize: 12), overflow: TextOverflow.ellipsis),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(5),
+        clipBehavior: Clip.antiAlias,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return PopupMenuButton<String>(
+              tooltip: label,
+              padding: EdgeInsets.zero,
+              offset: const Offset(0, 4),
+              position: PopupMenuPosition.under,
+              constraints: BoxConstraints(
+                minWidth: constraints.maxWidth,
+                maxWidth: math.max(constraints.maxWidth, 180),
+                maxHeight: kDropdownMenuMaxHeight,
+              ),
+              onSelected: (value) {
+                if (value == _addValue) {
+                  onAdd();
+                } else {
+                  onSelected(value);
+                }
+              },
+              itemBuilder: (ctx) => [
+                PopupMenuItem<String>(
+                  value: _addValue,
+                  height: 40,
+                  child: Text(
+                    '➕ Add New',
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF3053F0),
+                    ),
+                  ),
+                ),
+                if (unique.isNotEmpty) const PopupMenuDivider(),
+                for (final option in unique)
+                  PopupMenuItem<String>(
+                    value: option,
+                    height: 40,
+                    child: Text(
+                      option,
+                      style: GoogleFonts.poppins(
+                        fontSize: 12,
+                        fontWeight: option == selected ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        display,
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          color: Colors.black87,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Icon(Icons.arrow_drop_down, color: Colors.grey[400], size: 20),
+                  ],
                 ),
               ),
-              DropdownMenuItem(
-                value: 'ADD_NEW',
-                child: Text(
-                  '➕ Add New',
-                  style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.bold, color: const Color(0xFF3053F0)),
-                ),
-              ),
-            ],
-            onChanged: (v) {
-              if (v == 'ADD_NEW') {
-                onAdd();
-              } else if (v != null) {
-                onSelected(v);
-              }
-            },
-          ),
+            );
+          },
         ),
       ),
     );

@@ -59,6 +59,11 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
             r.setTagFocus(false)
             r.setFastID(false)
             r.setDynamicDistance(0)
+            // Pushpa Searchfragment / Inventoryfragment: EPC-only inventory.
+            try {
+                r.setEPCMode()
+            } catch (_: Throwable) {
+            }
             true
         } catch (_: Throwable) {
             false

@@ -49,6 +49,9 @@ class HardwareControllerImpl(
     private var lastSearchSoundId = -1
     private var lastSearchSoundPlayAt = 0L
     private val searchSoundMinIntervalMs = 15L
+    /** Ignore brief weaker RSSI so close tone does not flip to far for ~1s. */
+    private var lastCloseSearchSoundAt = 0L
+    private val holdCloseSearchMs = 1800L
 
     /** Sparkle SearchViewModel continuous tag LED blink (Bank_RESERVED read). */
     @Volatile private var blinkEpc: String? = null
@@ -56,6 +59,7 @@ class HardwareControllerImpl(
     private val blinkLedVisibleMs = 50L
     private val blinkCyclePauseMs = 200L
     private val blinkLock = Any()
+    private var lastCloseLedAt = 0L
 
     private var searchTags = HashSet<String>()
     private var matchEpcs = HashSet<String>()
@@ -69,12 +73,39 @@ class HardwareControllerImpl(
     private val recentEmitAt = HashMap<String, Long>()
     private val recentEmitProx = HashMap<String, Int>()
     private val emitDedupMs = 250L
-    /** Search proximity needs fresher RSSI than generic product-scan dedup. */
-    private val searchEmitDedupMs = 80L
+    /** Search proximity needs fresher RSSI than generic product-scan dedup. Pushpa has none. */
+    private val searchEmitDedupMs = 20L
     private val tagFlushDelayMs = 50L
 
     private fun normalizeScanKey(raw: String): String =
         raw.trim().uppercase().replace(Regex("\\s+"), "")
+
+    /** Pushpa Inventoryfragment: strip leading then trailing "00" on reader EPC. */
+    private fun stripScanKey00(key: String): String {
+        var t = key
+        if (t.length > 2 && t.startsWith("00")) {
+            t = t.substring(2)
+        }
+        if (t.length > 2 && t.endsWith("00")) {
+            t = t.substring(0, t.length - 2)
+        }
+        return t
+    }
+
+    private fun addSearchKey(raw: String) {
+        val key = normalizeScanKey(raw)
+        if (key.isEmpty()) return
+        searchTags.add(key)
+        val stripped = stripScanKey00(key)
+        if (stripped.isNotEmpty()) searchTags.add(stripped)
+    }
+
+    private fun matchesSearchTag(cleanEpc: String): Boolean {
+        if (searchTags.isEmpty()) return false
+        if (searchTags.contains(cleanEpc)) return true
+        val stripped = stripScanKey00(cleanEpc)
+        return stripped.isNotEmpty() && searchTags.contains(stripped)
+    }
 
     private var inventoryMediaPlayer: MediaPlayer? = null
     private val sessionUniqueEpcs = HashSet<String>()
@@ -179,12 +210,12 @@ class HardwareControllerImpl(
                 val tags = call.argument<List<String>>("tags") ?: emptyList()
                 searchTags.clear()
                 matchEpcs.clear()
-                searchTags.addAll(tags.map { normalizeScanKey(it) }.filter { it.isNotEmpty() })
+                for (tag in tags) addSearchKey(tag)
                 result.success(true)
             }
             "addSearchTags" -> {
                 val tags = call.argument<List<String>>("tags") ?: emptyList()
-                searchTags.addAll(tags.map { normalizeScanKey(it) }.filter { it.isNotEmpty() })
+                for (tag in tags) addSearchKey(tag)
                 result.success(true)
             }
             "setMatchEpcs" -> {
@@ -767,6 +798,8 @@ class HardwareControllerImpl(
         sessionUniqueEpcs.clear()
         stopAllSounds()
         lastSearchSoundId = -1
+        lastCloseSearchSoundAt = 0L
+        lastCloseLedAt = 0L
         stopInventoryLoopSound()
 
         isScanning = false
@@ -861,7 +894,7 @@ class HardwareControllerImpl(
 
     private fun handleTagRead(cleanEpc: String, rssi: String, inventory: Boolean) {
         // Sparkle SearchViewModel: RSSI proximity tones + tag LED on every matched buffer read.
-        if (!inventory && searchTags.isNotEmpty() && searchTags.contains(cleanEpc)) {
+        if (!inventory && matchesSearchTag(cleanEpc)) {
             playRssiSearchSound(rssi)
             updateSearchLedBlink(cleanEpc, rssi)
         }
@@ -879,10 +912,11 @@ class HardwareControllerImpl(
     private fun updateSearchLedBlink(cleanEpc: String, rssi: String) {
         if (trayModeEnabled || r6ModeEnabled) return
         val proximity = rssiToProximityPercent(rssi)
-        // Blink only when very close — otherwise LED cycle stops inventory and stalls RSSI updates.
+        val now = System.currentTimeMillis()
         if (proximity >= 70) {
+            lastCloseLedAt = now
             startContinuousBlink(cleanEpc)
-        } else if (blinkEpc == cleanEpc) {
+        } else if (blinkEpc == cleanEpc && now - lastCloseLedAt > holdCloseSearchMs) {
             stopBlinkingEpc()
         }
     }
@@ -923,8 +957,11 @@ class HardwareControllerImpl(
                         uhfFacade?.readReservedBankForLed(target)
                         Thread.sleep(blinkLedVisibleMs)
                         if (!isScanning || blinkEpc != target) break
-                        uhfFacade?.prepareScan(power)
-                        uhfFacade?.startInventory()
+                        var started = uhfFacade?.startInventory() ?: false
+                        if (!started) {
+                            uhfFacade?.prepareScan(power)
+                            started = uhfFacade?.startInventory() ?: false
+                        }
                     } catch (e: InterruptedException) {
                         break
                     } catch (e: Exception) {
@@ -964,13 +1001,13 @@ class HardwareControllerImpl(
                 if (matchEpcs.isNotEmpty() && !matchEpcs.contains(cleanEpc)) return false
             } else {
                 when {
-                    searchTags.isNotEmpty() -> if (!searchTags.contains(cleanEpc)) return false
+                    searchTags.isNotEmpty() -> if (!matchesSearchTag(cleanEpc)) return false
                     matchEpcs.isNotEmpty() -> if (!matchEpcs.contains(cleanEpc)) return false
                 }
             }
         }
         val now = System.currentTimeMillis()
-        val isSearchTag = searchTags.isNotEmpty() && searchTags.contains(cleanEpc)
+        val isSearchTag = matchesSearchTag(cleanEpc)
         synchronized(recentEmitAt) {
             val last = recentEmitAt[cleanEpc] ?: 0L
             if (isSearchTag && rssi.isNotBlank()) {
@@ -999,7 +1036,14 @@ class HardwareControllerImpl(
     private fun queueTagEvent(cleanEpc: String, rssi: String) {
         synchronized(pendingTagLock) {
             // Cap batch size so unmatched floods cannot blow the Flutter event binder.
-            if (pendingTagEvents.size >= 300) return
+            // Never drop a matched search tag — Pushpa HashMap never misses a hit.
+            if (pendingTagEvents.size >= 300) {
+                if (matchesSearchTag(cleanEpc)) {
+                    pendingTagEvents.removeAt(0)
+                } else {
+                    return
+                }
+            }
             pendingTagEvents.add("$cleanEpc,$rssi")
             if (!tagFlushScheduled) {
                 tagFlushScheduled = true
@@ -1130,6 +1174,8 @@ class HardwareControllerImpl(
     /**
      * Sparkle SearchViewModel RSSI → sound id buckets:
      * abs(rssi) <50 → fourty(4), <60 → sixty(2), <70 → found2(5), else barcodebeep(1).
+     * Keep the close tone while the gun stays on the tag; only move to a farther
+     * tone after weaker RSSI lasts past [holdCloseSearchMs] (or a closer tone).
      */
     private fun playRssiSearchSound(rssi: String) {
         val rssiAbs = try {
@@ -1137,7 +1183,7 @@ class HardwareControllerImpl(
         } catch (_: Exception) {
             0.0
         }
-        val id = when {
+        var id = when {
             rssiAbs > 0 && rssiAbs < 50 -> 4
             rssiAbs > 50 && rssiAbs < 60 -> 2
             rssiAbs > 60 && rssiAbs < 70 -> 5
@@ -1146,14 +1192,31 @@ class HardwareControllerImpl(
         }
         if (id == -1) return
         val now = System.currentTimeMillis()
-        if (id != lastSearchSoundId || now - lastSearchSoundPlayAt >= searchSoundMinIntervalMs) {
-            lastSearchSoundPlayAt = now
-            if (lastSearchSoundId > 0) {
-                stopSound(lastSearchSoundId)
-            }
-            lastSearchSoundId = id
-            playSound(id, 0)
+        val closer = lastSearchSoundId <= 0 || searchSoundRank(id) < searchSoundRank(lastSearchSoundId)
+        if (searchSoundRank(id) <= 1) {
+            lastCloseSearchSoundAt = now
         }
+        if (!closer && now - lastCloseSearchSoundAt < holdCloseSearchMs && lastSearchSoundId > 0) {
+            id = lastSearchSoundId
+        }
+        if (id == lastSearchSoundId && now - lastSearchSoundPlayAt < searchSoundMinIntervalMs) {
+            return
+        }
+        lastSearchSoundPlayAt = now
+        if (lastSearchSoundId > 0 && lastSearchSoundId != id) {
+            stopSound(lastSearchSoundId)
+        }
+        lastSearchSoundId = id
+        playSound(id, 0)
+    }
+
+    /** 0 = closest (fourty), 3 = farthest (barcodebeep). */
+    private fun searchSoundRank(id: Int): Int = when (id) {
+        4 -> 0
+        2 -> 1
+        5 -> 2
+        1 -> 3
+        else -> 4
     }
 
     companion object {

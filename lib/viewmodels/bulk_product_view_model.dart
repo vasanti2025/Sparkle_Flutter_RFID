@@ -53,12 +53,16 @@ class BulkProductViewModel extends ChangeNotifier {
 
   Future<void> loadDropdowns({bool force = false}) async {
     if (_dropdownsLoaded && !force) return;
-    final data = await _dbService.getLocalDropdownData();
-    _categories = data.categories;
-    _products = data.products;
-    _designs = data.designs;
-    _dropdownsLoaded = true;
-    notifyListeners();
+    try {
+      final data = await _dbService.getLocalDropdownData();
+      _categories = data.categories;
+      _products = data.products;
+      _designs = data.designs;
+      _dropdownsLoaded = true;
+      notifyListeners();
+    } catch (e, st) {
+      debugPrint('loadDropdowns failed: $e\n$st');
+    }
   }
 
   Future<void> addLocalCategory(String name) async {

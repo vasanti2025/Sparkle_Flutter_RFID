@@ -583,7 +583,10 @@ class RfidService {
       for (var attempt = 0; attempt < 4; attempt++) {
         if (attempt > 0) {
           await Future<void>.delayed(Duration(milliseconds: 120 * attempt));
-          if (searchTags != null && searchTags.isNotEmpty) {
+          // Large unmatched lists are already on native; re-sending stalls start.
+          if (searchTags != null &&
+              searchTags.isNotEmpty &&
+              searchTags.length <= 2000) {
             await setSearchTags(searchTags);
           }
           await prepareForScan();
