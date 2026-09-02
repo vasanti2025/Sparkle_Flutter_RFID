@@ -549,6 +549,15 @@ class AppStrings {
   String get mainFields => _t('mainFields');
   String get selectSheetFields => _t('selectSheetFields');
   String get mapColumn => _t('mapColumn');
+  String get selectMappingTemplate => _t('selectMappingTemplate');
+  String get selectMappingTemplateHint => _t('selectMappingTemplateHint');
+  String get saveCurrentMappingAsTemplate => _t('saveCurrentMappingAsTemplate');
+  String get enterTemplateName => _t('enterTemplateName');
+  String get templateSaved => _t('templateSaved');
+  String get enterTemplateNameFirst => _t('enterTemplateNameFirst');
+  String get mapColumnsToSaveTemplate => _t('mapColumnsToSaveTemplate');
+  String get noMatchingColumnsInFile => _t('noMatchingColumnsInFile');
+  String get templateApplied => _t('templateApplied');
   String get import => _t('import');
   String get item => _t('item');
   String get tapTo => _t('tapTo');
@@ -954,6 +963,15 @@ class AppStrings {
       'mainFields': 'Main Fields',
       'selectSheetFields': 'Select Sheet Fields',
       'mapColumn': 'Map Column',
+      'selectMappingTemplate': 'Select Template (optional)',
+      'selectMappingTemplateHint': '-- Select Template --',
+      'saveCurrentMappingAsTemplate': 'Save current mapping as template',
+      'enterTemplateName': 'Enter template name',
+      'templateSaved': 'Template saved',
+      'enterTemplateNameFirst': 'Enter a template name to save',
+      'mapColumnsToSaveTemplate': 'Map at least one column before saving a template',
+      'noMatchingColumnsInFile': 'This file has no columns from that template',
+      'templateApplied': 'Template applied',
       'itemDetails': 'Item Details',
       'importingExcelData': 'Importing Excel Data',
       'generalDetails': 'General Details',
@@ -1642,6 +1660,15 @@ class AppStrings {
       'mainFields': 'मुख्य फ़ील्ड',
       'selectSheetFields': 'शीट फ़ील्ड का चयन करें',
       'mapColumn': 'कॉलम मैप करें',
+      'selectMappingTemplate': 'टेम्पलेट चुनें (वैकल्पिक)',
+      'selectMappingTemplateHint': '-- टेम्पलेट चुनें --',
+      'saveCurrentMappingAsTemplate': 'वर्तमान मैपिंग टेम्पलेट के रूप में सहेजें',
+      'enterTemplateName': 'टेम्पलेट नाम दर्ज करें',
+      'templateSaved': 'टेम्पलेट सहेजा गया',
+      'enterTemplateNameFirst': 'सहेजने के लिए टेम्पलेट नाम दर्ज करें',
+      'mapColumnsToSaveTemplate': 'टेम्पलेट सहेजने से पहले कम से कम एक कॉलम मैप करें',
+      'noMatchingColumnsInFile': 'इस फ़ाइल में उस टेम्पलेट के कॉलम नहीं मिले',
+      'templateApplied': 'टेम्पलेट लागू किया गया',
       'itemDetails': 'आइटम विवरण',
       'importingExcelData': 'Excel डेटा आयात हो रहा है',
       'generalDetails': 'सामान्य विवरण',
@@ -2162,6 +2189,15 @@ class AppStrings {
       'mainFields': 'الحقول الرئيسية',
       'selectSheetFields': 'اختر حقول الورقة',
       'mapColumn': 'ربط العمود',
+      'selectMappingTemplate': 'اختر قالباً (اختياري)',
+      'selectMappingTemplateHint': '-- اختر قالباً --',
+      'saveCurrentMappingAsTemplate': 'حفظ التعيين الحالي كقالب',
+      'enterTemplateName': 'أدخل اسم القالب',
+      'templateSaved': 'تم حفظ القالب',
+      'enterTemplateNameFirst': 'أدخل اسم القالب للحفظ',
+      'mapColumnsToSaveTemplate': 'اربط عموداً واحداً على الأقل قبل حفظ القالب',
+      'noMatchingColumnsInFile': 'لا تحتوي هذه الملف على أعمدة ذلك القالب',
+      'templateApplied': 'تم تطبيق القالب',
       'itemDetails': 'تفاصيل العنصر',
       'importingExcelData': 'جاري استيراد بيانات Excel',
       'generalDetails': 'التفاصيل العامة',

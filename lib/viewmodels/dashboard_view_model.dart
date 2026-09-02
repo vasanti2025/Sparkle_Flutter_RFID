@@ -24,15 +24,14 @@ class DashboardViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Full logout like Sparkle: clear prefs + local stock, then UI must reset VMs + navigate.
+  /// Logout / session timeout: clear login prefs only.
+  /// Labelled stock (`bulk_items`) and RFID maps stay on device.
   Future<void> logout() async {
     try {
       await autosync.loadLibrary();
       await autosync.AutoSyncService.cancelPeriodicSync();
     } catch (_) {}
     try {
-      await _dbService?.clearAllItems();
-      await _dbService?.clearAllRFID();
       _dbService?.invalidateBulkCache();
       await _dbService?.resetConnection();
     } catch (_) {}

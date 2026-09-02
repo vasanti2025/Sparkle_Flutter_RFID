@@ -38,6 +38,8 @@ class PrefService {
   static const String keyAutosyncEnabled = 'autosync_enabled';
   static const String keyAutosyncIntervalMin = 'autosync_interval_min';
   static const String keySheetUrl = 'sheet_url';
+  static const String keyImportMappingTemplates = 'import_column_mapping_templates';
+  static const String keyImportMappingLastTemplate = 'import_column_mapping_last_template';
   static const String keyStockTransferUrl = 'stock_transfer_url';
   static const String keyBackupEmail = 'backup_email';
   static const String keyWebReusableTag = 'web_reusable_tag';
@@ -465,6 +467,52 @@ class PrefService {
 
   String getSheetUrl() => _store.getString(keySheetUrl) ?? '';
   Future<void> saveSheetUrl(String url) async => _store.setString(keySheetUrl, url);
+
+  /// Saved Excel / Google Sheet column maps: template name → {fieldKey: columnName}.
+  Map<String, Map<String, String>> getImportMappingTemplates() {
+    final raw = _store.getString(keyImportMappingTemplates);
+    if (raw == null || raw.trim().isEmpty) return {};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return {};
+      final out = <String, Map<String, String>>{};
+      decoded.forEach((key, value) {
+        if (value is! Map) return;
+        final name = key.toString().trim();
+        if (name.isEmpty) return;
+        out[name] = {
+          for (final e in value.entries)
+            e.key.toString(): e.value.toString(),
+        };
+      });
+      return out;
+    } catch (e) {
+      debugPrint('getImportMappingTemplates parse failed: $e');
+      return {};
+    }
+  }
+
+  Future<void> saveImportMappingTemplate(String name, Map<String, String> mapping) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    final all = getImportMappingTemplates();
+    all[trimmed] = Map<String, String>.from(mapping);
+    await _store.setString(keyImportMappingTemplates, jsonEncode(all));
+    await _store.setString(keyImportMappingLastTemplate, trimmed);
+  }
+
+  String? getLastImportMappingTemplateName() {
+    final name = _store.getString(keyImportMappingLastTemplate)?.trim();
+    if (name == null || name.isEmpty) return null;
+    if (!getImportMappingTemplates().containsKey(name)) return null;
+    return name;
+  }
+
+  Future<void> setLastImportMappingTemplateName(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    await _store.setString(keyImportMappingLastTemplate, trimmed);
+  }
 
   String getStockTransferUrl() => _store.getString(keyStockTransferUrl) ?? '';
   Future<void> saveStockTransferUrl(String url) async => _store.setString(keyStockTransferUrl, url);
