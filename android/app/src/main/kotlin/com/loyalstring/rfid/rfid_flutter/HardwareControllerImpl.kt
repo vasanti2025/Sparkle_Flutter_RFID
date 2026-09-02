@@ -906,14 +906,14 @@ class HardwareControllerImpl(
     }
 
     /**
-     * Sparkle convertRssiToProximity + LED gate: blink while proximity > 0 for matched EPC.
+     * Sparkle SearchViewModel: blink the tag LED while proximity > 0.
      * Handheld UART only (tag LED via Reserved-bank read); BLE tray/R6 has no tag LED path.
      */
     private fun updateSearchLedBlink(cleanEpc: String, rssi: String) {
         if (trayModeEnabled || r6ModeEnabled) return
         val proximity = rssiToProximityPercent(rssi)
         val now = System.currentTimeMillis()
-        if (proximity >= 70) {
+        if (proximity > 0) {
             lastCloseLedAt = now
             startContinuousBlink(cleanEpc)
         } else if (blinkEpc == cleanEpc && now - lastCloseLedAt > holdCloseSearchMs) {
@@ -951,6 +951,9 @@ class HardwareControllerImpl(
                     !activeInventorySession &&
                     blinkEpc == target
                 ) {
+                    if (System.currentTimeMillis() - lastCloseLedAt > holdCloseSearchMs) {
+                        break
+                    }
                     try {
                         uhfFacade?.stopInventory()
                         if (!isScanning || blinkEpc != target) break
@@ -972,6 +975,9 @@ class HardwareControllerImpl(
                     } catch (_: InterruptedException) {
                         break
                     }
+                }
+                if (blinkEpc == target) {
+                    stopBlinkingEpc()
                 }
             }
         }
