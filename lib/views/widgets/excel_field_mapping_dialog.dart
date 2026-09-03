@@ -102,6 +102,49 @@ class _ExcelFieldMappingDialogState extends State<ExcelFieldMappingDialog> {
     return next.length;
   }
 
+  bool _sameMapping(Map<String, String> a, Map<String, String> b) {
+    final aa = {
+      for (final e in a.entries)
+        if (e.value.trim().isNotEmpty) e.key: e.value,
+    };
+    final bb = {
+      for (final e in b.entries)
+        if (e.value.trim().isNotEmpty) e.key: e.value,
+    };
+    if (aa.length != bb.length) return false;
+    for (final e in aa.entries) {
+      if (bb[e.key] != e.value) return false;
+    }
+    return true;
+  }
+
+  bool _currentMappingIsSaved() {
+    final name = (_selectedTemplate ?? _templateNameController.text).trim();
+    if (name.isEmpty) return false;
+    final saved = _templates[name];
+    if (saved == null) return false;
+    return _sameMapping(saved, _mapping);
+  }
+
+  void _onImportPressed() {
+    final s = context.sRead;
+    if (_mapping.isEmpty) {
+      setState(() {
+        _statusError = true;
+        _statusMessage = s.mapColumnsToSaveTemplate;
+      });
+      return;
+    }
+    if (!_currentMappingIsSaved()) {
+      setState(() {
+        _statusError = true;
+        _statusMessage = s.saveTemplateBeforeImport;
+      });
+      return;
+    }
+    widget.onImport(Map<String, String>.from(_mapping));
+  }
+
   Future<void> _saveTemplate() async {
     final s = context.sRead;
     final name = _templateNameController.text.trim();
@@ -238,7 +281,7 @@ class _ExcelFieldMappingDialogState extends State<ExcelFieldMappingDialog> {
                 children: [
                   _actionBtn(s.cancel, widget.onDismiss),
                   const SizedBox(width: 16),
-                  _actionBtn(s.import, () => widget.onImport(Map<String, String>.from(_mapping))),
+                  _actionBtn(s.import, _onImportPressed),
                 ],
               ),
             ),

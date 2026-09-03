@@ -182,6 +182,10 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   bool _isScanning = false;
   /// Blocks re-entrant start while 10k EPC prep / hardware handoff is in flight.
   bool _scanStartInProgress = false;
+  /// In-flight hardware stop. Next Scan waits for this, not for Reset UI work.
+  Future<void>? _stopInFlight;
+  /// Bumped when a new scan session claims the reader so a late Stop cannot turn it off.
+  int _scanEpoch = 0;
   /// After user taps Stop with unmatched items left — bottom button shows Resume.
   bool _showResumeOnScanButton = false;
   int _selectedPower = 30; // Default power level
@@ -701,7 +705,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
     if (_scanStartInProgress) return;
     if (_isScanning) {
-      _stopScanning(fromUser: true);
+      unawaited(_stopScanning(fromUser: true));
     } else {
       unawaited(_startScanningAfterLocation());
     }
@@ -755,6 +759,16 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     _recountScopeUnmatched();
 
     try {
+      final pendingStop = _stopInFlight;
+      if (pendingStop != null) {
+        await pendingStop;
+        if (!mounted) return;
+      }
+      _scanEpoch++;
+      if (mounted && !_isScanning) {
+        setState(() => _isScanning = true);
+      }
+
       if (_selectedMenu == 'UNLABELLED') {
         _filteredDbEpcSet = {};
       } else if (_filteredDbEpcSet.isEmpty) {
@@ -772,50 +786,71 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         setState(() => _isScanning = false);
         await _rfidService.stopInventorySound();
         await _rfidService.haltScan();
+      } else if (!_isScanning) {
+        setState(() => _isScanning = true);
       }
     } finally {
       _scanStartInProgress = false;
     }
   }
 
-  void _stopScanning({bool fromUser = false}) async {
+  Future<void> _stopScanning({bool fromUser = false}) async {
+    final pending = _stopInFlight;
+    if (pending != null) {
+      await pending;
+      return;
+    }
     if (!_isScanning && !_scanStartInProgress) return;
-    if (mounted) {
-      setState(() {
-        _isScanning = false;
-      });
-    } else {
-      _isScanning = false;
-    }
-    _scanStartInProgress = false;
-    _trayScanSession.reset();
-    await _rfidService.stopScanning();
-    await _rfidService.haltScan();
-    _scanUiFlushTimer?.cancel();
-    _scanUiFlushTimer = null;
-    // Full reconcile once on stop (not per-tag) so save/resume stay accurate.
-    _syncItemStatusesFromMatchedSet();
-    var unmatchedLeft = 0;
-    for (final item in _scannedItems) {
-      if (item.currentScannedStatus != 'Matched') unmatchedLeft++;
-    }
-    _allUnmatchedCount = unmatchedLeft;
-    _recountScopeUnmatched();
-    final incomplete = fromUser && _scannedItems.isNotEmpty && unmatchedLeft > 0;
 
-    if (mounted) {
+    final epoch = _scanEpoch;
+    final done = Completer<void>();
+    _stopInFlight = done.future;
+    try {
+      if (mounted) {
+        setState(() {
+          _isScanning = false;
+        });
+      } else {
+        _isScanning = false;
+      }
+      _scanStartInProgress = false;
+      _trayScanSession.reset();
+      await _rfidService.stopScanning();
+      await _rfidService.haltScan();
+      _scanUiFlushTimer?.cancel();
+      _scanUiFlushTimer = null;
+    } finally {
+      // Reader is idle. Next Scan must not wait for the O(n) status walk.
+      if (!done.isCompleted) done.complete();
+      if (identical(_stopInFlight, done.future)) _stopInFlight = null;
+    }
+
+    scheduleMicrotask(() {
+      if (!mounted || epoch != _scanEpoch) return;
+      _syncItemStatusesFromMatchedSet();
+      var unmatchedLeft = 0;
+      for (final item in _scannedItems) {
+        if (item.currentScannedStatus != 'Matched') unmatchedLeft++;
+      }
+      _allUnmatchedCount = unmatchedLeft;
+      _recountScopeUnmatched();
+      final incomplete = fromUser && _scannedItems.isNotEmpty && unmatchedLeft > 0;
+      if (!mounted || epoch != _scanEpoch) return;
       setState(() {
         _isScanning = false;
-        // User Stop mid-session → show Resume; auto/system stop → Scan.
         _showResumeOnScanButton = incomplete;
         _recalculateScopeCounts();
         _refreshDisplayCache(forceListRefresh: true);
       });
-    }
+    });
   }
 
   void _resetScanning() {
-    _stopScanning();
+    // Sparkle resetForDisplay: clear UI now, stop hardware in the background.
+    // Extra halt/prepare/delay here made the next Scan retry and feel slow.
+    if (_isScanning || _scanStartInProgress) {
+      unawaited(_stopScanning());
+    }
     setState(() {
       _showResumeOnScanButton = false;
       _matchedEpcSet.clear();
@@ -838,8 +873,12 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       _showSearchInput = false;
       _searchController.clear();
     });
-    _buildLookupMaps();
-    _setFilteredItemsForScan();
+    // Maps are unchanged; after reset the scope is all items.
+    if (_lookupMapsReady && _epcToMasterIndex.isNotEmpty) {
+      _filteredDbEpcSet = Set<String>.from(_epcToMasterIndex.keys);
+    } else {
+      _setFilteredItemsForScan();
+    }
     _recalculateScopeCounts();
     _refreshDisplayCache(forceListRefresh: true);
     _showToast(context.sRead.scanResetSuccessful);
@@ -1864,14 +1903,18 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                                           setState(() => _showMenu = false);
                                           final navigator = Navigator.of(context);
                                           if (_isScanning) {
+                                            _scanEpoch++;
                                             await _rfidService.stopScanning();
                                             await _rfidService.stopInventorySound();
                                             if (mounted) setState(() => _isScanning = false);
                                           }
+                                          // Same drill-down as unmatchedCount (category/product/design),
+                                          // not the full stock list — otherwise other categories leak in.
+                                          final scope = _getNavScopeItems();
                                           final catalog = UnmatchedSearchCatalog.instance;
                                           catalog.clear();
-                                          for (var i = 0; i < _scannedItems.length; i++) {
-                                            final item = _scannedItems[i];
+                                          for (var i = 0; i < scope.length; i++) {
+                                            final item = scope[i];
                                             if (item.currentScannedStatus != 'Unmatched') {
                                               continue;
                                             }
@@ -1889,20 +1932,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                                             }
                                           }
                                           if (!mounted) return;
-                                         /*  last code added
-
-                                         navigator.pushNamed('/search', arguments: {
+                                          navigator.pushNamed('/search', arguments: {
                                             'listKey': 'unmatchedItems',
-                                            'items': unmatched,
-                                          });*/
-
-                                          final unmatched = _scannedItems
-                                              .where((item) => item.currentScannedStatus == 'Unmatched')
-                                              .map((item) => item.originalBulkItem)
-                                              .toList();
-                                          Navigator.pushNamed(context, '/search', arguments: {
-                                            'listKey': 'unmatchedItems',
-                                            'items': unmatched,
                                           });
                                         },
                                       ),
