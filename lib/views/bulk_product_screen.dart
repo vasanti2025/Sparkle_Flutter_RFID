@@ -82,40 +82,65 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
     final s = context.sRead;
     final typeLabel = _typeLabel(context, type);
     final ctrl = TextEditingController();
-    final ok = await showAppDialog<bool>(
+    final ok = await showDialog<bool>(
       context: context,
+      useRootNavigator: true,
       builder: (ctx) => AlertDialog(
         title: Text(s.tr('addType', args: {'type': typeLabel}), style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
         content: TextField(
           controller: ctrl,
+          autofocus: true,
+          textInputAction: TextInputAction.done,
           decoration: InputDecoration(
             hintText: s.tr('enterTypeName', args: {'type': typeLabel}),
             border: const OutlineInputBorder(),
           ),
+          onSubmitted: (value) {
+            if (value.trim().isEmpty) return;
+            Navigator.of(ctx, rootNavigator: true).pop(true);
+          },
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(s.tr('cancel'))),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(s.tr('addBtn'))),
+          TextButton(
+            onPressed: () => Navigator.of(ctx, rootNavigator: true).pop(false),
+            child: Text(s.tr('cancel')),
+          ),
+          TextButton(
+            onPressed: () {
+              if (ctrl.text.trim().isEmpty) return;
+              Navigator.of(ctx, rootNavigator: true).pop(true);
+            },
+            child: Text(s.tr('addBtn')),
+          ),
         ],
       ),
     );
-    if (ok == true && ctrl.text.trim().isNotEmpty) {
+
+    final name = ctrl.text.trim();
+    ctrl.dispose();
+    if (ok != true || name.isEmpty || !mounted) return;
+
+    try {
       switch (type) {
         case 'Category':
-          await vm.addLocalCategory(ctrl.text.trim());
-          if (mounted) setState(() => _category = ctrl.text.trim());
+          await vm.addLocalCategory(name);
+          if (mounted) setState(() => _category = name);
           break;
         case 'Product':
-          await vm.addLocalProduct(ctrl.text.trim());
-          if (mounted) setState(() => _product = ctrl.text.trim());
+          await vm.addLocalProduct(name);
+          if (mounted) setState(() => _product = name);
           break;
         case 'Design':
-          await vm.addLocalDesign(ctrl.text.trim());
-          if (mounted) setState(() => _design = ctrl.text.trim());
+          await vm.addLocalDesign(name);
+          if (mounted) setState(() => _design = name);
           break;
       }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(s.tr('enterTypeName', args: {'type': typeLabel}))),
+      );
     }
-    ctrl.dispose();
   }
 
   Future<void> _toggleGscan(BulkProductViewModel vm) async {

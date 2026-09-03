@@ -1263,9 +1263,22 @@ class DbService {
     return _mapsToBulkItems(maps);
   }
 
+  Future<void> _ensureLocalDropdownTables(Database db) async {
+    await db.execute(
+      'CREATE TABLE IF NOT EXISTS local_categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)',
+    );
+    await db.execute(
+      'CREATE TABLE IF NOT EXISTS local_products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)',
+    );
+    await db.execute(
+      'CREATE TABLE IF NOT EXISTS local_designs (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)',
+    );
+  }
+
   Future<({List<String> categories, List<String> products, List<String> designs})>
       getLocalDropdownData() async {
     final db = await database;
+    await _ensureLocalDropdownTables(db);
     final results = await Future.wait([
       db.query('local_categories', orderBy: 'name'),
       db.query('local_products', orderBy: 'name'),
@@ -1280,18 +1293,21 @@ class DbService {
 
   Future<List<String>> getLocalCategories() async {
     final db = await database;
+    await _ensureLocalDropdownTables(db);
     final rows = await db.query('local_categories', orderBy: 'name');
     return rows.map((r) => r['name'] as String).toList();
   }
 
   Future<List<String>> getLocalProducts() async {
     final db = await database;
+    await _ensureLocalDropdownTables(db);
     final rows = await db.query('local_products', orderBy: 'name');
     return rows.map((r) => r['name'] as String).toList();
   }
 
   Future<List<String>> getLocalDesigns() async {
     final db = await database;
+    await _ensureLocalDropdownTables(db);
     final rows = await db.query('local_designs', orderBy: 'name');
     return rows.map((r) => r['name'] as String).toList();
   }
@@ -1299,18 +1315,21 @@ class DbService {
   Future<void> insertLocalCategory(String name) async {
     if (name.trim().isEmpty) return;
     final db = await database;
+    await _ensureLocalDropdownTables(db);
     await db.insert('local_categories', {'name': name.trim()}, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
   Future<void> insertLocalProduct(String name) async {
     if (name.trim().isEmpty) return;
     final db = await database;
+    await _ensureLocalDropdownTables(db);
     await db.insert('local_products', {'name': name.trim()}, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
   Future<void> insertLocalDesign(String name) async {
     if (name.trim().isEmpty) return;
     final db = await database;
+    await _ensureLocalDropdownTables(db);
     await db.insert('local_designs', {'name': name.trim()}, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 

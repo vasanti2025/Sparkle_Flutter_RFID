@@ -15,19 +15,14 @@ import '../services/rfid_service.dart';
 import '../services/email_service.dart';
 import '../services/session_lifecycle.dart';
 import '../utils/product_image.dart';
+import '../utils/scan_key.dart';
 import '../utils/tray_scan_auto_stop.dart';
 import 'search_screen.dart';
 import 'widgets/scan_bottom_bar.dart';
 import 'widgets/scan_branch_counter_dialog.dart';
 import '../models/wholesale_master.dart';
 
-String _normalizeInventoryScanKey(String raw) {
-  var s = raw.trim();
-  if (s.isEmpty) return '';
-  s = s.toUpperCase();
-  if (s.contains(' ')) s = s.replaceAll(' ', '');
-  return s;
-}
+String _normalizeInventoryScanKey(String raw) => normalizeScanKey(raw);
 
 class _GroupBucket {
   _GroupBucket(this.label);
@@ -72,11 +67,11 @@ class ScannedBulkItem {
   List<String> _computeMatchKeys() {
     final keys = <String>{};
     void addKey(String raw) {
-      final v = _normalizeInventoryScanKey(raw);
-      if (v.isEmpty) return;
-      keys.add(v);
-      final hash = v.indexOf('#');
-      if (hash > 0) keys.add(v.substring(0, hash));
+      addScanKeyVariants(raw, (v) {
+        keys.add(v);
+        final hash = v.indexOf('#');
+        if (hash > 0) keys.add(v.substring(0, hash));
+      });
     }
 
     addKey(epc);
@@ -345,6 +340,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   void _registerMatchForItem(ScannedBulkItem item, String scannedTag) {
     final wasMatched = item.currentScannedStatus == 'Matched';
     _matchedEpcSet.add(_normalizeInventoryScanKey(scannedTag));
+    final stripped = stripScanKey00(_normalizeInventoryScanKey(scannedTag));
+    if (stripped.isNotEmpty) _matchedEpcSet.add(stripped);
     for (final key in item.matchKeys) {
       _matchedEpcSet.add(key);
     }
@@ -639,9 +636,14 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
       final scannedEpc = _normalizeInventoryScanKey(tag);
       if (scannedEpc.isEmpty) return;
+      final strippedEpc = stripScanKey00(scannedEpc);
+      final altEpc = strippedEpc != scannedEpc ? strippedEpc : null;
 
-      if (_matchedEpcSet.contains(scannedEpc)) {
-        if (_rfidService.trayReaderActive && _filteredDbEpcSet.contains(scannedEpc)) {
+      bool hitSet(Set<String> set) =>
+          set.contains(scannedEpc) || (altEpc != null && set.contains(altEpc));
+
+      if (hitSet(_matchedEpcSet)) {
+        if (_rfidService.trayReaderActive && hitSet(_filteredDbEpcSet)) {
           _trayScanSession.recordInScope(scannedEpc, _filteredDbEpcSet);
           _scheduleScanUiUpdate();
         } else if (_scopeUnmatchedRemaining <= 0 &&
@@ -657,8 +659,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
           (_filteredDbEpcSet.isEmpty &&
               _scannedItems.isNotEmpty &&
               _selectedMenu != 'UNLABELLED');
-      final inScope = _filteredDbEpcSet.contains(scannedEpc);
-      final masterIndex = _epcToMasterIndex[scannedEpc];
+      final inScope = hitSet(_filteredDbEpcSet);
+      final masterIndex = _epcToMasterIndex[scannedEpc] ??
+          (altEpc != null ? _epcToMasterIndex[altEpc] : null);
 
       if (inScope || (mapsWarming && masterIndex != null)) {
         if (_rfidService.trayReaderActive) {
@@ -668,6 +671,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
           _registerMatchForItem(_scannedItems[masterIndex], scannedEpc);
         } else {
           _matchedEpcSet.add(scannedEpc);
+          if (altEpc != null) _matchedEpcSet.add(altEpc);
         }
         _scheduleScanUiUpdate();
         return;
