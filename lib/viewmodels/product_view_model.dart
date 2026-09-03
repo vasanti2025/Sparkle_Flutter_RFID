@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import '../models/bulk_item.dart';
 import '../services/db_service.dart';
@@ -756,67 +759,8 @@ class ProductViewModel extends ChangeNotifier {
 
   /// Upload stock verification — Sparkle Scan Display path:
   /// stream JSON to a temp file + `AddStockVerificationWithBatchFile` (one call).
-  /// Falls back to chunked session POSTs only if the file API fails.
-  ///
-  /*Future<bool> uploadVerification({
-    required String clientCode,
-    required List<Map<String, dynamic>> items,
-  }) async {
-    _isLoading = true;
-    _errorMessage = null;
-    notifyListeners();
-
-    try {
-      if (items.isEmpty) {
-        throw Exception('Item list is empty');
-      }
-
-      try {
-        final file = await _writeStockVerificationJsonFile(clientCode, items);
-        try {
-          final ok = await _apiService.uploadStockVerificationFile(
-            clientCode,
-            file.path,
-          );
-          if (ok) return true;
-        } finally {
-          try {
-            if (await file.exists()) await file.delete();
-          } catch (_) {}
-        }
-      } catch (e) {
-        debugPrint('Stock verification file upload failed, falling back to batches: $e');
-      }
-
-      // Fallback: parallel 2k batches (old AddStockVerificationBySession path).
-      const int batchSize = 2000;
-      const int parallel = 3;
-      final batches = <List<Map<String, dynamic>>>[];
-      for (var i = 0; i < items.length; i += batchSize) {
-        final end = (i + batchSize < items.length) ? i + batchSize : items.length;
-        batches.add(items.sublist(i, end));
-      }
-      for (var i = 0; i < batches.length; i += parallel) {
-        final group = batches.sublist(
-          i,
-          (i + parallel < batches.length) ? i + parallel : batches.length,
-        );
-        await Future.wait(
-          group.map((batch) => _apiService.uploadStockVerification(clientCode, batch)),
-        );
-      }
-      return true;
-    } catch (e) {
-      _errorMessage = e.toString().replaceFirst('Exception: ', '');
-      notifyListeners();
-      return false;
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
-  }*/
-
-  // Upload Stock Verification payload
+  /// This sends the FULL item list (not capped at 2000). Falls back to chunked
+  /// session POSTs only if the file API fails.
   Future<bool> uploadVerification({
     required String clientCode,
     required List<Map<String, dynamic>> items,
@@ -831,25 +775,72 @@ class ProductViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      if (_prefService.isWholesaleLoginUser()) {
-        await _apiService.uploadStockVerificationWithBatchFile(
-          clientCode: clientCode,
-          items: items,
-          deviceCode: deviceCode,
-          counterId: counterId,
-          counterName: counterName,
-          branchId: branchId,
-          branchName: branchName,
+      if (items.isEmpty) {
+        throw Exception('Item list is empty');
+      }
+
+      debugPrint(
+        'uploadVerification start items=${items.length} '
+        'wholesale=${_prefService.isWholesaleLoginUser()}',
+      );
+
+      // Primary: one file upload with ALL items (matches Sparkle / dashboard totals).
+      try {
+        final file = await _writeStockVerificationJsonFile(clientCode, items);
+        try {
+          final ok = await _apiService.uploadStockVerificationFile(
+            clientCode,
+            file.path,
+            deviceCode: deviceCode,
+            counterId: counterId,
+            counterName: counterName,
+            branchId: branchId,
+            branchName: branchName,
+          );
+          if (ok) {
+            debugPrint(
+              'uploadVerification file OK items=${items.length}',
+            );
+            return true;
+          }
+        } finally {
+          try {
+            if (await file.exists()) await file.delete();
+          } catch (_) {}
+        }
+      } catch (e) {
+        debugPrint(
+          'Stock verification file upload failed, falling back to batches: $e',
         );
-        return true;
       }
-      // Chunk items into batches of 2000 to match Compose behavior
+
+      // Fallback: parallel 2k batches (AddStockVerificationBySession).
+      // Note: some servers only keep the last session — file path is preferred.
       const int batchSize = 2000;
-      for (int i = 0; i < items.length; i += batchSize) {
-        final end = (i + batchSize < items.length) ? i + batchSize : items.length;
-        final batch = items.sublist(i, end);
-        await _apiService.uploadStockVerification(clientCode, batch);
+      const int parallel = 3;
+      final batches = <List<Map<String, dynamic>>>[];
+      for (var i = 0; i < items.length; i += batchSize) {
+        final end =
+            (i + batchSize < items.length) ? i + batchSize : items.length;
+        batches.add(items.sublist(i, end));
       }
+      for (var i = 0; i < batches.length; i += parallel) {
+        final group = batches.sublist(
+          i,
+          (i + parallel < batches.length) ? i + parallel : batches.length,
+        );
+        final results = await Future.wait(
+          group.map(
+            (batch) => _apiService.uploadStockVerification(clientCode, batch),
+          ),
+        );
+        if (results.any((ok) => !ok)) {
+          throw Exception('One or more verification batches failed');
+        }
+      }
+      debugPrint(
+        'uploadVerification batches OK batches=${batches.length} items=${items.length}',
+      );
       return true;
     } catch (e) {
       _errorMessage = e.toString().replaceFirst('Exception: ', '');
@@ -860,16 +851,18 @@ class ProductViewModel extends ChangeNotifier {
       notifyListeners();
     }
   }
-}
 
-  /// Stream JSON to disk (avoids one huge String for 2–5L items).
-/*  Future<File> _writeStockVerificationJsonFile(
+  /// Stream JSON to disk (avoids one huge String for 20k–5L items).
+  Future<File> _writeStockVerificationJsonFile(
     String clientCode,
     List<Map<String, dynamic>> items,
   ) async {
     final dir = await getTemporaryDirectory();
     final file = File(
-      p.join(dir.path, 'stock_items_${DateTime.now().millisecondsSinceEpoch}.json'),
+      p.join(
+        dir.path,
+        'stock_items_${DateTime.now().millisecondsSinceEpoch}.json',
+      ),
     );
     final sink = file.openWrite(encoding: utf8);
     try {
@@ -889,5 +882,6 @@ class ProductViewModel extends ChangeNotifier {
       await sink.close();
     }
     return file;
-  }*/
+  }
+}
 
