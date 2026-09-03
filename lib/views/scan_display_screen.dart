@@ -1009,81 +1009,114 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       return;
     }
 
-    // 1. Prepare local update payload (Kotlin uses tagKey = epc ?: rfid)
-    final finalItems = _scannedItems.map((item) {
-      final map = item.originalBulkItem.toMap();
-      final isMatched = _matchKeysForItem(item)
-          .any((key) => _matchedEpcSet.contains(key));
-      map['isScanned'] = isMatched ? 1 : 0;
-      map['scannedStatus'] = isMatched ? 'Matched' : 'Unmatched';
-      return BulkItem.fromMap(map);
-    }).toList();
-
-    // 2. Prepare upload payload
-    final uploadItemsPayload = _scannedItems.map((item) {
-      final double grossWt = double.tryParse(item.grossWeight) ?? 0.0;
-      final double netWt = double.tryParse(item.netWeight) ?? 0.0;
-      final isMatched = _matchKeysForItem(item)
-          .any((key) => _matchedEpcSet.contains(key));
-      final String status = isMatched ? 'match' : 'unmatch';
-
-      return {
-        'ItemCode': item.itemCode,
-        'Status': status,
-        'GrossWeight': grossWt,
-        'NetWeight': netWt,
-        'Quantity': 1,
-        'CounterName': item.counterName,
-        'CategoryName': item.category,
-        'ProductName': item.productName,
-        'DesignName': item.design,
-        'PurityName': item.purity,
-        'CompanyName': '',
-        'BranchName': item.branchName,
-        'CounterId': item.counterId,
-        'CategoryId': item.categoryId,
-        'ProductId': item.productId,
-        'DesignId': item.designId,
-        'PurityId': 0,
-        'CompanyId': 0,
-        'BranchId': item.branchId,
-      };
-    }).toList();
-
-    // 3. Save locally in SQLite
-    await viewModel.saveScanResults(finalItems);
-
-    // 4. Call stock verification API
-    String? deviceCode;
-    if (pref.isWholesaleLoginUser()) {
-      deviceCode = (await settingsVm.ensureDeviceId()).trim();
-      if (!mounted) return;
-      if (_sessionLocation == null || !_sessionLocation!.isValid) {
-        if (!await _ensureBranchCounterForWholesale()) {
-          if (mounted) setState(() => _isSaving = false);
-          return;
+    try {
+      // Wholesale location gate before building large payloads.
+      String? deviceCode;
+      if (pref.isWholesaleLoginUser()) {
+        deviceCode = (await settingsVm.ensureDeviceId()).trim();
+        if (!mounted) return;
+        if (_sessionLocation == null || !_sessionLocation!.isValid) {
+          if (!await _ensureBranchCounterForWholesale()) {
+            if (mounted) setState(() => _isSaving = false);
+            return;
+          }
         }
       }
-    }
-    if (!mounted) return;
-    final location = _sessionLocation;
-    final success = await viewModel.uploadVerification(
-      clientCode: employee.clientCode!,
-      items: uploadItemsPayload,
-      counterId: location?.counterId,
-      counterName: location?.counterName,
-      branchId: location?.branchId,
-      branchName: location?.branchName,
-      deviceCode: deviceCode,
-    );
+      if (!mounted) return;
+      final location = _sessionLocation;
 
-    if (!mounted) return;
-    setState(() => _isSaving = false);
+      // Single pass: local DB rows + full API payload (no 2000 cap).
+      final finalItems = <BulkItem>[];
+      final uploadItemsPayload = <Map<String, dynamic>>[];
+      final seenKeys = <String>{};
+      var matchedUpload = 0;
+      var unmatchedUpload = 0;
 
-    if (success) {
-      _showToast(context.sRead.stockVerificationUploaded);
-    } else {
-      _showToast(context.sRead.verificationUploadFailed(viewModel.errorMessage ?? ''));
+      for (var i = 0; i < _scannedItems.length; i++) {
+        final item = _scannedItems[i];
+        final isMatched = _matchKeysForItem(item)
+            .any((key) => _matchedEpcSet.contains(key));
+
+        final map = item.originalBulkItem.toMap();
+        map['isScanned'] = isMatched ? 1 : 0;
+        map['scannedStatus'] = isMatched ? 'Matched' : 'Unmatched';
+        finalItems.add(BulkItem.fromMap(map));
+
+        final code = item.itemCode.trim();
+        if (code.isEmpty) continue;
+        final dedupeKey = (item.epc.trim().isNotEmpty ? item.epc : code)
+            .trim()
+            .toUpperCase();
+        if (dedupeKey.isEmpty || !seenKeys.add(dedupeKey)) continue;
+
+        if (isMatched) {
+          matchedUpload++;
+        } else {
+          unmatchedUpload++;
+        }
+        uploadItemsPayload.add({
+          'ItemCode': code,
+          'Status': isMatched ? 'match' : 'unmatch',
+          'GrossWeight': double.tryParse(item.grossWeight) ?? 0.0,
+          'NetWeight': double.tryParse(item.netWeight) ?? 0.0,
+          'Quantity': 1,
+          'CounterName': item.counterName,
+          'CategoryName': item.category,
+          'ProductName': item.productName,
+          'DesignName': item.design,
+          'PurityName': item.purity,
+          'CompanyName': '',
+          'BranchName': item.branchName,
+          'CounterId': item.counterId,
+          'CategoryId': item.categoryId,
+          'ProductId': item.productId,
+          'DesignId': item.designId,
+          'PurityId': 0,
+          'CompanyId': 0,
+          'BranchId': item.branchId,
+        });
+
+        // Keep UI responsive on large inventories (2–5L).
+        if (i > 0 && i % 4000 == 0) {
+          await Future<void>.delayed(Duration.zero);
+          if (!mounted) return;
+        }
+      }
+
+      debugPrint(
+        'Scan save upload payload total=${uploadItemsPayload.length} '
+        'matched=$matchedUpload unmatched=$unmatchedUpload '
+        'localRows=${finalItems.length}',
+      );
+
+      // Local SQLite + full-file verification upload in parallel (fast path).
+      final uploadFuture = viewModel.uploadVerification(
+        clientCode: employee.clientCode!,
+        items: uploadItemsPayload,
+        counterId: location?.counterId,
+        counterName: location?.counterName,
+        branchId: location?.branchId,
+        branchName: location?.branchName,
+        deviceCode: deviceCode,
+      );
+      unawaited(viewModel.saveScanResults(finalItems));
+      final success = await uploadFuture;
+
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+
+      if (success) {
+        _showResumeOnScanButton = false;
+        _showToast(context.sRead.stockVerificationUploaded);
+      } else {
+        _showToast(
+          context.sRead.verificationUploadFailed(viewModel.errorMessage ?? ''),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      _showToast(context.sRead.verificationUploadFailed(e.toString()));
     }
   }
   void _showToast(String message) {

@@ -276,23 +276,50 @@ class ApiService {
 
   /// Sparkle Scan Display path: one multipart JSON file upload for large inventories
   /// (`AddStockVerificationWithBatchFile`) — far faster than many 2k session POSTs.
-  Future<bool> uploadStockVerificationFile(String clientCode, String filePath) async {
+  Future<bool> uploadStockVerificationFile(
+    String clientCode,
+    String filePath, {
+    String? deviceCode,
+    int? counterId,
+    String? counterName,
+    int? branchId,
+    String? branchName,
+  }) async {
     try {
-      final formData = FormData.fromMap({
+      final formMap = <String, dynamic>{
         'ClientCode': clientCode,
         'jsonFile': await MultipartFile.fromFile(
           filePath,
           filename: filePath.split(RegExp(r'[/\\]')).last,
         ),
-      });
+      };
+      final code = deviceCode?.trim() ?? '';
+      if (code.isNotEmpty) formMap['DeviceCode'] = code;
+      if (counterId != null && counterId > 0) {
+        formMap['CounterId'] = counterId.toString();
+      }
+      final cName = counterName?.trim() ?? '';
+      if (cName.isNotEmpty) formMap['CounterName'] = cName;
+      if (branchId != null && branchId > 0) {
+        formMap['BranchId'] = branchId.toString();
+      }
+      final bName = branchName?.trim() ?? '';
+      if (bName.isNotEmpty) formMap['BranchName'] = bName;
 
+      debugPrint(
+        '========== AddStockVerificationWithBatchFile ========== '
+        'client=$clientCode file=$filePath',
+      );
       final response = await _dio.post(
         'api/ProductMaster/AddStockVerificationWithBatchFile',
-        data: formData,
+        data: FormData.fromMap(formMap),
         options: Options(
           sendTimeout: const Duration(minutes: 30),
           receiveTimeout: const Duration(minutes: 30),
         ),
+      );
+      debugPrint(
+        'AddStockVerificationWithBatchFile status=${response.statusCode}',
       );
       return response.statusCode == 200 || response.statusCode == 201;
     } on DioException catch (e) {
