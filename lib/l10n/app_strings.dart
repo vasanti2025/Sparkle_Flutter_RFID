@@ -558,6 +558,7 @@ class AppStrings {
   String get mapColumnsToSaveTemplate => _t('mapColumnsToSaveTemplate');
   String get noMatchingColumnsInFile => _t('noMatchingColumnsInFile');
   String get templateApplied => _t('templateApplied');
+  String get saveTemplateBeforeImport => _t('saveTemplateBeforeImport');
   String get import => _t('import');
   String get item => _t('item');
   String get tapTo => _t('tapTo');
@@ -972,6 +973,7 @@ class AppStrings {
       'mapColumnsToSaveTemplate': 'Map at least one column before saving a template',
       'noMatchingColumnsInFile': 'This file has no columns from that template',
       'templateApplied': 'Template applied',
+      'saveTemplateBeforeImport': 'Save the template first, then import',
       'itemDetails': 'Item Details',
       'importingExcelData': 'Importing Excel Data',
       'generalDetails': 'General Details',
@@ -1669,6 +1671,7 @@ class AppStrings {
       'mapColumnsToSaveTemplate': 'टेम्पलेट सहेजने से पहले कम से कम एक कॉलम मैप करें',
       'noMatchingColumnsInFile': 'इस फ़ाइल में उस टेम्पलेट के कॉलम नहीं मिले',
       'templateApplied': 'टेम्पलेट लागू किया गया',
+      'saveTemplateBeforeImport': 'आयात करने से पहले टेम्पलेट सहेजें',
       'itemDetails': 'आइटम विवरण',
       'importingExcelData': 'Excel डेटा आयात हो रहा है',
       'generalDetails': 'सामान्य विवरण',
@@ -2198,6 +2201,7 @@ class AppStrings {
       'mapColumnsToSaveTemplate': 'اربط عموداً واحداً على الأقل قبل حفظ القالب',
       'noMatchingColumnsInFile': 'لا تحتوي هذه الملف على أعمدة ذلك القالب',
       'templateApplied': 'تم تطبيق القالب',
+      'saveTemplateBeforeImport': 'احفظ القالب أولاً ثم استورد',
       'itemDetails': 'تفاصيل العنصر',
       'importingExcelData': 'جاري استيراد بيانات Excel',
       'generalDetails': 'التفاصيل العامة',
