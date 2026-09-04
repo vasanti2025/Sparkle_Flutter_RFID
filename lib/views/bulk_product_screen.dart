@@ -79,14 +79,22 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
   }
 
   Future<void> _showAddDialog(String type, BulkProductViewModel vm) async {
+    // Let Category/Product/Design PopupMenu finish closing first.
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+
     final s = context.sRead;
     final typeLabel = _typeLabel(context, type);
     final ctrl = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
       useRootNavigator: true,
+      barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: Text(s.tr('addType', args: {'type': typeLabel}), style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        title: Text(
+          s.tr('addType', args: {'type': typeLabel}),
+          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+        ),
         content: TextField(
           controller: ctrl,
           autofocus: true,

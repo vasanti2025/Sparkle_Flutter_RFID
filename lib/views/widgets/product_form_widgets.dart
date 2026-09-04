@@ -75,7 +75,11 @@ class FilterDropdown extends StatelessWidget {
               ),
               onSelected: (value) {
                 if (value == _addValue) {
-                  onAdd();
+                  // Wait until PopupMenu route is fully dismissed — otherwise
+                  // showDialog can fail silently and the Add popup never appears.
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    onAdd();
+                  });
                 } else {
                   onSelected(value);
                 }
