@@ -71,12 +71,14 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
         final vm = context.read<QuotationViewModel>();
         final single = _isSingleScan;
         if (!single && !vm.liveScanEnabled) return;
-        final db = context.read<DbService>();
-        _trayAutoStop.afterBatch(
-          tags,
-          (tag) => db.findBulkItemByScanKeySync(tag) != null,
-        );
-        unawaited(vm.processScannedTags(tags, fromLiveScan: !single));
+        if (!single) {
+          final db = context.read<DbService>();
+          _trayAutoStop.afterBatch(
+            tags,
+            (tag) => db.findBulkItemByScanKeySync(tag) != null,
+          );
+        }
+        unawaited(_handleFlushedTags(vm, tags, single: single));
       },
     );
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -93,13 +95,9 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
     });
 
     _rfidSubscription = _rfidService.tagsStream.listen((epc) {
-      if (!_rfidService.isScanning) return;
+      if (!_isSingleScan && !_rfidService.isScanning) return;
       _tagBatcher.add(epc);
-      if (_isSingleScan) {
-        _tagBatcher.flushNow();
-        _isSingleScan = false;
-        _toggleGscan(context.read<QuotationViewModel>());
-      }
+      if (_isSingleScan) _tagBatcher.flushNow();
     });
 
     _triggerSubscription = _rfidService.triggerStream.listen((_) {
@@ -125,13 +123,26 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
   Future<void> _addItemByBarcode(String code) async {
     final error = await context.read<QuotationViewModel>().addProductByCodeOrRfid(code);
     if (!mounted) return;
+    _handleItemCodeLookupResult(error);
+  }
+
+  void _handleItemCodeLookupResult(String? error) {
     if (error != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
-    } else {
+    }
+    final alreadyInList =
+        error != null && error.toLowerCase().contains('already');
+    if (error == null || alreadyInList) {
       _itemCodeCtrl.clear();
       setState(() => _showItemSuggestions = false);
       _itemCodeFocus.unfocus();
     }
+  }
+
+  void _clearItemCodeField() {
+    _itemCodeCtrl.clear();
+    _showItemSuggestions = false;
+    _itemSuggestions = [];
   }
 
   void _syncVScroll(ScrollController from, ScrollController to) {
@@ -278,12 +289,31 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
     );
   }
 
-  Future<void> _stopGscan(QuotationViewModel vm) async {
+  Future<void> _handleFlushedTags(
+    QuotationViewModel vm,
+    List<String> tags, {
+    required bool single,
+  }) async {
+    final added = await vm.processScannedTags(tags, fromLiveScan: !single);
+    if (!mounted) return;
+    if (single && added > 0 && _isSingleScan) {
+      _isSingleScan = false;
+      unawaited(_stopGscan(vm, waitForHardware: false));
+    }
+  }
+
+  Future<void> _stopGscan(QuotationViewModel vm, {bool waitForHardware = true}) async {
     vm.abortLiveScan();
     _tagBatcher.discardPending();
     if (mounted) setState(() {});
-    await _rfidService.stopScanning();
-    if (mounted) setState(() {});
+    if (waitForHardware) {
+      await _rfidService.stopScanning();
+      if (mounted) setState(() {});
+      return;
+    }
+    unawaited(_rfidService.stopScanning().then((_) {
+      if (mounted) setState(() {});
+    }));
   }
 
   void _toggleGscan(QuotationViewModel vm) async {
@@ -293,13 +323,14 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
     }
 
     if (!mounted) return;
+    await _rfidService.clearSearchTags();
     await _rfidService.clearMatchEpcs();
 
     final started = await _rfidService.startScanning(
       power: _power,
       inventory: !_isSingleScan,
     );
-    if (started) {
+    if (started && _rfidService.isScanning) {
       vm.beginLiveScan();
       _trayAutoStop.onScanStarted();
     }
@@ -488,13 +519,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
     Future<void> addByCode(String code) async {
       final error = await vm.addProductByCodeOrRfid(code);
       if (!mounted) return;
-      if (error != null) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
-      } else {
-        _itemCodeCtrl.clear();
-        setState(() => _showItemSuggestions = false);
-        _itemCodeFocus.unfocus();
-      }
+      _handleItemCodeLookupResult(error);
     }
 
     return Padding(
@@ -1021,6 +1046,8 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
             }
             vm.clearQuotation();
             _customerSearchCtrl.clear();
+            _clearItemCodeField();
+            if (mounted) setState(() {});
           },
         ),
       ),

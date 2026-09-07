@@ -352,7 +352,6 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
   Future<int> processScannedTags(List<String> epcs, {bool fromLiveScan = true}) async {
     int addedCount = 0;
     var lastNotifyMs = 0;
-    await _dbService.warmScanKeyIndex();
     if (!acceptLiveScan(fromLiveScan)) return 0;
 
     for (final epcRaw in epcs) {
@@ -447,10 +446,14 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
       _productList.add(orderItem);
       addedCount++;
       if (!acceptLiveScan(fromLiveScan)) break;
-      final now = DateTime.now().millisecondsSinceEpoch;
-      if (now - lastNotifyMs >= 80) {
+      if (!fromLiveScan) {
         notifyListeners();
-        lastNotifyMs = now;
+      } else {
+        final now = DateTime.now().millisecondsSinceEpoch;
+        if (now - lastNotifyMs >= 80) {
+          notifyListeners();
+          lastNotifyMs = now;
+        }
       }
     }
 

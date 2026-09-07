@@ -19,6 +19,7 @@ import '../utils/scan_key.dart';
 import '../utils/tray_scan_auto_stop.dart';
 import 'search_screen.dart';
 import 'widgets/scan_bottom_bar.dart';
+import 'widgets/scan_display_list_menu.dart';
 import 'widgets/scan_branch_counter_dialog.dart';
 import '../models/wholesale_master.dart';
 
@@ -247,6 +248,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       if (route != null && !route.isCurrent) return;
       _toggleScanning();
     });
+    _bindUnmatchedSearchActions();
   }
 
   @override
@@ -269,6 +271,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   @override
   void dispose() {
+    UnmatchedSearchCatalog.instance.clearActions();
     _tagsSubscription?.cancel();
     _triggerSubscription?.cancel();
     _scanUiFlushTimer?.cancel();
@@ -698,6 +701,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   }
 
   void _toggleScanning() {
+    if (_isSaving) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     final debounceMs = _scanStartInProgress ? 800 : 300;
     if (now - _lastTriggerMs < debounceMs) return;
@@ -741,6 +745,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   /// Sparkle-style inventory start: claim UI + start UART immediately.
   /// Never walk/rebuild ~10k rows on the tap path (that caused start failures).
   void _startScanning() async {
+    if (_isSaving) return;
     if (_isScanning || _scanStartInProgress) return;
     if (_isLoadingItems) {
       _showToast(context.sRead.pleaseWaitItemsLoading);
@@ -1036,9 +1041,10 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
 
   void _saveScanResults() async {
+    if (_isSaving) return;
+    setState(() => _isSaving = true);
     _stopScanning();
     _syncItemStatusesFromMatchedSet();
-    setState(() => _isSaving = true);
 
     final viewModel = Provider.of<ProductViewModel>(context, listen: false);
     final dashboardViewModel = Provider.of<DashboardViewModel>(context, listen: false);
@@ -1162,9 +1168,35 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       _showToast(context.sRead.verificationUploadFailed(e.toString()));
     }
   }
-  void _showToast(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+
+  void _bindUnmatchedSearchActions() {
+    final catalog = UnmatchedSearchCatalog.instance;
+    catalog.onSave = _saveScanResults;
+    catalog.onEmail = (dialogContext) {
+      if (!mounted) return;
+      _showEmailReportDialog(dialogContext);
+    };
+    catalog.onSelectMenu = (menu) {
+      if (!mounted) return;
+      setState(() {
+        _selectedMenu = menu;
+        _currentLevel = 'DesignItems';
+        _showMenu = false;
+      });
+    };
+    catalog.onResumeScan = () {
+      if (!mounted) return;
+      _resumeScan();
+    };
+    catalog.matchedCountOf = () => _cachedMatchedCount;
+    catalog.unmatchedCountOf = () => _cachedTotalCount - _cachedMatchedCount;
+    catalog.unlabelledCountOf = () => _unlabelledEpcs.length;
+  }
+
+  void _showToast(String message, {BuildContext? messengerContext}) {
+    final ctx = messengerContext ?? context;
+    if (!ctx.mounted) return;
+    ScaffoldMessenger.of(ctx).showSnackBar(
       SnackBar(
         content: Text(message, style: AppFonts.poppins()),
         duration: const Duration(seconds: 2),
@@ -1172,60 +1204,45 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     );
   }
 
-
-
-  Widget _buildMenuCard({
-    required String title,
-    required IconData icon,
-    int? count,
-    required VoidCallback onTap,
-  }) {
-    final displayText = count != null ? '$title ($count)' : title;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: double.infinity,
-        constraints: const BoxConstraints(minHeight: 52),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF3053F0), Color(0xFFE82E5A)],
-          ),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Container(
-          margin: const EdgeInsets.all(1.0), // Border width
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(3.0),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                size: 18,
-                color: const Color(0xFF5231A7),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                displayText,
-                style: AppFonts.poppins(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black87,
-                ),
-                textAlign: TextAlign.center,
-                // Show full label inside this card (wrap below; no single-line clip).
-                softWrap: true,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+  Future<void> _openSearchUnmatched() async {
+    setState(() => _showMenu = false);
+    final navigator = Navigator.of(context);
+    if (_isScanning) {
+      _scanEpoch++;
+      await _rfidService.stopScanning();
+      await _rfidService.stopInventorySound();
+      if (mounted) setState(() => _isScanning = false);
+    }
+    // Same drill-down as unmatchedCount (category/product/design),
+    // not the full stock list — otherwise other categories leak in.
+    final scope = _getNavScopeItems();
+    final catalog = UnmatchedSearchCatalog.instance;
+    catalog.clear();
+    for (var i = 0; i < scope.length; i++) {
+      final item = scope[i];
+      if (item.currentScannedStatus != 'Unmatched') {
+        continue;
+      }
+      catalog.items.add(SearchItem(
+        epc: item.epc,
+        itemCode: item.itemCode,
+        productName: item.productName,
+        rfid: item.rfid,
+        tid: item.originalBulkItem.tid,
+        hex: item.originalBulkItem.box,
+      ));
+      if (i > 0 && i % 600 == 0) {
+        await Future<void>.delayed(Duration.zero);
+        if (!mounted) return;
+      }
+    }
+    if (!mounted) return;
+    navigator.pushNamed('/search', arguments: {
+      'listKey': 'unmatchedItems',
+    });
   }
+
+
 
   // Navigation scope (drill-down + search) — mirrors Kotlin navFilteredItems / scannedItemsSequence base.
   List<ScannedBulkItem> _getNavScopeItems() {
@@ -1528,19 +1545,21 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     return buffer.toString();
   }
 
-  void _showEmailReportDialog() async {
+  void _showEmailReportDialog([BuildContext? dialogContext]) async {
     final prefs = await SharedPreferences.getInstance();
     List<String> savedEmails = prefs.getStringList('saved_emails') ?? [];
-    
+
     if (!mounted) return;
-    
+    final host = dialogContext ?? context;
+    if (!host.mounted) return;
+
     String? selectedEmail;
     String newEmail = '';
     bool isSending = false;
     final s = context.sRead;
     
     showAppDialog(
-      context: context,
+      context: host,
       barrierDismissible: false,
       builder: (context) {
         return StatefulBuilder(
@@ -1625,14 +1644,14 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                       : () async {
                           final emailToSend = newEmail.trim().isNotEmpty ? newEmail.trim() : (selectedEmail ?? '').trim();
                           if (emailToSend.isEmpty) {
-                            _showToast(s.pleaseEnterOrSelectEmail);
+                            _showToast(s.pleaseEnterOrSelectEmail, messengerContext: host);
                             return;
                           }
                           
                           // Simple regex validation
                           final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
                           if (!emailRegex.hasMatch(emailToSend)) {
-                            _showToast(s.pleaseEnterValidEmail);
+                            _showToast(s.pleaseEnterValidEmail, messengerContext: host);
                             return;
                           }
 
@@ -1663,13 +1682,13 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                             );
 
                             if (success) {
-                              _showToast(s.reportSentTo(emailToSend));
+                              _showToast(s.reportSentTo(emailToSend), messengerContext: host);
                             } else {
-                              _showToast(s.failedToSendEmail);
+                              _showToast(s.failedToSendEmail, messengerContext: host);
                             }
                             navigator.pop();
                           } catch (e) {
-                            _showToast(s.failedWithMessage(e.toString()));
+                            _showToast(s.failedWithMessage(e.toString()), messengerContext: host);
                             setDialogState(() {
                               isSending = false;
                             });
@@ -1854,133 +1873,39 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
             ),
 
             if (_showMenu)
-              Positioned.fill(
-                child: GestureDetector(
-                  onTap: () => setState(() => _showMenu = false),
-                  child: Container(
-                    color: Colors.black54,
-                    child: Stack(
-                      children: [
-                        Positioned(
-                          left: 0,
-                          top: 60,
-                          bottom: 70,
-                          width: 180,
-                          child: GestureDetector(
-                            onTap: () {}, // Prevent dismissal when clicking menu body
-                            child: Material(
-                              elevation: 8,
-                              color: Colors.white,
-                              borderRadius: const BorderRadius.only(
-                                topRight: Radius.circular(4),
-                                bottomRight: Radius.circular(4),
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
-                                child: SingleChildScrollView(
-                                  child: Column(
-                                    children: [
-                                      _buildMenuCard(
-                                        title: s.matchedItems,
-                                        icon: Icons.check_circle_outline,
-                                        count: matchedCount,
-                                        onTap: () {
-                                          setState(() {
-                                            _selectedMenu = 'MATCHED';
-                                            _currentLevel = 'DesignItems';
-                                            _showMenu = false;
-                                          });
-                                        },
-                                      ),
-                                      const SizedBox(height: 8),
-                                      _buildMenuCard(
-                                        title: s.unmatchedItems,
-                                        icon: Icons.error_outline,
-                                        count: unmatchedCount,
-                                        onTap: () {
-                                          setState(() {
-                                            _selectedMenu = 'UNMATCHED';
-                                            _currentLevel = 'DesignItems';
-                                            _showMenu = false;
-                                          });
-                                        },
-                                      ),
-                                      const SizedBox(height: 8),
-                                      _buildMenuCard(
-                                        title: s.unlabelledItems,
-                                        icon: Icons.label_off_outlined,
-                                        count: _unlabelledEpcs.length,
-                                        onTap: () {
-                                          setState(() {
-                                            _selectedMenu = 'UNLABELLED';
-                                            _currentLevel = 'DesignItems';
-                                            _showMenu = false;
-                                          });
-                                        },
-                                      ),
-                                      const SizedBox(height: 8),
-                                      _buildMenuCard(
-                                        title: s.resumeScan,
-                                        icon: Icons.play_arrow_outlined,
-                                        onTap: () {
-                                          setState(() => _showMenu = false);
-                                          _resumeScan();
-                                        },
-                                      ),
-                                      const SizedBox(height: 8),
-                                      _buildMenuCard(
-                                        title: s.searchUnmatched,
-                                        icon: Icons.search,
-                                        count: unmatchedCount,
-                                        onTap: () async {
-                                          setState(() => _showMenu = false);
-                                          final navigator = Navigator.of(context);
-                                          if (_isScanning) {
-                                            _scanEpoch++;
-                                            await _rfidService.stopScanning();
-                                            await _rfidService.stopInventorySound();
-                                            if (mounted) setState(() => _isScanning = false);
-                                          }
-                                          // Same drill-down as unmatchedCount (category/product/design),
-                                          // not the full stock list — otherwise other categories leak in.
-                                          final scope = _getNavScopeItems();
-                                          final catalog = UnmatchedSearchCatalog.instance;
-                                          catalog.clear();
-                                          for (var i = 0; i < scope.length; i++) {
-                                            final item = scope[i];
-                                            if (item.currentScannedStatus != 'Unmatched') {
-                                              continue;
-                                            }
-                                            catalog.items.add(SearchItem(
-                                              epc: item.epc,
-                                              itemCode: item.itemCode,
-                                              productName: item.productName,
-                                              rfid: item.rfid,
-                                              tid: item.originalBulkItem.tid,
-                                              hex: item.originalBulkItem.box,
-                                            ));
-                                            if (i > 0 && i % 600 == 0) {
-                                              await Future<void>.delayed(Duration.zero);
-                                              if (!mounted) return;
-                                            }
-                                          }
-                                          if (!mounted) return;
-                                          navigator.pushNamed('/search', arguments: {
-                                            'listKey': 'unmatchedItems',
-                                          });
-                                        },
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+              ScanDisplayListMenuOverlay(
+                matchedCount: matchedCount,
+                unmatchedCount: unmatchedCount,
+                unlabelledCount: _unlabelledEpcs.length,
+                onDismiss: () => setState(() => _showMenu = false),
+                onMatched: () {
+                  setState(() {
+                    _selectedMenu = 'MATCHED';
+                    _currentLevel = 'DesignItems';
+                    _showMenu = false;
+                  });
+                },
+                onUnmatched: () {
+                  setState(() {
+                    _selectedMenu = 'UNMATCHED';
+                    _currentLevel = 'DesignItems';
+                    _showMenu = false;
+                  });
+                },
+                onUnlabelled: () {
+                  setState(() {
+                    _selectedMenu = 'UNLABELLED';
+                    _currentLevel = 'DesignItems';
+                    _showMenu = false;
+                  });
+                },
+                onResumeScan: () {
+                  setState(() => _showMenu = false);
+                  _resumeScan();
+                },
+                onSearchUnmatched: () {
+                  unawaited(_openSearchUnmatched());
+                },
               ),
           ],
         ),
@@ -2646,6 +2571,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       onReset: _resetScanning,
       isScanning: _isScanning,
       showResume: _showResumeOnScanButton,
+      scanEnabled: !_isSaving,
     );
   }
 

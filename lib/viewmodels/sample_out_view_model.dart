@@ -441,10 +441,9 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
     }
   }
 
-  Future<void> processScannedTags(List<String> tags, {bool fromLiveScan = true}) async {
-    if (tags.isEmpty) return;
-    await _dbService.warmScanKeyIndex();
-    if (!acceptLiveScan(fromLiveScan)) return;
+  Future<int> processScannedTags(List<String> tags, {bool fromLiveScan = true}) async {
+    if (tags.isEmpty) return 0;
+    if (!acceptLiveScan(fromLiveScan)) return 0;
     var changed = false;
     var lastNotifyMs = 0;
     for (final epc in tags) {
@@ -453,14 +452,19 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
       if (!acceptLiveScan(fromLiveScan)) break;
       if (err == null) {
         changed = true;
-        final now = DateTime.now().millisecondsSinceEpoch;
-        if (now - lastNotifyMs >= 80) {
+        if (!fromLiveScan) {
           notifyListeners();
-          lastNotifyMs = now;
+        } else {
+          final now = DateTime.now().millisecondsSinceEpoch;
+          if (now - lastNotifyMs >= 80) {
+            notifyListeners();
+            lastNotifyMs = now;
+          }
         }
       }
     }
     if (changed && acceptLiveScan(fromLiveScan)) notifyListeners();
+    return changed ? 1 : 0;
   }
 
   double _sumDouble(String Function(ChallanDetailsModel) sel) {

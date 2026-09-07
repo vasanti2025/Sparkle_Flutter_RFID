@@ -593,6 +593,7 @@ class RfidService {
           await setInventoryScanMode(inventory);
         }
         
+        _isScanning = true;
         final started = await _methodChannel.invokeMethod<bool>('startScanning', {
               'power': power,
               'inventory': inventory,
@@ -600,7 +601,6 @@ class RfidService {
             }) ??
             false;
         if (started) {
-          _isScanning = true;
           if (_r6ModeEnabled) {
             _r6Connected = true;
           }

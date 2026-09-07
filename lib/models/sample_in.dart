@@ -8,6 +8,7 @@ String normSampleCode(String? value) {
 class SampleInModel {
   final int id;
   final String itemCode;
+  final String rfidCode;
   final String sampleOutNo;
   final String sampleStatus;
   final String createdOn;
@@ -27,6 +28,7 @@ class SampleInModel {
   SampleInModel({
     required this.id,
     required this.itemCode,
+    this.rfidCode = '',
     required this.sampleOutNo,
     required this.sampleStatus,
     required this.createdOn,
@@ -46,9 +48,14 @@ class SampleInModel {
 
   factory SampleInModel.fromJson(Map<String, dynamic> json) {
     final customer = json['Customer'] as Map<String, dynamic>?;
+    final rfid = json['RFIDCode']?.toString() ??
+        json['RfidCode']?.toString() ??
+        json['RFID']?.toString() ??
+        '';
     return SampleInModel(
       id: json['Id'] as int? ?? 0,
       itemCode: json['ItemCode']?.toString() ?? '',
+      rfidCode: rfid,
       sampleOutNo: json['SampleOutNo']?.toString() ?? '',
       sampleStatus: json['SampleStatus']?.toString() ?? '',
       createdOn: json['CreatedOn']?.toString() ?? '',

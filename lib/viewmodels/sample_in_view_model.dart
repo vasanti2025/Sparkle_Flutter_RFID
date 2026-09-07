@@ -393,10 +393,14 @@ class SampleInViewModel extends ChangeNotifier with LiveScanGate {
         ..clear()
         ..addAll(updated);
       if (!acceptLiveScan(fromLiveScan)) break;
-      final now = DateTime.now().millisecondsSinceEpoch;
-      if (now - lastNotifyMs >= 80) {
+      if (!fromLiveScan) {
         notifyListeners();
-        lastNotifyMs = now;
+      } else {
+        final now = DateTime.now().millisecondsSinceEpoch;
+        if (now - lastNotifyMs >= 80) {
+          notifyListeners();
+          lastNotifyMs = now;
+        }
       }
     }
 

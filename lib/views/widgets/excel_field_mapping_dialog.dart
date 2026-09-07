@@ -32,6 +32,7 @@ class _ExcelFieldMappingDialogState extends State<ExcelFieldMappingDialog> {
   String? _selectedTemplate;
   String? _statusMessage;
   bool _statusError = false;
+  bool _syncingName = false;
 
   static const _labelStyle = TextStyle(fontSize: 12, color: Color(0xFF1F2937), fontFamily: 'Poppins');
   static const _headerStyle = TextStyle(fontWeight: FontWeight.bold, fontSize: 12, fontFamily: 'Poppins');
@@ -40,6 +41,7 @@ class _ExcelFieldMappingDialogState extends State<ExcelFieldMappingDialog> {
   @override
   void initState() {
     super.initState();
+    _templateNameController.addListener(_onTemplateNameEdited);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final pref = context.read<PrefService>();
@@ -55,8 +57,25 @@ class _ExcelFieldMappingDialogState extends State<ExcelFieldMappingDialog> {
 
   @override
   void dispose() {
+    _templateNameController.removeListener(_onTemplateNameEdited);
     _templateNameController.dispose();
     super.dispose();
+  }
+
+  /// Typing a new name starts a new template. Keep dropdown + mappings of
+  /// template 1 from leaking into template 2.
+  void _onTemplateNameEdited() {
+    if (!mounted || _syncingName) return;
+    final typed = _templateNameController.text.trim();
+    if (typed == (_selectedTemplate ?? '')) {
+      return;
+    }
+    setState(() {
+      _selectedTemplate = null;
+      _mapping.clear();
+      _statusMessage = null;
+      _statusError = false;
+    });
   }
 
   Map<String, String> _columnLookup() {
@@ -81,6 +100,7 @@ class _ExcelFieldMappingDialogState extends State<ExcelFieldMappingDialog> {
       used.add(column);
       next[entry.key] = column;
     }
+    _syncingName = true;
     setState(() {
       _mapping
         ..clear()
@@ -96,6 +116,7 @@ class _ExcelFieldMappingDialogState extends State<ExcelFieldMappingDialog> {
             : context.sRead.templateApplied;
       }
     });
+    _syncingName = false;
     if (next.isNotEmpty) {
       context.read<PrefService>().setLastImportMappingTemplateName(name);
     }
@@ -119,7 +140,7 @@ class _ExcelFieldMappingDialogState extends State<ExcelFieldMappingDialog> {
   }
 
   bool _currentMappingIsSaved() {
-    final name = (_selectedTemplate ?? _templateNameController.text).trim();
+    final name = _templateNameController.text.trim();
     if (name.isEmpty) return false;
     final saved = _templates[name];
     if (saved == null) return false;
@@ -163,14 +184,17 @@ class _ExcelFieldMappingDialogState extends State<ExcelFieldMappingDialog> {
       return;
     }
     final pref = context.read<PrefService>();
-    await pref.saveImportMappingTemplate(name, _mapping);
+    await pref.saveImportMappingTemplate(name, Map<String, String>.from(_mapping));
     if (!mounted) return;
+    _syncingName = true;
     setState(() {
       _templates = pref.getImportMappingTemplates();
       _selectedTemplate = name;
+      _templateNameController.text = name;
       _statusError = false;
       _statusMessage = s.templateSaved;
     });
+    _syncingName = false;
   }
 
   Map<String, List<String>> _availableOptionsByField() {
@@ -199,15 +223,21 @@ class _ExcelFieldMappingDialogState extends State<ExcelFieldMappingDialog> {
   Widget build(BuildContext context) {
     final s = context.s;
     final media = MediaQuery.of(context);
-    const insetV = 8.0;
-    final maxDialogHeight =
-        (media.size.height - media.viewInsets.bottom - insetV * 2).clamp(240.0, media.size.height);
     final availableByField = _availableOptionsByField();
     final fieldKeys = ExcelProductService.importFieldKeys;
 
+    // Sit under the previous screen AppBar (status bar + toolbar), never over it.
+    final topInset = media.viewPadding.top + kToolbarHeight;
+    const bottomInset = 8.0;
+    final maxDialogHeight = (media.size.height -
+            topInset -
+            bottomInset -
+            media.viewInsets.bottom)
+        .clamp(240.0, media.size.height);
+
     return Dialog(
       alignment: Alignment.topCenter,
-      insetPadding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+      insetPadding: EdgeInsets.fromLTRB(12, topInset, 12, bottomInset),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
       child: SizedBox(
         width: math.min(560, media.size.width - 24),
@@ -295,7 +325,10 @@ class _ExcelFieldMappingDialogState extends State<ExcelFieldMappingDialog> {
 
   Widget _buildTemplateSection(AppStrings s) {
     final names = _templates.keys.toList()..sort();
-    final selected = (_selectedTemplate != null && _templates.containsKey(_selectedTemplate))
+    final typedName = _templateNameController.text.trim();
+    final selected = (_selectedTemplate != null &&
+            _selectedTemplate == typedName &&
+            _templates.containsKey(_selectedTemplate))
         ? _selectedTemplate
         : null;
     return Column(

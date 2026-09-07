@@ -56,7 +56,9 @@ class _SampleInListScreenState extends State<SampleInListScreen> {
       if (query.isEmpty) return true;
       return item.sampleOutNo.toLowerCase().contains(query) ||
           item.customerName.toLowerCase().contains(query) ||
-          item.productName.toLowerCase().contains(query);
+          item.productName.toLowerCase().contains(query) ||
+          item.itemCode.toLowerCase().contains(query) ||
+          item.rfidCode.toLowerCase().contains(query);
     }).toList()
       ..sort((a, b) => b.id.compareTo(a.id));
 
@@ -152,6 +154,8 @@ class _SampleInListScreenState extends State<SampleInListScreen> {
         SpreadsheetColumnDef(header: s.headerRDate, width: 90, valueBuilder: (i) => _formatDate(list[i].sampleInDate)),
         SpreadsheetColumnDef(header: s.description, width: 100, alignLeft: true, maxLines: 2, valueBuilder: (i) => list[i].description),
         SpreadsheetColumnDef(header: s.headerPName, width: 130, alignLeft: true, maxLines: 2, valueBuilder: (i) => list[i].productName),
+        SpreadsheetColumnDef(header: s.itemcode, width: 90, alignLeft: true, valueBuilder: (i) => list[i].itemCode),
+        SpreadsheetColumnDef(header: s.headerRfid, width: 110, alignLeft: true, valueBuilder: (i) => list[i].rfidCode),
         SpreadsheetColumnDef(header: s.headerTWt, width: 70, valueBuilder: (i) => list[i].totalWt),
         SpreadsheetColumnDef(header: s.headerGwt, width: 70, valueBuilder: (i) => list[i].grossWt),
         SpreadsheetColumnDef(header: s.headerSwt, width: 70, valueBuilder: (i) => list[i].stoneWeight),

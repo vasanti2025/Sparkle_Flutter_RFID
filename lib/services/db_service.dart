@@ -64,21 +64,27 @@ class DbService {
   }
 
   /// Indexed equality on epc/tid/rfid/itemCode. Avoid UPPER() full-table scans on 5L rows.
+  /// One SQLite round-trip (not four sequential queries) so single-tag add paints quickly.
   Future<BulkItem?> _queryBulkItemByScanKeyIndexed(String key) async {
     final db = await database;
-    for (final col in ['epc', 'tid', 'rfid', 'itemCode']) {
-      final maps = await db.query(
-        'bulk_items',
-        where: '$col = ?',
-        whereArgs: [key],
-        limit: 1,
-      );
-      if (maps.isEmpty) continue;
-      final item = BulkItem.fromMap(maps.first);
-      _cacheScanItem(key, item);
-      return item;
-    }
-    return null;
+    final maps = await db.rawQuery(
+      '''
+      SELECT * FROM bulk_items
+      WHERE epc = ? OR tid = ? OR rfid = ? OR itemCode = ?
+      ORDER BY CASE
+        WHEN epc = ? THEN 0
+        WHEN tid = ? THEN 1
+        WHEN rfid = ? THEN 2
+        ELSE 3
+      END
+      LIMIT 1
+      ''',
+      [key, key, key, key, key, key, key],
+    );
+    if (maps.isEmpty) return null;
+    final item = BulkItem.fromMap(maps.first);
+    _cacheScanItem(key, item);
+    return item;
   }
 
   Future<List<BulkItem>> searchBulkItemsByCodePrefix(String query, {int limit = 25}) async {

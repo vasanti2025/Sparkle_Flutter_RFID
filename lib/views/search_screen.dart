@@ -14,6 +14,7 @@ import '../viewmodels/dashboard_view_model.dart';
 import '../utils/app_dropdown.dart';
 import '../utils/scan_key.dart';
 import 'widgets/scan_bottom_bar.dart';
+import 'widgets/scan_display_list_menu.dart';
 
 class SearchItem {
   final String epc;
@@ -97,7 +98,26 @@ class UnmatchedSearchCatalog {
 
   final List<SearchItem> items = [];
 
+  /// Scan Display save / list / email — used only by Search Unmatched.
+  VoidCallback? onSave;
+  void Function(BuildContext dialogContext)? onEmail;
+  void Function(String menu)? onSelectMenu;
+  VoidCallback? onResumeScan;
+  int Function()? matchedCountOf;
+  int Function()? unmatchedCountOf;
+  int Function()? unlabelledCountOf;
+
   void clear() => items.clear();
+
+  void clearActions() {
+    onSave = null;
+    onEmail = null;
+    onSelectMenu = null;
+    onResumeScan = null;
+    matchedCountOf = null;
+    unmatchedCountOf = null;
+    unlabelledCountOf = null;
+  }
 }
 
 class SearchScreen extends StatefulWidget {
@@ -121,6 +141,8 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _isInit = false;
   bool _isLoading = false;
   bool _isScanning = false;
+  bool _showMenu = false;
+  bool _isHandingOff = false;
   int _selectedPower = 30;
 
   String _listKey = 'normal'; // 'unmatchedItems' or 'normal'
@@ -499,6 +521,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _toggleScanning() async {
+    if (_isHandingOff) return;
     if (_scanBusy) return;
     if (!mounted) return;
     final route = ModalRoute.of(context);
@@ -840,6 +863,16 @@ class _SearchScreenState extends State<SearchScreen> {
     throw StateError('Search display is empty');
   }
 
+  Future<void> _handOffToScanDisplay([VoidCallback? action]) async {
+    if (_isHandingOff) return;
+    _isHandingOff = true;
+    if (mounted) setState(() {});
+    if (_isScanning) await _stopSearchScan();
+    if (!mounted) return;
+    Navigator.of(context).pop();
+    action?.call();
+  }
+
   void _resetSearch() {
     unawaited(_stopSearchScan());
     _stopProximityDecay();
@@ -890,7 +923,17 @@ class _SearchScreenState extends State<SearchScreen> {
         ? _searchItems.length
         : _filteredCount;
 
-    return Scaffold(
+    final catalog = UnmatchedSearchCatalog.instance;
+
+    return PopScope(
+      canPop: !(isUnmatchedList && _showMenu),
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (isUnmatchedList && _showMenu) {
+          setState(() => _showMenu = false);
+        }
+      },
+      child: Scaffold(
       backgroundColor: Colors.white,
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(kToolbarHeight),
@@ -907,7 +950,13 @@ class _SearchScreenState extends State<SearchScreen> {
             elevation: 0,
             leading: IconButton(
               icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () => Navigator.pop(context),
+              onPressed: () {
+                if (isUnmatchedList && _showMenu) {
+                  setState(() => _showMenu = false);
+                  return;
+                }
+                Navigator.pop(context);
+              },
             ),
             title: Text(
               isUnmatchedList ? s.searchUnmatched : s.searchAllItems,
@@ -954,7 +1003,9 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
         ),
       ),
-      body: Column(
+      body: Stack(
+        children: [
+          Column(
         children: [
           // Dropdown for search type (Normal mode only)
           if (!isUnmatchedList)
@@ -1113,17 +1164,63 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
 
           // Bottom Navigation Bar
-          ScanBottomBar(
-            onSave: () {},
-            onList: () {},
-            onScan: _toggleScanning,
-            onGscan: () {},
-            onReset: _resetSearch,
-            isScanning: _isScanning,
-            isScreen: true,
-          ),
+          if (isUnmatchedList)
+            ScanBottomBarInventory(
+              onSave: () {
+                unawaited(_handOffToScanDisplay(catalog.onSave));
+              },
+              onList: () {
+                setState(() => _showMenu = !_showMenu);
+              },
+              onScan: _toggleScanning,
+              onEmail: () {
+                catalog.onEmail?.call(context);
+              },
+              onReset: _resetSearch,
+              isScanning: _isScanning,
+              scanEnabled: !_isHandingOff,
+            )
+          else
+            ScanBottomBar(
+              onSave: () {},
+              onList: () {},
+              onScan: _toggleScanning,
+              onGscan: () {},
+              onReset: _resetSearch,
+              isScanning: _isScanning,
+              isScreen: true,
+            ),
         ],
       ),
+          if (isUnmatchedList && _showMenu)
+            ScanDisplayListMenuOverlay(
+              matchedCount: catalog.matchedCountOf?.call() ?? 0,
+              unmatchedCount: catalog.unmatchedCountOf?.call() ?? 0,
+              unlabelledCount: catalog.unlabelledCountOf?.call() ?? 0,
+              onDismiss: () => setState(() => _showMenu = false),
+              onMatched: () {
+                unawaited(_handOffToScanDisplay(() {
+                  catalog.onSelectMenu?.call('MATCHED');
+                }));
+              },
+              onUnmatched: () {
+                unawaited(_handOffToScanDisplay(() {
+                  catalog.onSelectMenu?.call('UNMATCHED');
+                }));
+              },
+              onUnlabelled: () {
+                unawaited(_handOffToScanDisplay(() {
+                  catalog.onSelectMenu?.call('UNLABELLED');
+                }));
+              },
+              onResumeScan: () {
+                unawaited(_handOffToScanDisplay(catalog.onResumeScan));
+              },
+              onSearchUnmatched: () => setState(() => _showMenu = false),
+            ),
+        ],
+      ),
+    ),
     );
   }
 

@@ -59,8 +59,10 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
         final vm = context.read<SampleInViewModel>();
         final single = _isSingleScan;
         if (!single && !vm.liveScanEnabled) return;
-        _trayAutoStop.afterBatch(tags, vm.isTagInScanScope);
-        unawaited(vm.processScannedTags(tags, fromLiveScan: !single));
+        if (!single) {
+          _trayAutoStop.afterBatch(tags, vm.isTagInScanScope);
+        }
+        unawaited(_handleFlushedTags(vm, tags, single: single));
       },
     );
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -77,13 +79,9 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
     });
 
     _rfidSubscription = _rfidService.tagsStream.listen((epc) {
-      if (!_rfidService.isScanning) return;
+      if (!_isSingleScan && !_rfidService.isScanning) return;
       _tagBatcher.add(epc);
-      if (_isSingleScan) {
-        _tagBatcher.flushNow();
-        _isSingleScan = false;
-        _toggleGscan(context.read<SampleInViewModel>());
-      }
+      if (_isSingleScan) _tagBatcher.flushNow();
     });
 
     _triggerSubscription = _rfidService.triggerStream.listen((_) {
@@ -135,12 +133,31 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
     super.dispose();
   }
 
-  Future<void> _stopGscan(SampleInViewModel vm) async {
+  Future<void> _handleFlushedTags(
+    SampleInViewModel vm,
+    List<String> tags, {
+    required bool single,
+  }) async {
+    final added = await vm.processScannedTags(tags, fromLiveScan: !single);
+    if (!mounted) return;
+    if (single && added && _isSingleScan) {
+      _isSingleScan = false;
+      unawaited(_stopGscan(vm, waitForHardware: false));
+    }
+  }
+
+  Future<void> _stopGscan(SampleInViewModel vm, {bool waitForHardware = true}) async {
     vm.abortLiveScan();
     _tagBatcher.discardPending();
     if (mounted) setState(() {});
-    await _rfidService.stopScanning();
-    if (mounted) setState(() {});
+    if (waitForHardware) {
+      await _rfidService.stopScanning();
+      if (mounted) setState(() {});
+      return;
+    }
+    unawaited(_rfidService.stopScanning().then((_) {
+      if (mounted) setState(() {});
+    }));
   }
 
   Future<void> _toggleGscan(SampleInViewModel vm) async {
@@ -161,6 +178,7 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
     await vm.loadIssueBulkItems();
     if (!mounted) return;
 
+    await _rfidService.clearSearchTags();
     final scopeTags = vm.scanScopeTags;
     if (scopeTags.isNotEmpty) {
       await _rfidService.setMatchEpcs(scopeTags);
@@ -173,7 +191,7 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
       simulatedScopeTags: scopeTags,
       inventory: !_isSingleScan,
     );
-    if (started) {
+    if (started && _rfidService.isScanning) {
       vm.beginLiveScan();
       _trayAutoStop.onScanStarted();
     }
