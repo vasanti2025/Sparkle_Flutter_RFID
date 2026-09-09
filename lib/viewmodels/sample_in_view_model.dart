@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import '../models/bulk_item.dart';
@@ -21,6 +23,14 @@ class SampleInViewModel extends ChangeNotifier with LiveScanGate {
 
 
   Map<String, BulkItem> _issueBulkItems = {};
+  Future<void> _processTagsChain = Future<void>.value();
+  final Map<String, Map<String, dynamic>> _scanKeyToIssue = {};
+  final Map<String, BulkItem> _bulkByScanKey = {};
+  final Set<String> _scopeTagSet = {};
+  final Set<String> _issueItemCodes = {};
+  final Set<String> _scannedNorm = {};
+  int? _bulkLoadedForChallanId;
+  Future<void>? _bulkLoadInFlight;
 
   SampleInViewModel({
     required PrefService prefService,
@@ -97,13 +107,26 @@ class SampleInViewModel extends ChangeNotifier with LiveScanGate {
 
     try {
       final code = _prefService.getEmployee()?.clientCode ?? '';
-      final rawCustomers = await _apiService.getAllCustomers(code);
-      _customers = rawCustomers.map((c) => CustomerModel.fromJson(c as Map<String, dynamic>)).toList();
-      _dailyRates = await _apiService.getDailyRates(code);
-      await fetchAllSampleIn();
-      await fetchOpenSampleOuts();
+      final customersFuture = _apiService.getAllCustomers(code);
+      final ratesFuture = _apiService.getDailyRates(code);
+      final outsFuture = _apiService.getAllSampleOut(code);
+
+      final rawCustomers = await customersFuture;
+      _customers = rawCustomers
+          .map((c) => CustomerModel.fromJson(c as Map<String, dynamic>))
+          .toList();
       _selectedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
       _returnDate = _selectedDate;
+      // Customers first so the user can type while challans/rates finish.
+      notifyListeners();
+
+      _dailyRates = await ratesFuture;
+      try {
+        final raw = await outsFuture;
+        _openSampleOuts = raw.map((c) => SampleOutModel.fromJson(c as Map<String, dynamic>)).toList();
+      } catch (e) {
+        _errorMessage = e.toString();
+      }
     } catch (e) {
       _errorMessage = e.toString();
     } finally {
@@ -184,7 +207,9 @@ class SampleInViewModel extends ChangeNotifier with LiveScanGate {
     _selectedChallan = null;
     _scannedCodes.clear();
     _selectedReturnCodes.clear();
+    _scannedNorm.clear();
     _isReturnMode = false;
+    _clearScanIndexes();
     notifyListeners();
   }
 
@@ -203,11 +228,13 @@ class SampleInViewModel extends ChangeNotifier with LiveScanGate {
     _selectedChallan = challan;
     _scannedCodes.clear();
     _selectedReturnCodes.clear();
+    _scannedNorm.clear();
     _isReturnMode = false;
     if (_description.isEmpty) _description = challan.description;
     if (_returnDate.isEmpty) _returnDate = challan.returnDate;
     if (_selectedDate.isEmpty) _selectedDate = challan.date.isNotEmpty ? challan.date : DateFormat('yyyy-MM-dd').format(DateTime.now());
-    loadIssueBulkItems();
+    _rebuildScanIndexes();
+    unawaited(ensureIssueBulkItems());
     notifyListeners();
   }
 
@@ -215,7 +242,9 @@ class SampleInViewModel extends ChangeNotifier with LiveScanGate {
     _selectedChallan = null;
     _scannedCodes.clear();
     _selectedReturnCodes.clear();
+    _scannedNorm.clear();
     _isReturnMode = false;
+    _clearScanIndexes();
     notifyListeners();
   }
 
@@ -224,28 +253,105 @@ class SampleInViewModel extends ChangeNotifier with LiveScanGate {
     _selectedChallan = null;
     _scannedCodes.clear();
     _selectedReturnCodes.clear();
+    _scannedNorm.clear();
     _isReturnMode = false;
     _errorMessage = null;
     _selectedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
     _returnDate = _selectedDate;
     _description = '';
+    _clearScanIndexes();
     notifyListeners();
   }
 
   bool isIssueMatched(Map<String, dynamic> issue) {
     final code = normSampleCode(issue['ItemCode']?.toString());
     if (code.isEmpty) return false;
-    final scannedNorm = _scannedCodes.map(normSampleCode).toSet();
-    return scannedNorm.contains(code);
+    return _scannedNorm.contains(code) || _scannedCodes.contains(code);
   }
 
   Future<void> refreshBulkItems() async {
-    await loadIssueBulkItems();
+    _bulkLoadedForChallanId = null;
+    await ensureIssueBulkItems();
+  }
+
+  void _clearScanIndexes() {
+    _issueBulkItems = {};
+    _scanKeyToIssue.clear();
+    _bulkByScanKey.clear();
+    _scopeTagSet.clear();
+    _issueItemCodes.clear();
+    _bulkLoadedForChallanId = null;
+  }
+
+  void _rebuildScanIndexes() {
+    _scanKeyToIssue.clear();
+    _bulkByScanKey.clear();
+    _scopeTagSet.clear();
+    _issueItemCodes.clear();
+    for (final issue in issueItems) {
+      for (final code in _codesForIssue(issue)) {
+        _scanKeyToIssue[code] = issue;
+        _scopeTagSet.add(code);
+      }
+      for (final key in ['ItemCode', 'RFIDCode', 'TIDNumber']) {
+        final raw = issue[key]?.toString().trim().toUpperCase() ?? '';
+        if (raw.isNotEmpty) _scopeTagSet.add(raw);
+      }
+      final itemCode = normSampleCode(issue['ItemCode']?.toString());
+      if (itemCode.isNotEmpty) _issueItemCodes.add(itemCode);
+    }
+    for (final item in _issueBulkItems.values) {
+      void put(String raw) {
+        final trimmed = raw.trim().toUpperCase();
+        if (trimmed.isNotEmpty) _scopeTagSet.add(trimmed);
+        final key = normSampleCode(raw);
+        if (key.isEmpty) return;
+        _bulkByScanKey[key] = item;
+        _scopeTagSet.add(key);
+      }
+      put(item.epc);
+      put(item.rfid);
+      put(item.tid);
+      put(item.itemCode);
+    }
+  }
+
+  void _applyScanned(Set<String> updated) {
+    if (!identical(updated, _scannedCodes)) {
+      _scannedCodes
+        ..clear()
+        ..addAll(updated);
+    }
+    _scannedNorm
+      ..clear()
+      ..addAll(_scannedCodes.map(normSampleCode).where((c) => c.isNotEmpty));
+  }
+
+  Future<void> ensureIssueBulkItems() async {
+    final id = _selectedChallan?.id;
+    if (id != null && _bulkLoadedForChallanId == id) return;
+    if (_bulkLoadInFlight != null) {
+      await _bulkLoadInFlight;
+      if (id != null && _bulkLoadedForChallanId == id) return;
+    }
+    if (_selectedChallan?.id != id) return;
+    final future = loadIssueBulkItems();
+    _bulkLoadInFlight = future;
+    try {
+      await future;
+      if (_selectedChallan?.id == id) {
+        _bulkLoadedForChallanId = id;
+      }
+    } finally {
+      if (identical(_bulkLoadInFlight, future)) _bulkLoadInFlight = null;
+    }
   }
 
   Future<void> loadIssueBulkItems() async {
+    final challanId = _selectedChallan?.id;
     if (issueItems.isEmpty) {
       _issueBulkItems = {};
+      _rebuildScanIndexes();
       return;
     }
     try {
@@ -253,46 +359,23 @@ class SampleInViewModel extends ChangeNotifier with LiveScanGate {
           .map((i) => normSampleCode(i['ItemCode']?.toString()))
           .where((c) => c.isNotEmpty)
           .toSet();
-      _issueBulkItems = await _dbService.findBulkItemsByItemCodes(codes);
+      final loaded = await _dbService.findBulkItemsByItemCodes(codes);
+      if (_selectedChallan?.id != challanId) return;
+      _issueBulkItems = loaded;
     } catch (e) {
       debugPrint('SampleIn loadIssueBulkItems: $e');
+      if (_selectedChallan?.id != challanId) return;
       _issueBulkItems = {};
     }
+    _rebuildScanIndexes();
   }
 
-  List<String> get scanScopeTags {
-    final tags = <String>{};
-    for (final issue in issueItems) {
-      for (final key in ['ItemCode', 'RFIDCode', 'TIDNumber']) {
-        final v = issue[key]?.toString().trim().toUpperCase() ?? '';
-        if (v.isNotEmpty) tags.add(v);
-      }
-    }
-    for (final item in _issueBulkItems.values) {
-      for (final v in [item.epc, item.rfid, item.tid, item.itemCode]) {
-        final t = v.trim().toUpperCase();
-        if (t.isNotEmpty) tags.add(t);
-      }
-    }
-    return tags.toList();
-  }
+  List<String> get scanScopeTags => _scopeTagSet.toList();
 
   void _addIssueCodesToSet(Set<String> target, Map<String, dynamic> issue) {
     for (final code in _codesForIssue(issue)) {
       if (code.isNotEmpty) target.add(code);
     }
-  }
-
-  BulkItem? _findBulkItemByCode(String scanned) {
-    for (final item in _issueBulkItems.values) {
-      if (normSampleCode(item.itemCode) == scanned ||
-          normSampleCode(item.rfid) == scanned ||
-          normSampleCode(item.epc) == scanned ||
-          normSampleCode(item.tid) == scanned) {
-        return item;
-      }
-    }
-    return null;
   }
 
   List<String> _codesForIssue(Map<String, dynamic> issue) {
@@ -305,30 +388,14 @@ class SampleInViewModel extends ChangeNotifier with LiveScanGate {
 
   /// Whether a tray tag maps to an item in the active Sample Out issue list.
   bool isTagInScanScope(String tag) {
-    if (issueItems.isEmpty) return false;
     final scanned = normSampleCode(tag);
-    if (scanned.isEmpty) return false;
-
-    for (final issue in issueItems) {
-      final itemCode = normSampleCode(issue['ItemCode']?.toString());
-      final rfid = normSampleCode(issue['RFIDCode']?.toString());
-      final tid = normSampleCode(issue['TIDNumber']?.toString());
-      if (scanned == itemCode || scanned == rfid || scanned == tid) {
-        return true;
-      }
-    }
-
-    final bulk = _findBulkItemByCode(scanned);
-    if (bulk == null) return false;
-    final issueItemCodes = issueItems
-        .map((i) => normSampleCode(i['ItemCode']?.toString()))
-        .where((c) => c.isNotEmpty)
-        .toSet();
-    return issueItemCodes.contains(normSampleCode(bulk.itemCode));
+    if (scanned.isEmpty || _scopeTagSet.isEmpty) return false;
+    return _scopeTagSet.contains(scanned);
   }
 
   void manualMatchIssue(Map<String, dynamic> issue) {
     _scannedCodes.addAll(_codesForIssue(issue));
+    _applyScanned(_scannedCodes);
     notifyListeners();
   }
 
@@ -336,21 +403,33 @@ class SampleInViewModel extends ChangeNotifier with LiveScanGate {
     final toRemove = _codesForIssue(issue).toSet();
     _scannedCodes.removeWhere((c) => toRemove.contains(normSampleCode(c)));
     _selectedReturnCodes.removeWhere((c) => toRemove.contains(normSampleCode(c)));
+    _applyScanned(_scannedCodes);
     notifyListeners();
   }
 
-  Future<bool> processScannedTags(List<String> tags, {bool fromLiveScan = true}) async {
+  Future<bool> processScannedTags(List<String> tags, {bool fromLiveScan = true}) {
+    final result = Completer<bool>();
+    _processTagsChain = _processTagsChain.then((_) async {
+      try {
+        result.complete(await _processScannedTagsBody(tags, fromLiveScan: fromLiveScan));
+      } catch (e, st) {
+        debugPrint('SampleIn processScannedTags: $e\n$st');
+        if (!result.isCompleted) result.complete(false);
+      }
+    }).catchError((Object e, StackTrace st) {
+      debugPrint('SampleIn process chain: $e\n$st');
+      if (!result.isCompleted) result.complete(false);
+    });
+    return result.future;
+  }
+
+  Future<bool> _processScannedTagsBody(List<String> tags, {required bool fromLiveScan}) async {
     if (_selectedChallan == null || issueItems.isEmpty) return false;
 
-    if (_issueBulkItems.isEmpty) {
-      await loadIssueBulkItems();
+    if (_bulkLoadedForChallanId != _selectedChallan?.id) {
+      await ensureIssueBulkItems();
     }
     if (!acceptLiveScan(fromLiveScan)) return false;
-
-    final issueItemCodes = issueItems
-        .map((i) => normSampleCode(i['ItemCode']?.toString()))
-        .where((c) => c.isNotEmpty)
-        .toSet();
 
     final before = _scannedCodes.length;
     final updated = Set<String>.from(_scannedCodes);
@@ -361,26 +440,19 @@ class SampleInViewModel extends ChangeNotifier with LiveScanGate {
       final scanned = normSampleCode(tag);
       if (scanned.isEmpty) continue;
 
-      var matched = false;
-      for (final issue in issueItems) {
-        final itemCode = normSampleCode(issue['ItemCode']?.toString());
-        final rfid = normSampleCode(issue['RFIDCode']?.toString());
-        final tid = normSampleCode(issue['TIDNumber']?.toString());
-
-        if (scanned == itemCode || scanned == rfid || scanned == tid) {
-          matched = true;
-          _addIssueCodesToSet(updated, issue);
+      final issue = _scanKeyToIssue[scanned];
+      if (issue != null) {
+        _addIssueCodesToSet(updated, issue);
+      } else {
+        var bulk = _bulkByScanKey[scanned] ?? _dbService.findBulkItemByScanKeySync(tag);
+        if (bulk == null && !fromLiveScan) {
+          bulk = await _dbService.findBulkItemByScanKey(tag);
+          if (!acceptLiveScan(fromLiveScan)) break;
         }
-      }
-
-      if (!matched) {
-        var bulk = _findBulkItemByCode(scanned);
-        bulk ??= await _dbService.findBulkItemByScanKey(tag);
-        if (!acceptLiveScan(fromLiveScan)) break;
         if (bulk == null) continue;
 
         final bulkItemCode = normSampleCode(bulk.itemCode);
-        if (!issueItemCodes.contains(bulkItemCode)) continue;
+        if (!_issueItemCodes.contains(bulkItemCode)) continue;
 
         updated.add(bulkItemCode);
         final bulkRfid = normSampleCode(bulk.rfid);
@@ -389,24 +461,16 @@ class SampleInViewModel extends ChangeNotifier with LiveScanGate {
         if (bulkTid.isNotEmpty) updated.add(bulkTid);
       }
 
-      _scannedCodes
-        ..clear()
-        ..addAll(updated);
-      if (!acceptLiveScan(fromLiveScan)) break;
-      if (!fromLiveScan) {
+      if (!fromLiveScan) continue;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - lastNotifyMs >= 80) {
+        _applyScanned(updated);
         notifyListeners();
-      } else {
-        final now = DateTime.now().millisecondsSinceEpoch;
-        if (now - lastNotifyMs >= 80) {
-          notifyListeners();
-          lastNotifyMs = now;
-        }
+        lastNotifyMs = now;
       }
     }
 
-    _scannedCodes
-      ..clear()
-      ..addAll(updated);
+    _applyScanned(updated);
     if (acceptLiveScan(fromLiveScan)) notifyListeners();
     return _scannedCodes.length > before;
   }
@@ -468,6 +532,7 @@ class SampleInViewModel extends ChangeNotifier with LiveScanGate {
       issueItems: items,
       customerFirstName: _selectedChallan!.customerFirstName,
     );
+    _rebuildScanIndexes();
     notifyListeners();
   }
 

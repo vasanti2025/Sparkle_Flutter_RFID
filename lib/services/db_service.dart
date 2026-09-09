@@ -82,9 +82,13 @@ class DbService {
       [key, key, key, key, key, key, key],
     );
     if (maps.isEmpty) return null;
-    final item = BulkItem.fromMap(maps.first);
-    _cacheScanItem(key, item);
-    return item;
+    try {
+      final item = BulkItem.fromMap(maps.first);
+      _cacheScanItem(key, item);
+      return item;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<List<BulkItem>> searchBulkItemsByCodePrefix(String query, {int limit = 25}) async {
@@ -101,22 +105,37 @@ class DbService {
   }
 
   /// Loads only rows matching issue item codes (Sample In scan scope).
+  /// Indexed `itemCode IN (...)` — never `UPPER(itemCode)` (full scan of 5L rows).
   Future<Map<String, BulkItem>> findBulkItemsByItemCodes(Set<String> codes) async {
     if (codes.isEmpty) return {};
-    final normalized = codes.map((c) => c.trim().toUpperCase()).where((c) => c.isNotEmpty).toSet();
-    if (normalized.isEmpty) return {};
+    final keys = <String>{};
+    for (final raw in codes) {
+      final t = raw.trim();
+      if (t.isEmpty) continue;
+      keys.add(t);
+      keys.add(t.toUpperCase());
+    }
+    if (keys.isEmpty) return {};
     final db = await database;
-    final placeholders = List.filled(normalized.length, '?').join(',');
-    final maps = await db.query(
-      'bulk_items',
-      where: 'UPPER(itemCode) IN ($placeholders)',
-      whereArgs: normalized.toList(),
-    );
     final result = <String, BulkItem>{};
-    for (final map in maps) {
-      final item = BulkItem.fromMap(map);
-      final code = item.itemCode.trim().toUpperCase();
-      if (code.isNotEmpty) result[code] = item;
+    const chunkSize = 400;
+    final list = keys.toList();
+    for (var i = 0; i < list.length; i += chunkSize) {
+      final end = i + chunkSize > list.length ? list.length : i + chunkSize;
+      final chunk = list.sublist(i, end);
+      final placeholders = List.filled(chunk.length, '?').join(',');
+      final maps = await db.query(
+        'bulk_items',
+        where: 'itemCode IN ($placeholders)',
+        whereArgs: chunk,
+      );
+      for (final map in maps) {
+        try {
+          final item = BulkItem.fromMap(map);
+          final code = item.itemCode.trim().toUpperCase();
+          if (code.isNotEmpty) result[code] = item;
+        } catch (_) {}
+      }
     }
     return result;
   }

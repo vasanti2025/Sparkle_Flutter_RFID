@@ -5,6 +5,10 @@ import '../../models/sample_in.dart';
 import '../../utils/stretch_table_widths.dart';
 
 class SampleInTable extends StatelessWidget {
+  static final _headerStyle = GoogleFonts.poppins(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold);
+  static final _cellStyle = GoogleFonts.poppins(fontSize: 11, color: Colors.black87);
+  static final _footerStyle = GoogleFonts.poppins(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold);
+  static final _emptyStyle = GoogleFonts.poppins(color: Colors.grey, fontSize: 13);
   final List<Map<String, dynamic>> issueItems;
   final Set<String> scannedCodes;
   final bool isReturnMode;
@@ -89,7 +93,7 @@ class SampleInTable extends StatelessWidget {
             ),
             Expanded(
               child: issueItems.isEmpty
-                  ? Center(child: Text(context.s.selectSampleOutNoToLoadItems, style: GoogleFonts.poppins(color: Colors.grey, fontSize: 13)))
+                  ? Center(child: Text(context.s.selectSampleOutNoToLoadItems, style: _emptyStyle))
                   : ListView.builder(
                       itemCount: issueItems.length,
                       itemBuilder: (context, index) {
@@ -224,7 +228,7 @@ class SampleInTable extends StatelessWidget {
       color: const Color(0xFF2E2E2E),
       alignment: alignLeft ? Alignment.centerLeft : Alignment.center,
       padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Text(text, style: GoogleFonts.poppins(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis),
+      child: Text(text, style: _headerStyle, maxLines: 2, overflow: TextOverflow.ellipsis),
     );
   }
 
@@ -233,7 +237,7 @@ class SampleInTable extends StatelessWidget {
       width: width,
       padding: const EdgeInsets.symmetric(horizontal: 4),
       alignment: alignLeft ? Alignment.centerLeft : Alignment.center,
-      child: Text(text, style: GoogleFonts.poppins(fontSize: 11, color: Colors.black87), maxLines: 1, overflow: TextOverflow.ellipsis),
+      child: Text(text, style: _cellStyle, maxLines: 1, overflow: TextOverflow.ellipsis),
     );
   }
 
@@ -242,7 +246,7 @@ class SampleInTable extends StatelessWidget {
       width: width,
       padding: const EdgeInsets.symmetric(horizontal: 4),
       alignment: alignLeft ? Alignment.centerLeft : Alignment.center,
-      child: Text(text, style: GoogleFonts.poppins(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
+      child: Text(text, style: _footerStyle, maxLines: 1, overflow: TextOverflow.ellipsis),
     );
   }
 
