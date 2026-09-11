@@ -230,7 +230,6 @@ class _SearchScreenState extends State<SearchScreen> {
   Future<void> _loadPower() async {
     final power = context.read<PrefService>().searchPower;
     if (mounted) setState(() => _selectedPower = power.clamp(1, 30));
-    _rfidService.setPower(power);
   }
 
   /// Trim + uppercase + strip spaces — matches native EPC keys and stock transfer.
@@ -362,11 +361,15 @@ class _SearchScreenState extends State<SearchScreen> {
       _nearbyTick.value++;
     }
     setState(() {});
-    _checkAutoStopSearch();
+    if (_listKey == 'unmatchedItems') {
+      _checkAutoStopSearch();
+    }
   }
 
-  /// Stop when every item in the current list reaches max proximity (Sparkle Search).
+  /// Unmatched Search only: stop when every visible item is at 100%.
+  /// Global Search never auto-stops at 100%.
   void _checkAutoStopSearch() {
+    if (_listKey != 'unmatchedItems') return;
     if (!_isScanning || _scanBusy) return;
     if (_searchItems.isEmpty) return;
     if (_completeAtSessionStart) {
@@ -404,7 +407,6 @@ class _SearchScreenState extends State<SearchScreen> {
       await _rfidService.stopScanning();
       await _rfidService.stopInventorySound();
       await _rfidService.stopSound();
-      await _rfidService.clearSearchTags();
       if (mounted) {
         _displayIndexValid = false;
         setState(() => _isScanning = false);
@@ -552,12 +554,14 @@ class _SearchScreenState extends State<SearchScreen> {
 
     _scanBusy = true;
     try {
-      // Collect tags before any index lists are cleared — after 100% the item
-      // lives in _hotIndices; clearing that first caused RangeError on restart.
-      final cleanTags = _collectSearchTags();
-      if (cleanTags.isEmpty) {
-        _showToast(context.sRead.noSearchableIdentifiersFound);
-        return;
+      List<String>? tagsToSend;
+      if (!(_isLargeUnmatched && _searchQuery.trim().isEmpty)) {
+        final cleanTags = _collectSearchTags();
+        if (cleanTags.isEmpty) {
+          _showToast(context.sRead.noSearchableIdentifiersFound);
+          return;
+        }
+        tagsToSend = cleanTags;
       }
 
       _completeAtSessionStart = _visibleItemsAllAtMax();
@@ -570,13 +574,10 @@ class _SearchScreenState extends State<SearchScreen> {
       _displayIndexValid = false;
       _startProximityDecay();
 
-      final started = await _rfidService
-          .startScanning(
-            power: _selectedPower,
-            searchTags: cleanTags,
-            playStartSound: false,
-          )
-          .timeout(const Duration(seconds: 12), onTimeout: () => false);
+      final started = await _rfidService.startSearchScanning(
+        power: _selectedPower,
+        searchTags: tagsToSend,
+      );
 
       if (!mounted) return;
       if (!started) {
@@ -584,7 +585,6 @@ class _SearchScreenState extends State<SearchScreen> {
         setState(() => _isScanning = false);
         await _rfidService.stopSound();
         await _rfidService.stopScanning();
-        await _rfidService.clearSearchTags();
         if (!mounted) return;
         _showToast(context.sRead.failedToStartRfidScanner);
       }

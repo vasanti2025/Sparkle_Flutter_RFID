@@ -12,9 +12,8 @@ import '../session_vm_hooks.dart' deferred as vm_hooks;
 import 'api_service.dart';
 import 'pref_service.dart';
 
-/// Keeps the login session alive for [PrefService.sessionDuration] (1 hour),
-/// refreshes short-lived JWT tokens silently, and sends the user to Login
-/// when the session ends or becomes invalid.
+/// Keeps the user logged in until they choose Logout.
+/// Refreshes short-lived JWT tokens silently so APIs keep working.
 class SessionLifecycle {
   SessionLifecycle._();
   static final SessionLifecycle instance = SessionLifecycle._();
@@ -67,18 +66,8 @@ class SessionLifecycle {
     if (prefs == null || _forcingLogout) return;
     if (!prefs.isLoggedIn()) return;
 
-    if (prefs.isSessionTimedOut()) {
-      debugPrint('SessionLifecycle: 1hr session expired → login');
-      await forceLogoutToLogin();
-      return;
-    }
-
     if (prefs.getEmployee() == null) {
-      final refreshed = await trySilentRefresh();
-      if (!refreshed || prefs.getEmployee() == null) {
-        debugPrint('SessionLifecycle: missing employee → login');
-        await forceLogoutToLogin();
-      }
+      await trySilentRefresh();
       return;
     }
 
@@ -95,23 +84,13 @@ class SessionLifecycle {
   Future<bool> handleUnauthorized() async {
     final prefs = _prefs;
     if (prefs == null) return false;
-    if (prefs.isSessionTimedOut()) {
-      await forceLogoutToLogin();
-      return false;
-    }
-    final ok = await trySilentRefresh();
-    if (!ok) {
-      await forceLogoutToLogin();
-      return false;
-    }
-    return true;
+    return trySilentRefresh();
   }
 
   Future<bool> trySilentRefresh() async {
     final prefs = _prefs;
     final api = _api;
     if (prefs == null || api == null) return false;
-    if (prefs.isSessionTimedOut()) return false;
 
     if (_refreshing) {
       for (var i = 0; i < 40 && _refreshing; i++) {
@@ -140,7 +119,6 @@ class SessionLifecycle {
       if (employee.clients != null) {
         await prefs.saveClient(employee.clients!);
       }
-      // Keep original session_started_at — absolute 1hr window from first login.
       await prefs.setLoggedIn(true);
       _lastSilentRefreshAt = DateTime.now();
 

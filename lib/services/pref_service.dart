@@ -25,8 +25,8 @@ class PrefService {
   static const String _keySessionUsername = 'session_username';
   static const String _keySessionPassword = 'session_password';
 
-  /// Client-side login session length. Server JWT is refreshed within this window.
-  static const Duration sessionDuration = Duration(hours: 1);
+  /// Client-side idle timeout is disabled. JWT is still refreshed while logged in.
+  static const Duration sessionDuration = Duration(days: 36500);
 
   // RFID power keys — match Kotlin UserPreferences
   static const String keyProductCount = 'product_count';
@@ -114,7 +114,6 @@ class PrefService {
     if (!isLoggedIn() || getEmployee() == null) return false;
     final token = getToken();
     if (token == null || token.isEmpty) return false;
-    if (isSessionTimedOut()) return false;
     return true;
   }
 
@@ -125,25 +124,10 @@ class PrefService {
 
   int? getSessionStartedAtMs() => _store.getInt(_keySessionStartedAt);
 
-  bool isSessionTimedOut() {
-    final started = getSessionStartedAtMs();
-    if (started == null || started <= 0) {
-      // Legacy sessions without a clock: treat as still valid until next login
-      // stamps a start time. Do not force-logout mid-shift for old installs.
-      return false;
-    }
-    final age = DateTime.now().millisecondsSinceEpoch - started;
-    return age >= sessionDuration.inMilliseconds;
-  }
+  /// No idle / timed session-out. Stay logged in until the user logs out.
+  bool isSessionTimedOut() => false;
 
-  Duration? sessionTimeRemaining() {
-    final started = getSessionStartedAtMs();
-    if (started == null || started <= 0) return null;
-    final left = sessionDuration.inMilliseconds -
-        (DateTime.now().millisecondsSinceEpoch - started);
-    if (left <= 0) return Duration.zero;
-    return Duration(milliseconds: left);
-  }
+  Duration? sessionTimeRemaining() => null;
 
   Future<void> saveSessionCredentials({
     required String username,

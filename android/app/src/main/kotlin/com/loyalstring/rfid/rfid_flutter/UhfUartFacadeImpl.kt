@@ -8,16 +8,26 @@ interface UhfFacade {
     fun setPower(power: Int): Boolean
     /** setPower + Chainway inventory defaults (focus/fastID/dynamicDistance). */
     fun prepareScan(power: Int): Boolean
+    /**
+     * uhf-uart-demo Tag LED Inventory start: power, optional EPC filter, mode 15.
+     * Does not call setEPCMode — that turns LED blink off.
+     */
+    fun prepareSearchLed(power: Int, epcs: Collection<String>): Boolean
     fun startInventory(): Boolean
     fun stopInventory(): Boolean
+    /** Demo Tag LED / Read Tag: tags arrive on this callback (no readTagFromBuffer poll). */
+    fun setInventoryCallback(onTag: ((epc: String, rssi: String) -> Unit)?)
     /** @return epc to rssi, or null if buffer empty */
     fun readTagFromBuffer(): Pair<String, String>?
     fun isReady(): Boolean
+    fun recoverHardware(): Boolean
     /**
-     * Sparkle Search LED: brief Reserved-bank read filtered by EPC makes the tag LED blink.
-     * Must be called while inventory is stopped.
+     * Demo Tag LED Inventory "Blink": setFilter(matched EPCs) then mode 15.
+     * Only those EPCs blink. Empty [epcs] returns false (do not blink all tags).
      */
-    fun readReservedBankForLed(epc: String): Boolean
+    fun applyLedTagBlinkMode(epcs: Collection<String>): Boolean
+    /** Restore EPC-only inventory after Search (same as demo leaving Tag LED tab). */
+    fun restoreEpcInventoryMode(): Boolean
 }
 
 /**
@@ -44,6 +54,23 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
         }
     }
 
+    override fun recoverHardware(): Boolean {
+        ready = false
+        try {
+            reader?.stopInventory()
+        } catch (_: Throwable) {
+        }
+        try {
+            val free = reader?.javaClass?.methods?.firstOrNull {
+                it.name == "free" && it.parameterTypes.isEmpty()
+            }
+            free?.invoke(reader)
+        } catch (_: Throwable) {
+        }
+        reader = null
+        return initHardware()
+    }
+
     override fun setPower(power: Int): Boolean {
         return try {
             reader?.setPower(power) ?: false
@@ -64,10 +91,17 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
                 r.setEPCMode()
             } catch (_: Throwable) {
             }
+            clearEpcFilters(r)
             true
         } catch (_: Throwable) {
             false
         }
+    }
+
+    override fun prepareSearchLed(power: Int, epcs: Collection<String>): Boolean {
+        // EPC-only start. Unfiltered mode 15 lights every LED tag in range.
+        android.util.Log.i("UhfUartFacade", "prepareSearchLed EPC-only catalogHints=${epcs.size}")
+        return prepareScan(power)
     }
 
     override fun startInventory(): Boolean {
@@ -75,6 +109,40 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
             reader?.startInventoryTag() ?: false
         } catch (_: Throwable) {
             false
+        }
+    }
+
+    override fun setInventoryCallback(onTag: ((epc: String, rssi: String) -> Unit)?) {
+        try {
+            val r = reader ?: return
+            if (onTag == null) {
+                r.setInventoryCallback(null)
+                return
+            }
+            r.setInventoryCallback(object : com.rscja.deviceapi.interfaces.IUHFInventoryCallback {
+                override fun callback(info: com.rscja.deviceapi.entity.UHFTAGInfo) {
+                    val epc = try {
+                        info.epc?.trim().orEmpty()
+                    } catch (_: Throwable) {
+                        ""
+                    }.ifEmpty {
+                        try {
+                            info.getEPC()?.trim().orEmpty()
+                        } catch (_: Throwable) {
+                            ""
+                        }
+                    }
+                    if (epc.isEmpty()) return
+                    val rssi = try {
+                        info.rssi?.toString() ?: "0"
+                    } catch (_: Throwable) {
+                        "0"
+                    }
+                    onTag(epc, rssi)
+                }
+            })
+        } catch (e: Throwable) {
+            android.util.Log.w("UhfUartFacade", "setInventoryCallback failed: ${e.message}")
         }
     }
 
@@ -98,30 +166,136 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
         }
     }
 
-    /**
-     * Same call as Sparkle SearchViewModel.startContinuousBlink:
-     * readData(pwd, Bank_EPC, 32, epcLen*4, epc, Bank_RESERVED, 4, 1)
-     */
-    override fun readReservedBankForLed(epc: String): Boolean {
+    override fun applyLedTagBlinkMode(epcs: Collection<String>): Boolean {
         return try {
             val r = reader ?: return false
-            val clean = epc.trim()
-            if (clean.isEmpty()) return false
-            val filterCnt = clean.length * 4
-            r.readData(
-                "00000000",
-                com.rscja.deviceapi.RFIDWithUHFUART.Bank_EPC,
-                32,
-                filterCnt,
-                clean,
-                com.rscja.deviceapi.interfaces.IUHF.Bank_RESERVED,
-                4,
-                1,
-            )
-            true
+            val unique = ledEpcsOf(epcs)
+            // Demo Tag LED: setFilter(checked EPCs) then LED mode.
+            // Never unfiltered LED inventory — that lights every LED tag in range.
+            if (unique.isEmpty()) return false
+            val selected = if (unique.size <= 8) ArrayList(unique) else ArrayList(unique.take(8))
+            if (!installEpcFilter(r, selected)) {
+                android.util.Log.w("UhfUartFacade", "Search LED setFilter(${selected.size}) failed")
+                return false
+            }
+            // uhf-uart-demo checkbox "LED tag" = MODE_LED_TAG (solid).
+            val solid = com.rscja.deviceapi.entity.InventoryModeEntity.Builder()
+                .setMode(com.rscja.deviceapi.entity.InventoryModeEntity.MODE_LED_TAG)
+                .build()
+            if (r.setEPCAndTIDUserMode(solid)) {
+                android.util.Log.i("UhfUartFacade", "Search LED MODE_LED_TAG epcs=${selected.size}")
+                return true
+            }
+            // Demo checkbox "blink" = mode 15.
+            val blink = com.rscja.deviceapi.entity.InventoryModeEntity.Builder()
+                .setMode(15)
+                .build()
+            val ok = r.setEPCAndTIDUserMode(blink)
+            android.util.Log.i("UhfUartFacade", "Search LED mode15 fallback epcs=${selected.size} => $ok")
+            ok
         } catch (e: Throwable) {
-            android.util.Log.w("UhfUartFacade", "readReservedBankForLed failed: ${e.message}")
+            android.util.Log.w("UhfUartFacade", "applyLedTagBlinkMode failed: ${e.message}")
             false
+        }
+    }
+
+    override fun restoreEpcInventoryMode(): Boolean {
+        return try {
+            val r = reader ?: return false
+            // uhf-uart-demo Tag LED onStop: setFilter(0, 0, 0, "") then leave LED mode.
+            try {
+                r.setFilter(0, 0, 0, "")
+            } catch (_: Throwable) {
+                clearEpcFilters(r)
+            }
+            r.setEPCMode()
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun ledEpcsOf(epcs: Collection<String>): LinkedHashSet<String> {
+        val unique = LinkedHashSet<String>()
+        for (raw in epcs) {
+            val epc = raw.trim()
+            if (epc.isNotEmpty()) unique.add(epc)
+        }
+        return unique
+    }
+
+    /** Demo uses whatever getEPC() returns; do not require 24/32 only. */
+    private fun isLedEpcHex(epc: String): Boolean {
+        if (epc.length < 4 || epc.length > 128 || epc.length % 2 != 0) return false
+        return epc.all { ch -> ch in '0'..'9' || ch in 'A'..'F' }
+    }
+
+    /**
+     * Demo Tag LED: FilterEntity(Bank_EPC, 32, epc.length*4, epc).
+     * Fall back to offset 0 and single-EPC setFilter if the list API fails.
+     */
+    private fun installEpcFilter(
+        r: com.rscja.deviceapi.RFIDWithUHFUART,
+        selected: List<String>,
+    ): Boolean {
+        if (tryFilterList(r, selected, 32)) return true
+        if (tryFilterList(r, selected, 0)) return true
+        if (selected.size == 1) {
+            val epc = selected[0]
+            return try {
+                r.setFilter(
+                    com.rscja.deviceapi.interfaces.IUHF.Bank_EPC,
+                    32,
+                    epc.length * 4,
+                    epc,
+                ) || r.setFilter(
+                    com.rscja.deviceapi.interfaces.IUHF.Bank_EPC,
+                    0,
+                    epc.length * 4,
+                    epc,
+                )
+            } catch (_: Throwable) {
+                false
+            }
+        }
+        return false
+    }
+
+    private fun tryFilterList(
+        r: com.rscja.deviceapi.RFIDWithUHFUART,
+        selected: List<String>,
+        offset: Int,
+    ): Boolean {
+        return try {
+            val filterList = ArrayList<com.rscja.deviceapi.entity.FilterEntity>(selected.size)
+            for (epc in selected) {
+                filterList.add(
+                    com.rscja.deviceapi.entity.FilterEntity(
+                        com.rscja.deviceapi.interfaces.IUHF.Bank_EPC,
+                        offset,
+                        epc.length * 4,
+                        epc,
+                    ),
+                )
+            }
+            r.setFilter(filterList)
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /** Demo leaving Tag LED tab: setFilter(0, 0, 0, ""). */
+    private fun clearEpcFilters(r: com.rscja.deviceapi.RFIDWithUHFUART) {
+        try {
+            r.setFilter(com.rscja.deviceapi.interfaces.IUHF.Bank_EPC, 0, 0, "")
+        } catch (_: Throwable) {
+        }
+        try {
+            r.setFilter(com.rscja.deviceapi.interfaces.IUHF.Bank_TID, 0, 0, "")
+        } catch (_: Throwable) {
+        }
+        try {
+            r.setFilter(com.rscja.deviceapi.interfaces.IUHF.Bank_USER, 0, 0, "")
+        } catch (_: Throwable) {
         }
     }
 }

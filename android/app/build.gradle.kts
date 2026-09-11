@@ -61,7 +61,7 @@ flutter {
 }
 
 dependencies {
-    implementation(files("libs/DeviceAPI_ver20250209_release.aar"))
+    implementation(files("libs/DeviceAPI_V2.0.3_20260313.aar"))
     // Xprinter POSConnect Bluetooth thermal printer (Delivery Challan) — same as Sparkle Kotlin
     implementation(files("libs/printer-lib-3.2.0.aar"))
 }

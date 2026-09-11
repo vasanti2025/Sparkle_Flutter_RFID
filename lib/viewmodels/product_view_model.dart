@@ -10,7 +10,6 @@ import 'package:sqflite/sqflite.dart';
 import '../models/bulk_item.dart';
 import '../services/db_service.dart';
 import '../services/pref_service.dart';
-import '../services/session_lifecycle.dart';
 import '../services/sync_isolate.dart';
 import '../services/api_service.dart';
 import '../utils/product_image.dart';
@@ -206,9 +205,8 @@ class ProductViewModel extends ChangeNotifier {
     final employee = _prefService.getEmployee();
     if (employee == null) {
       _isLoading = false;
-      _errorMessage = 'Session expired. Please login again.';
+      _errorMessage = 'Unable to load user. Please try again.';
       notifyListeners();
-      unawaited(SessionLifecycle.instance.forceLogoutToLogin());
       return;
     }
 
@@ -416,9 +414,8 @@ class ProductViewModel extends ChangeNotifier {
   Future<bool> deleteProductItem(int bulkItemId) async {
     final employee = _prefService.getEmployee();
     if (employee == null) {
-      _errorMessage = 'Session expired. Please login again.';
+      _errorMessage = 'Unable to load user. Please try again.';
       notifyListeners();
-      unawaited(SessionLifecycle.instance.forceLogoutToLogin());
       return false;
     }
 
@@ -456,9 +453,8 @@ class ProductViewModel extends ChangeNotifier {
   Future<bool> updateProductItem(BulkItem updatedItem, String? localImagePath) async {
     final employee = _prefService.getEmployee();
     if (employee == null) {
-      _errorMessage = 'Session expired. Please login again.';
+      _errorMessage = 'Unable to load user. Please try again.';
       notifyListeners();
-      unawaited(SessionLifecycle.instance.forceLogoutToLogin());
       return false;
     }
 

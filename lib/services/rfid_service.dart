@@ -573,26 +573,22 @@ class RfidService {
         }
       }
 
-      // Prepare scope & tags
-      if (searchTags != null && searchTags.isNotEmpty) {
+      // Large unmatched lists are preloaded on native. Re-sending 50k tags on
+      // every Start blocked the channel and looked like a scanner failure.
+      if (searchTags != null &&
+          searchTags.isNotEmpty &&
+          searchTags.length <= 2000) {
         await setSearchTags(searchTags);
       }
       await prepareForScan();
       await setInventoryScanMode(inventory);
 
-      for (var attempt = 0; attempt < 4; attempt++) {
+      for (var attempt = 0; attempt < 2; attempt++) {
         if (attempt > 0) {
-          await Future<void>.delayed(Duration(milliseconds: 120 * attempt));
-          // Large unmatched lists are already on native; re-sending stalls start.
-          if (searchTags != null &&
-              searchTags.isNotEmpty &&
-              searchTags.length <= 2000) {
-            await setSearchTags(searchTags);
-          }
+          await Future<void>.delayed(Duration(milliseconds: 200 * attempt));
           await prepareForScan();
-          await setInventoryScanMode(inventory);
         }
-        
+
         _isScanning = true;
         final started = await _methodChannel.invokeMethod<bool>('startScanning', {
               'power': power,
@@ -606,14 +602,65 @@ class RfidService {
           }
           return true;
         }
-        try {
-          await _methodChannel.invokeMethod<bool>('stopScanning');
-        } catch (_) {}
         _isScanning = false;
       }
       return false;
     } catch (e) {
       debugPrint('Error starting native scan: $e');
+      _isScanning = false;
+      return false;
+    }
+  }
+
+  /// Search / Unmatched Search — do not block UART behind tray/R6/tag-list work.
+  Future<bool> startSearchScanning({
+    required int power,
+    List<String>? searchTags,
+  }) async {
+    _power = power;
+    await ensureReady();
+
+    if (!_isSupported) {
+      _isScanning = true;
+      _simulatedTagsPool = List.from(searchTags ?? const <String>[]);
+      _simulationIndex = 0;
+      _startSimulation();
+      return true;
+    }
+
+    try {
+      if (_isScanning) {
+        await stopScanning();
+        await Future<void>.delayed(const Duration(milliseconds: 80));
+      }
+      if (searchTags != null &&
+          searchTags.isNotEmpty &&
+          searchTags.length <= 2000) {
+        await setSearchTags(searchTags);
+      }
+      await prepareForScan();
+      await setInventoryScanMode(false);
+      for (var attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) {
+          try {
+            await _methodChannel.invokeMethod<bool>('stopScanning');
+          } catch (_) {}
+          await Future<void>.delayed(Duration(milliseconds: 150 * attempt));
+          await prepareForScan();
+        }
+        _isScanning = true;
+        final started = await _methodChannel.invokeMethod<bool>('startScanning', {
+              'power': power,
+              'inventory': false,
+              'playStartSound': false,
+            }) ??
+            false;
+        if (started) return true;
+        _isScanning = false;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('Error starting search scan: $e');
       _isScanning = false;
       return false;
     }
@@ -791,10 +838,8 @@ class RfidService {
   Future<bool> prepareForScan() async {
     if (_isSupported) {
       try {
-        // Lazy UART init only when user actually scans (never on app open).
-        await _methodChannel
-            .invokeMethod('initReader')
-            .timeout(const Duration(seconds: 8), onTimeout: () => false);
+        // Permit scan only. Do not initReader here — an 8s timeout left UART
+        // init running while startScanning raced it and failed.
         return await _methodChannel.invokeMethod<bool>('prepareForScan') ?? false;
       } catch (e) {
         debugPrint('Error prepareForScan: $e');
