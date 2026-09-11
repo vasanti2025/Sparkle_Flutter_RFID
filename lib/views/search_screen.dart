@@ -155,6 +155,7 @@ class _SearchScreenState extends State<SearchScreen> {
   final Map<String, int> _tagIndexMap = {};
   final Map<int, int> _lastRssiUpdateMs = {};
   int _lastSearchUiUpdateUs = 0;
+  int _lastCatalogUiUpdateUs = 0;
   final Set<int> _dirtyIndices = {};
   final Set<int> _hotSet = {};
   final Set<int> _atMaxProximity = {};
@@ -228,8 +229,13 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _loadPower() async {
-    final power = context.read<PrefService>().searchPower;
-    if (mounted) setState(() => _selectedPower = power.clamp(1, 30));
+    // Search / Unmatched Search always start at full range (30).
+    final pref = context.read<PrefService>();
+    if (pref.searchPower != 30) {
+      unawaited(pref.savePower(PrefService.keySearchCount, 30));
+    }
+    if (mounted) setState(() => _selectedPower = 30);
+    unawaited(_rfidService.setPower(30));
   }
 
   /// Trim + uppercase + strip spaces — matches native EPC keys and stock transfer.
@@ -261,15 +267,16 @@ class _SearchScreenState extends State<SearchScreen> {
     }
     await _rebuildTagIndexChunked();
     if (!mounted) return;
+    if (_tagIndexMap.isNotEmpty) {
+      await _rfidService.setSearchTags(_tagIndexMap.keys.toList(growable: false));
+    }
+    if (!mounted) return;
     setState(() {
       _isLoading = false;
       _indexReady = true;
       _displayIndexValid = false;
     });
     unawaited(_rfidService.prepareForScan());
-    if (_tagIndexMap.isNotEmpty) {
-      unawaited(_rfidService.setSearchTags(_tagIndexMap.keys.toList(growable: false)));
-    }
   }
 
   Future<void> _rebuildTagIndexChunked() async {
@@ -360,7 +367,14 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_isLargeUnmatched) {
       _nearbyTick.value++;
     }
-    setState(() {});
+    final now = DateTime.now().microsecondsSinceEpoch;
+    final catalogUs = _isLargeUnmatched && _searchQuery.trim().isEmpty ? 120000 : 0;
+    if (catalogUs == 0 ||
+        _lastCatalogUiUpdateUs == 0 ||
+        now - _lastCatalogUiUpdateUs >= catalogUs) {
+      _lastCatalogUiUpdateUs = now;
+      setState(() {});
+    }
     if (_listKey == 'unmatchedItems') {
       _checkAutoStopSearch();
     }
@@ -419,7 +433,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _scheduleSearchUiUpdate() {
     final now = DateTime.now().microsecondsSinceEpoch;
-    final minUs = _isLargeUnmatched ? 50000 : 16000;
+    final minUs = _isLargeUnmatched ? 16000 : 8000;
     if (_lastSearchUiUpdateUs == 0 ||
         now - _lastSearchUiUpdateUs >= minUs) {
       _lastSearchUiUpdateUs = now;
@@ -508,13 +522,23 @@ class _SearchScreenState extends State<SearchScreen> {
         final stripped = stripScanKey00(epc);
         if (stripped != epc) index = _tagIndexMap[stripped];
       }
+      if (index == null && epc.length > 24) {
+        index = _tagIndexMap[epc.substring(0, 24)];
+      }
+      if (index == null && epc.length > 32) {
+        index = _tagIndexMap[epc.substring(0, 32)];
+      }
       if (index == null || index < 0 || index >= _searchItems.length) return;
 
       _lastRssiUpdateMs[index] = now;
       final item = _searchItems[index];
+      final prev = item.proximityPercent;
       final changed = item.applyStableProximity(rssi, proximity);
       if (changed) {
         _dirtyIndices.add(index);
+        if (prev == 0) {
+          _lastSearchUiUpdateUs = 0;
+        }
         _scheduleSearchUiUpdate();
       }
     } catch (e) {
@@ -568,6 +592,7 @@ class _SearchScreenState extends State<SearchScreen> {
       setState(() => _isScanning = true);
       unawaited(_rfidService.playBeep());
       _lastSearchUiUpdateUs = 0;
+      _lastCatalogUiUpdateUs = 0;
       _atMaxProximity.clear();
       _dirtyIndices.clear();
       _hotSet.clear();
@@ -575,7 +600,7 @@ class _SearchScreenState extends State<SearchScreen> {
       _startProximityDecay();
 
       final started = await _rfidService.startSearchScanning(
-        power: _selectedPower,
+        power: _selectedPower.clamp(1, 30),
         searchTags: tagsToSend,
       );
 

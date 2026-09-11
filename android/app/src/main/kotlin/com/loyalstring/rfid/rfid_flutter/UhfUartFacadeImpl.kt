@@ -26,6 +26,11 @@ interface UhfFacade {
      * Only those EPCs blink. Empty [epcs] returns false (do not blink all tags).
      */
     fun applyLedTagBlinkMode(epcs: Collection<String>): Boolean
+    /**
+     * Search LED inventory with no EPC filter so every chip stays readable
+     * and LED tags blink as they are inventoried. Do not call setEPCMode after.
+     */
+    fun applyLedBlinkInventoryNoFilter(): Boolean
     /** Restore EPC-only inventory after Search (same as demo leaving Tag LED tab). */
     fun restoreEpcInventoryMode(): Boolean
 }
@@ -99,9 +104,16 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
     }
 
     override fun prepareSearchLed(power: Int, epcs: Collection<String>): Boolean {
-        // EPC-only start. Unfiltered mode 15 lights every LED tag in range.
-        android.util.Log.i("UhfUartFacade", "prepareSearchLed EPC-only catalogHints=${epcs.size}")
-        return prepareScan(power)
+        return try {
+            val r = reader ?: return false
+            r.setPower(power)
+            r.setTagFocus(false)
+            r.setFastID(false)
+            r.setDynamicDistance(0)
+            applyLedBlinkInventoryNoFilter()
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     override fun startInventory(): Boolean {
@@ -163,6 +175,31 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
             epc to rssi
         } catch (_: Throwable) {
             null
+        }
+    }
+
+    override fun applyLedBlinkInventoryNoFilter(): Boolean {
+        return try {
+            val r = reader ?: return false
+            // Demo Tag LED / Settings "LED Tag": MODE_LED_TAG with no EPC filter.
+            // Do not call setEPCMode first — that clears Select LED Tag mode.
+            clearEpcFilters(r)
+            val ledTag = com.rscja.deviceapi.entity.InventoryModeEntity.Builder()
+                .setMode(com.rscja.deviceapi.entity.InventoryModeEntity.MODE_LED_TAG)
+                .build()
+            if (r.setEPCAndTIDUserMode(ledTag)) {
+                android.util.Log.i("UhfUartFacade", "Select LED Tag mode (MODE_LED_TAG) no-filter")
+                return true
+            }
+            val blink = com.rscja.deviceapi.entity.InventoryModeEntity.Builder()
+                .setMode(15)
+                .build()
+            val ok = r.setEPCAndTIDUserMode(blink)
+            android.util.Log.i("UhfUartFacade", "Search LED mode15 no-filter => $ok")
+            ok
+        } catch (e: Throwable) {
+            android.util.Log.w("UhfUartFacade", "applyLedBlinkInventoryNoFilter failed: ${e.message}")
+            false
         }
     }
 
