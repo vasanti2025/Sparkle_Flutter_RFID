@@ -20,6 +20,7 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.util.HashMap
 import java.util.HashSet
+import java.util.LinkedHashSet
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -121,12 +122,21 @@ class HardwareControllerImpl(
         synchronized(searchTagLock) {
             searchTags.add(key)
             if (stripped.isNotEmpty()) searchTags.add(stripped)
+            if (isChipEpcHex(key)) searchLedEpcs.add(key)
+            if (stripped.isNotEmpty() && isChipEpcHex(stripped)) searchLedEpcs.add(stripped)
         }
     }
 
-    /** Demo Tag LED uses whatever getEPC() returns — not only 24/32 hex. */
-    private fun isLedEpcHex(key: String): Boolean {
-        if (key.length < 8 || key.length > 64 || key.length % 2 != 0) return false
+    /** Hex EPCs allowed in Tag LED setFilter (LabelStock chip IDs, not short item codes). */
+    private fun isLedFilterHex(key: String): Boolean {
+        val n = key.length
+        if (n < 8 || n > 64 || n % 2 != 0) return false
+        return key.all { ch -> ch in '0'..'9' || ch in 'A'..'F' }
+    }
+
+    /** Prefer 96/128-bit EPCs for setFilter; those match the handheld demo. */
+    private fun isChipEpcHex(key: String): Boolean {
+        if (key.length != 24 && key.length != 32) return false
         return key.all { ch -> ch in '0'..'9' || ch in 'A'..'F' }
     }
 
@@ -300,8 +310,6 @@ class HardwareControllerImpl(
             "setSearchTags" -> {
                 val tags = ArrayList(call.argument<List<String>>("tags") ?: emptyList())
                 matchEpcs.clear()
-                // Clear on this thread so a leftover Unmatched catalog cannot
-                // filter Global Search before the new keys are installed.
                 synchronized(searchTagLock) {
                     searchTags.clear()
                     searchLedEpcs.clear()
@@ -312,6 +320,19 @@ class HardwareControllerImpl(
                 } else {
                     tagSetExecutor.execute {
                         for (tag in tags) addSearchKey(tag)
+                    }
+                }
+                result.success(true)
+            }
+            "setSearchLedEpcs" -> {
+                val tags = ArrayList(call.argument<List<String>>("tags") ?: emptyList())
+                synchronized(searchTagLock) {
+                    searchLedEpcs.clear()
+                    for (tag in tags) {
+                        val key = normalizeScanKey(tag)
+                        if (isChipEpcHex(key)) searchLedEpcs.add(key)
+                        val stripped = stripScanKey00(key)
+                        if (stripped.isNotEmpty() && isChipEpcHex(stripped)) searchLedEpcs.add(stripped)
                     }
                 }
                 result.success(true)
@@ -734,18 +755,30 @@ class HardwareControllerImpl(
             }
             applySearchLedBlinkModeIfNeeded(inventory)
             clearSearchLedTagCallback()
-            // Search: Select LED Tag mode, no EPC filter so LED + normal tags
-            // stay readable. Scan Display stays EPC-only.
-            prepareUartSession(power, inventory)
-            if (!inventory) attachSearchLedTagCallback()
             if (inventory) {
+                uhf().prepareScan(power)
                 startInventoryLoopSound()
-            } else if (playStartSound) {
-                playSound(1, 0)
+            } else {
+                // Stop leftover inventory so LED Tag mode + filter apply cleanly.
+                try {
+                    uhf().stopInventory()
+                } catch (_: Throwable) {
+                }
+                try {
+                    Thread.sleep(80L)
+                } catch (_: InterruptedException) {
+                }
+                prepareSearchRadio(power)
+                // Accept callback tags immediately. LED chips often arrive on
+                // setInventoryCallback before the poller thread is up.
+                isScanning = true
+                attachSearchLedTagCallback()
+                if (playStartSound) playSound(1, 0)
             }
             var started = uhf().startInventory()
             Log.i(TAG, "startInventory attempt=1 => $started")
             if (!started) {
+                isScanning = if (inventory) isScanning else false
                 try {
                     uhf().stopInventory()
                 } catch (_: Throwable) {
@@ -754,28 +787,29 @@ class HardwareControllerImpl(
                     Thread.sleep(150L)
                 } catch (_: InterruptedException) {
                 }
-                prepareUartSession(power, inventory)
-                if (!inventory) attachSearchLedTagCallback()
+                if (inventory) {
+                    uhf().prepareScan(power)
+                } else {
+                    prepareSearchRadio(power)
+                    isScanning = true
+                    attachSearchLedTagCallback()
+                }
                 started = uhf().startInventory()
                 Log.i(TAG, "startInventory attempt=2 => $started")
             }
             if (!started) {
-                Log.w(TAG, "startInventory LED mode failed — EPC fallback so Start still works")
-                uhf().prepareScan(power)
-                started = uhf().startInventory()
-                Log.i(TAG, "startInventory attempt=3 fallback => $started")
-            }
-            if (!started) {
                 Log.w(TAG, "startInventory failed — recoverHardware")
+                isScanning = if (inventory) isScanning else false
                 if (uhf().recoverHardware()) {
-                    prepareUartSession(power, inventory)
-                    if (!inventory) attachSearchLedTagCallback()
-                    started = uhf().startInventory()
-                    if (!started) {
+                    if (inventory) {
                         uhf().prepareScan(power)
-                        started = uhf().startInventory()
+                    } else {
+                        prepareSearchRadio(power)
+                        isScanning = true
+                        attachSearchLedTagCallback()
                     }
-                    Log.i(TAG, "startInventory attempt=4 recover => $started")
+                    started = uhf().startInventory()
+                    Log.i(TAG, "startInventory attempt=3 recover => $started")
                 }
             }
             if (started) {
@@ -917,30 +951,150 @@ class HardwareControllerImpl(
     }
 
     /**
-     * Search starts LED-tag inventory with no EPC filter so every search tag
-     * stays readable and LED chips blink. Filtered LED mode could only do one
-     * of those at a time. Scan Display / tray / R6 never take this path.
+     * Search never starts in unfiltered LED Tag mode (that lights every LED).
      */
     private fun applySearchLedBlinkModeIfNeeded(inventory: Boolean) {
         if (inventory || trayModeEnabled || r6ModeEnabled) return
         resetSearchLedFoundState()
     }
 
-    private fun prepareUartSession(power: Int, inventory: Boolean) {
-        if (inventory || trayModeEnabled || r6ModeEnabled) {
-            uhf().prepareScan(power)
-            return
+    /** Unique 24/32 LabelStock EPCs for Tag LED setFilter (max 8). */
+    private fun catalogChipEpcs(): List<String> {
+        synchronized(searchTagLock) {
+            val chip = LinkedHashSet<String>()
+            for (epc in searchLedEpcs) {
+                if (isChipEpcHex(epc)) chip.add(epc)
+                if (chip.size >= SEARCH_LED_MAX) break
+            }
+            return ArrayList(chip)
         }
-        // Demo Tag LED start: power + Select LED Tag mode, never setEPCMode.
-        uhf().prepareSearchLed(power, emptyList())
+    }
+
+    private fun uniqueLedCatalogCount(): Int {
+        synchronized(searchTagLock) {
+            val chip = LinkedHashSet<String>()
+            for (epc in searchLedEpcs) {
+                if (isChipEpcHex(epc)) chip.add(epc)
+            }
+            return chip.size
+        }
+    }
+
+    private fun isSmallLabelStockLedList(): Boolean {
+        val n = uniqueLedCatalogCount()
+        return n in 1..SEARCH_LED_MAX
+    }
+
+    /**
+     * EPCs allowed to blink: LabelStock only.
+     * Small Global Search: catalog EPCs (unused LEDs stay dark).
+     * Large Unmatched: live found matches from that screen only.
+     */
+    private fun blinkEpcsForLabelStock(): List<String> {
+        val catalog = catalogChipEpcs()
+        val found = synchronized(foundLedLock) { ArrayList(foundLedEpcs.keys) }
+        if (isSmallLabelStockLedList()) {
+            if (found.isEmpty()) return catalog
+            val unique = LinkedHashSet<String>()
+            unique.addAll(found)
+            for (epc in catalog) {
+                if (unique.size >= SEARCH_LED_MAX) break
+                unique.add(epc)
+            }
+            return ArrayList(unique)
+        }
+        return found
+    }
+
+    /**
+     * Extra 00-prefix / strip variants so setFilter matches the live chip EPC.
+     * Prefer 24/32-bit IDs; max 8 on the radio.
+     */
+    private fun expandLedFilterEpcs(epcs: List<String>): List<String> {
+        val chip = LinkedHashSet<String>()
+        val extra = LinkedHashSet<String>()
+        fun consider(raw: String) {
+            val epc = normalizeScanKey(raw)
+            if (!isLedFilterHex(epc)) return
+            if (isChipEpcHex(epc)) chip.add(epc) else extra.add(epc)
+            val stripped = stripScanKey00(epc)
+            if (isChipEpcHex(stripped)) chip.add(stripped)
+            else if (isLedFilterHex(stripped)) extra.add(stripped)
+            if (!epc.startsWith("00") && epc.length + 2 <= 32) {
+                val padded = "00$epc"
+                if (isChipEpcHex(padded)) chip.add(padded)
+                else if (isLedFilterHex(padded)) extra.add(padded)
+            }
+        }
+        for (epc in epcs) consider(epc)
+        val unique = LinkedHashSet<String>()
+        unique.addAll(chip)
+        if (unique.size < SEARCH_LED_MAX) {
+            for (epc in extra) {
+                unique.add(epc)
+                if (unique.size >= SEARCH_LED_MAX) break
+            }
+        }
+        return ArrayList(unique.take(SEARCH_LED_MAX))
+    }
+
+    /**
+     * Demo Tag LED with checked LabelStock rows: setFilter(those EPCs) then
+     * Select LED Tag (MODE_LED_TAG). Never empty-filter LED (that lights every chip).
+     * Never setEPCMode while we have LabelStock EPCs (that hides LED chips).
+     */
+    private fun prepareSearchRadio(power: Int) {
+        uhf().setPower(power)
+        val catalog = expandLedFilterEpcs(catalogChipEpcs())
+        if (catalog.isNotEmpty() && uniqueLedCatalogCount() in 1..SEARCH_LED_MAX) {
+            var ok = uhf().applyLedTagBlinkMode(catalog)
+            if (!ok) {
+                for (epc in catalog) {
+                    ok = uhf().applyLedTagBlinkMode(listOf(epc))
+                    if (ok) {
+                        Log.i(TAG, "Search LED Tag filter single $epc")
+                        break
+                    }
+                }
+            }
+            Log.i(TAG, "Search LED Tag LabelStock filter epcs=${catalog.size} => $ok")
+            if (ok) {
+                searchLedAppliedKey = searchLedKey(catalog)
+                searchLedPhase = SEARCH_LED_BLINK
+                searchLedPhaseUntil = 0L
+                foundLedGatherUntil = 0L
+                foundLedGatherDeadline = 0L
+                return
+            }
+        }
+        uhf().prepareScan(power)
+        val now = SystemClock.elapsedRealtime()
+        searchLedAppliedKey = ""
+        searchLedPhase = SEARCH_LED_DISCOVER
+        searchLedPhaseUntil = now + SEARCH_LED_SCAN_MS
+        foundLedGatherUntil = 0L
+        foundLedGatherDeadline = 0L
+        Log.i(TAG, "Search EPC start (no LabelStock LED filter, catalog=${catalog.size})")
     }
 
     private fun searchLedKey(epcs: Collection<String>): String =
         epcs.sorted().joinToString(",")
 
+    /** Live radio EPC for setFilter; only if that chip is on this screen. */
     private fun ledEpcOf(cleanEpc: String): String? {
-        if (cleanEpc.length < 4) return null
-        return cleanEpc
+        if (cleanEpc.length < 8) return null
+        if (resolveSearchEpc(cleanEpc) == null) return null
+        if (isLedFilterHex(cleanEpc)) return cleanEpc
+        if (cleanEpc.length >= 32) {
+            val p32 = cleanEpc.substring(0, 32)
+            if (isLedFilterHex(p32) && matchesSearchTag(p32)) return p32
+        }
+        if (cleanEpc.length >= 24) {
+            val p24 = cleanEpc.substring(0, 24)
+            if (isLedFilterHex(p24) && matchesSearchTag(p24)) return p24
+        }
+        val resolved = resolveSearchEpc(cleanEpc) ?: return null
+        return if (isLedFilterHex(resolved)) resolved else null
     }
 
     /** When a search tag is matched (progress/%), queue that live chip EPC for LED. */
@@ -965,8 +1119,32 @@ class HardwareControllerImpl(
     }
 
     private fun tickSearchLedBlink() {
-        // Filtered LED handoff (setFilter) blocks other tags. Search now uses
-        // unfiltered LED inventory for the whole session — do not re-lock.
+        if (searchLedApplyBusy || uartPollPaused) return
+        if (!isScanning || activeInventorySession || trayModeEnabled || r6ModeEnabled) return
+        val now = SystemClock.elapsedRealtime()
+        val found = synchronized(foundLedLock) { ArrayList(foundLedEpcs.keys) }
+        if (found.isEmpty()) return
+        val blinkEpcs = LinkedHashSet<String>()
+        blinkEpcs.addAll(found)
+        if (uniqueLedCatalogCount() in 1..SEARCH_LED_MAX) {
+            for (epc in catalogChipEpcs()) {
+                if (blinkEpcs.size >= SEARCH_LED_MAX) break
+                blinkEpcs.add(epc)
+            }
+        }
+        val epcs = ArrayList(blinkEpcs)
+        if (searchLedKey(epcs) == searchLedAppliedKey) return
+        var wantBlink = false
+        synchronized(foundLedLock) {
+            if (foundLedGatherUntil <= 0L) {
+                wantBlink = searchLedPhase != SEARCH_LED_BLINK
+            } else {
+                val quietElapsed = now >= foundLedGatherUntil
+                val maxElapsed = foundLedGatherDeadline > 0L && now >= foundLedGatherDeadline
+                wantBlink = quietElapsed || maxElapsed || searchLedPhase != SEARCH_LED_BLINK
+            }
+        }
+        if (wantBlink) requestSearchLedHandoff(epcs)
     }
 
     private fun requestSearchLedHandoff(epcs: List<String>) {
@@ -984,13 +1162,12 @@ class HardwareControllerImpl(
     }
 
     private fun requestSearchLedDiscover() {
-        if (searchLedApplyBusy || searchLedDidDiscover) return
+        if (searchLedApplyBusy) return
         if (activeInventorySession || trayModeEnabled || r6ModeEnabled) return
         searchLedApplyBusy = true
-        searchLedDidDiscover = true
         uartExecutor.execute {
             try {
-                applySearchLedDiscover()
+                applySearchEpcScanWindow()
             } finally {
                 uartPollPaused = false
                 searchLedApplyBusy = false
@@ -999,11 +1176,10 @@ class HardwareControllerImpl(
     }
 
     /**
-     * Brief unfiltered EPC inventory after the first LED lock so more Search /
-     * Unmatched tags can be found without the user Stop/Start. Found LEDs are
-     * re-applied afterwards. Tray / R6 / Scan Display never enter this path.
+     * EPC-only window so normal tags and other LabelStock items keep scanning.
+     * Never unfiltered LED Tag mode — that blinks chips not on this screen.
      */
-    private fun applySearchLedDiscover() {
+    private fun applySearchEpcScanWindow() {
         if (!isScanning || activeInventorySession || trayModeEnabled || r6ModeEnabled) return
         if (!pollerActive || !waitUntilPollerParked(500L)) {
             uartPollPaused = false
@@ -1019,33 +1195,36 @@ class HardwareControllerImpl(
             } catch (_: InterruptedException) {
             }
             if (!isScanning) return
-            clearSearchLedTagCallback()
-            uhf().prepareScan(lastScanPower)
-            var started = uhf().startInventory()
-            if (!started && isScanning) {
-                try {
-                    Thread.sleep(50L)
-                } catch (_: InterruptedException) {
-                }
-                started = uhf().startInventory()
-            }
-            val now = SystemClock.elapsedRealtime()
-            searchLedAppliedKey = ""
-            searchLedPhase = SEARCH_LED_DISCOVER
-            searchLedPhaseUntil = now + SEARCH_LED_DISCOVER_MS
-            foundLedGatherUntil = now + SEARCH_LED_GATHER_MS
-            foundLedGatherDeadline = now + SEARCH_LED_DISCOVER_MS
-            Log.i(TAG, "Search LED discover window ${SEARCH_LED_DISCOVER_MS}ms")
+            resumeSearchEpcModeLocked()
+            Log.i(TAG, "Search EPC scan window ${SEARCH_LED_SCAN_MS}ms")
         } catch (e: Throwable) {
-            Log.w(TAG, "Search LED discover failed: ${e.message}")
+            Log.w(TAG, "Search EPC scan window failed: ${e.message}")
             try {
                 if (isScanning) {
-                    uhf().setPower(lastScanPower)
-                    uhf().startInventory()
+                    resumeSearchEpcModeLocked()
                 }
             } catch (_: Throwable) {
             }
         }
+    }
+
+    private fun resumeSearchEpcModeLocked() {
+        uhf().prepareScan(lastScanPower)
+        attachSearchLedTagCallback()
+        var started = uhf().startInventory()
+        if (!started && isScanning) {
+            try {
+                Thread.sleep(50L)
+            } catch (_: InterruptedException) {
+            }
+            started = uhf().startInventory()
+        }
+        val now = SystemClock.elapsedRealtime()
+        searchLedAppliedKey = ""
+        searchLedPhase = SEARCH_LED_DISCOVER
+        searchLedPhaseUntil = now + SEARCH_LED_SCAN_MS
+        foundLedGatherUntil = now + SEARCH_LED_GATHER_MS
+        foundLedGatherDeadline = now + SEARCH_LED_SCAN_MS
     }
 
     /**
@@ -1055,7 +1234,7 @@ class HardwareControllerImpl(
     private fun attachSearchLedTagCallback() {
         try {
             uhf().setInventoryCallback { epc, rssi ->
-                if (!isScanning || !pollerActive) return@setInventoryCallback
+                if (!scanningPermitted) return@setInventoryCallback
                 val cleanEpc = normalizeScanKey(epc)
                 if (cleanEpc.isEmpty()) return@setInventoryCallback
                 handleTagRead(cleanEpc, rssi, inventory = false)
@@ -1076,8 +1255,8 @@ class HardwareControllerImpl(
     }
 
     /**
-     * uhf-uart-demo Tag LED: park poller, stop, setFilter(matched EPCs),
-     * MODE_LED_TAG, start. Do not call prepareScan/setEPCMode here — that turns the LED off.
+     * uhf-uart-demo Tag LED: park poller, stop, setFilter(LabelStock EPCs),
+     * MODE_LED_TAG, start. Never apply LED Tag mode without that filter.
      * Inventory must keep running after this so Home Search does not look stopped at 100%.
      */
     private fun applySearchLedHandoff(epcs: List<String>) {
@@ -1100,11 +1279,12 @@ class HardwareControllerImpl(
             if (!isScanning) return
             uhf().setPower(lastScanPower)
             val filtered = uhf().applyLedTagBlinkMode(epcs)
-            Log.i(TAG, "Search LED tag mode epcs=${epcs.size} => $filtered")
+            Log.i(TAG, "Search LED LabelStock filter epcs=${epcs.size} => $filtered")
             if (!filtered || !isScanning) {
-                uhf().setPower(lastScanPower)
-                uhf().startInventory()
-                clearSearchLedTagCallback()
+                Log.w(TAG, "Search LED filter failed")
+                if (!isSmallLabelStockLedList()) {
+                    resumeSearchEpcModeLocked()
+                }
                 searchLedFailBackoff()
                 return
             }
@@ -1117,30 +1297,26 @@ class HardwareControllerImpl(
                 started = uhf().startInventory()
             }
             if (!started) {
-                Log.w(TAG, "Search LED start failed — resume without killing LED mode")
-                uhf().setPower(lastScanPower)
-                started = uhf().startInventory()
-                if (!started) {
-                    uhf().prepareScan(lastScanPower)
+                Log.w(TAG, "Search LED start failed")
+                if (!isSmallLabelStockLedList()) {
+                    resumeSearchEpcModeLocked()
+                } else {
                     uhf().startInventory()
-                    clearSearchLedTagCallback()
-                    searchLedFailBackoff()
-                    return
                 }
+                searchLedFailBackoff()
+                return
             }
             attachSearchLedTagCallback()
             searchLedAppliedKey = searchLedKey(epcs)
             searchLedPhase = SEARCH_LED_BLINK
-            searchLedPhaseUntil = SystemClock.elapsedRealtime() + SEARCH_LED_BLINK_MS
+            searchLedDidDiscover = false
+            searchLedPhaseUntil = 0L
             foundLedGatherUntil = 0L
             foundLedGatherDeadline = 0L
         } catch (e: Throwable) {
             Log.w(TAG, "Search LED handoff failed: ${e.message}")
             try {
-                if (isScanning) {
-                    uhf().setPower(lastScanPower)
-                    uhf().startInventory()
-                }
+                if (isScanning) resumeSearchEpcModeLocked()
             } catch (_: Throwable) {
             }
             searchLedFailBackoff()
@@ -1601,8 +1777,9 @@ class HardwareControllerImpl(
         /** Wait after the last newly-found tag so a pile of 3 is applied together. */
         private const val SEARCH_LED_GATHER_MS = 280L
         private const val SEARCH_LED_GATHER_MAX_MS = 800L
-        /** Keep found LEDs on, then one unfiltered window to pick up more tags. */
-        private const val SEARCH_LED_BLINK_MS = 700L
-        private const val SEARCH_LED_DISCOVER_MS = 450L
+        /** EPC window so normal tags keep scanning. */
+        private const val SEARCH_LED_SCAN_MS = 550L
+        /** Keep LabelStock LEDs on, then return to EPC for other tags. */
+        private const val SEARCH_LED_BLINK_MS = 1400L
     }
 }

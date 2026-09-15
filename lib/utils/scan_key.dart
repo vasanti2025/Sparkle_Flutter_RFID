@@ -12,6 +12,11 @@ String normalizeScanKey(String raw) {
   return s;
 }
 
+bool isChipEpcHex(String key) {
+  return (key.length == 24 || key.length == 32) &&
+      RegExp(r'^[0-9A-F]+$').hasMatch(key);
+}
+
 /// Strip leading then trailing `"00"`, same order as Pushpa inventory search.
 String stripScanKey00(String key) {
   var t = key;

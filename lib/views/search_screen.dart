@@ -602,6 +602,7 @@ class _SearchScreenState extends State<SearchScreen> {
       final started = await _rfidService.startSearchScanning(
         power: _selectedPower.clamp(1, 30),
         searchTags: tagsToSend,
+        ledEpcs: _collectSearchLedEpcs(),
       );
 
       if (!mounted) return;
@@ -809,6 +810,39 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     }
     return tags.toList(growable: false);
+  }
+
+  /// 24/32-bit LabelStock EPCs for Tag LED setFilter (demo checked tags).
+  List<String> _collectSearchLedEpcs() {
+    final tags = <String>{};
+    void addChip(String raw) {
+      final key = normalizeScanKey(raw);
+      if (isChipEpcHex(key)) tags.add(key);
+      final stripped = stripScanKey00(key);
+      if (isChipEpcHex(stripped)) tags.add(stripped);
+    }
+
+    void addItem(SearchItem item) {
+      addChip(item.epc);
+      addChip(item.rfid);
+      addChip(item.hex);
+    }
+
+    if (_isLargeUnmatched && _searchQuery.trim().isEmpty) {
+      return const <String>[];
+    }
+    if (!_displayIndexValid) _rebuildDisplayIndices();
+    for (var i = 0; i < _filteredCount; i++) {
+      final item = _tryDisplayItemAt(i);
+      if (item != null) addItem(item);
+    }
+    if (tags.isEmpty) {
+      for (final item in _searchItems) {
+        addItem(item);
+        if (tags.length >= 8) break;
+      }
+    }
+    return tags.take(8).toList(growable: false);
   }
 
   void _rebuildDisplayIndices() {

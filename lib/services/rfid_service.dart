@@ -616,6 +616,7 @@ class RfidService {
   Future<bool> startSearchScanning({
     required int power,
     List<String>? searchTags,
+    List<String>? ledEpcs,
   }) async {
     _power = power;
     await ensureReady();
@@ -637,6 +638,9 @@ class RfidService {
           searchTags.isNotEmpty &&
           searchTags.length <= 2000) {
         await setSearchTags(searchTags);
+      }
+      if (ledEpcs != null && ledEpcs.isNotEmpty) {
+        await setSearchLedEpcs(ledEpcs);
       }
       await prepareForScan();
       await setInventoryScanMode(false);
@@ -780,6 +784,20 @@ class RfidService {
         _simulationIndex++;
       }
     });
+  }
+
+  Future<bool> setSearchLedEpcs(List<String> tags) async {
+    if (!_isSupported) return true;
+    try {
+      return await _methodChannel.invokeMethod<bool>(
+            'setSearchLedEpcs',
+            {'tags': tags},
+          ) ??
+          false;
+    } catch (e) {
+      debugPrint('Error setting search LED epcs: $e');
+      return false;
+    }
   }
 
   Future<bool> setSearchTags(List<String> tags) async {
