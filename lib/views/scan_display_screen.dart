@@ -1876,7 +1876,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
               ScanDisplayListMenuOverlay(
                 matchedCount: matchedCount,
                 unmatchedCount: unmatchedCount,
-                unlabelledCount: _unlabelledEpcs.length,
+                unlabelledCount: 0,
+                unlabelledEnabled: false,
                 onDismiss: () => setState(() => _showMenu = false),
                 onMatched: () {
                   setState(() {

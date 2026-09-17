@@ -15,6 +15,7 @@ class ScanDisplayListMenuOverlay extends StatelessWidget {
   final VoidCallback onUnlabelled;
   final VoidCallback onResumeScan;
   final VoidCallback onSearchUnmatched;
+  final bool unlabelledEnabled;
 
   const ScanDisplayListMenuOverlay({
     super.key,
@@ -27,6 +28,7 @@ class ScanDisplayListMenuOverlay extends StatelessWidget {
     required this.onUnlabelled,
     required this.onResumeScan,
     required this.onSearchUnmatched,
+    this.unlabelledEnabled = true,
   });
 
   @override
@@ -78,8 +80,9 @@ class ScanDisplayListMenuOverlay extends StatelessWidget {
                             _menuCard(
                               title: s.unlabelledItems,
                               icon: Icons.label_off_outlined,
-                              count: unlabelledCount,
+                              count: unlabelledEnabled ? unlabelledCount : 0,
                               onTap: onUnlabelled,
+                              enabled: unlabelledEnabled,
                             ),
                             const SizedBox(height: 8),
                             _menuCard(
@@ -113,24 +116,31 @@ class ScanDisplayListMenuOverlay extends StatelessWidget {
     required IconData icon,
     int? count,
     required VoidCallback onTap,
+    bool enabled = true,
   }) {
     final displayText = count != null ? '$title ($count)' : title;
+    final color = enabled ? const Color(0xFF5231A7) : Colors.grey;
+    final textColor = enabled ? Colors.black87 : Colors.grey;
     return GestureDetector(
-      onTap: onTap,
+      onTap: enabled ? onTap : null,
       child: Container(
         width: double.infinity,
         constraints: const BoxConstraints(minHeight: 52),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF3053F0), Color(0xFFE82E5A)],
-          ),
+          gradient: enabled
+              ? const LinearGradient(
+                  colors: [Color(0xFF3053F0), Color(0xFFE82E5A)],
+                )
+              : LinearGradient(
+                  colors: [Colors.grey.shade400, Colors.grey.shade500],
+                ),
           borderRadius: BorderRadius.circular(4),
         ),
         child: Container(
           margin: const EdgeInsets.all(1.0),
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: enabled ? Colors.white : Colors.grey.shade200,
             borderRadius: BorderRadius.circular(3.0),
           ),
           child: Column(
@@ -140,7 +150,7 @@ class ScanDisplayListMenuOverlay extends StatelessWidget {
               Icon(
                 icon,
                 size: 18,
-                color: const Color(0xFF5231A7),
+                color: color,
               ),
               const SizedBox(height: 4),
               Text(
@@ -148,7 +158,7 @@ class ScanDisplayListMenuOverlay extends StatelessWidget {
                 style: AppFonts.poppins(
                   fontSize: 10,
                   fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+                  color: textColor,
                 ),
                 textAlign: TextAlign.center,
                 softWrap: true,

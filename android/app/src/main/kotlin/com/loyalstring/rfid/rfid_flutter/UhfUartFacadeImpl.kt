@@ -9,8 +9,8 @@ interface UhfFacade {
     /** setPower + Chainway inventory defaults (focus/fastID/dynamicDistance). */
     fun prepareScan(power: Int): Boolean
     /**
-     * Search: LabelStock EPCs as demo "checked" tags, then Blink (mode 15).
-     * Empty [epcs] does not enable unfiltered LED (that lights every chip).
+     * Search: uhf-uart-demo Tag LED Inventory with Solid.
+     * Non-empty [epcs] = checked rows (only those light). Empty = first pass (LED+normal scan).
      */
     fun prepareSearchLed(power: Int, epcs: Collection<String>): Boolean
     fun startInventory(): Boolean
@@ -22,14 +22,15 @@ interface UhfFacade {
     fun isReady(): Boolean
     fun recoverHardware(): Boolean
     /**
-     * Demo Tag LED Inventory "Blink": setFilter(LabelStock EPCs) then mode 15.
-     * Only those chips blink. Empty [epcs] returns false (do not light all tags).
+     * Demo Tag LED "Solid" + checked EPCs: setFilter then MODE_LED_TAG (14).
+     * Empty [epcs] returns false — use [applyLedBlinkInventoryNoFilter] for the first pass.
      */
     fun applyLedTagBlinkMode(epcs: Collection<String>): Boolean
     /** Re-assert Select LED Tag solid (mode 14). Does not change the EPC filter. */
     fun applyLedTagSolidMode(): Boolean
     /**
-     * Unfiltered LED Tag mode lights every LED in range. Search must never use it.
+     * Demo Tag LED first pass: setFilter(empty list) + Solid (MODE_LED_TAG).
+     * LED tags and normal tags both inventory. Lock to searched EPCs after a hit.
      */
     fun applyLedBlinkInventoryNoFilter(): Boolean
     /** Restore EPC-only inventory after Search (same as demo leaving Tag LED tab). */
@@ -114,9 +115,7 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
             if (epcs.any { it.isNotBlank() }) {
                 applyLedTagBlinkMode(epcs)
             } else {
-                r.setEPCMode()
-                clearEpcFilters(r)
-                true
+                applyLedBlinkInventoryNoFilter()
             }
         } catch (_: Throwable) {
             false
@@ -140,22 +139,29 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
             }
             r.setInventoryCallback(object : com.rscja.deviceapi.interfaces.IUHFInventoryCallback {
                 override fun callback(info: com.rscja.deviceapi.entity.UHFTAGInfo) {
+                    // Demo Tag LED uses getEPC() — info.epc can be EPC+TID+USER in LED mode.
                     val epc = try {
-                        info.epc?.trim().orEmpty()
+                        info.getEPC()?.trim().orEmpty()
                     } catch (_: Throwable) {
                         ""
                     }.ifEmpty {
                         try {
-                            info.getEPC()?.trim().orEmpty()
+                            info.epc?.trim().orEmpty()
                         } catch (_: Throwable) {
                             ""
                         }
                     }
                     if (epc.isEmpty()) return
                     val rssi = try {
-                        info.rssi?.toString() ?: "0"
+                        info.rssi?.toString()?.trim().orEmpty()
                     } catch (_: Throwable) {
-                        "0"
+                        ""
+                    }.ifEmpty {
+                        try {
+                            info.getRssi()?.trim().orEmpty()
+                        } catch (_: Throwable) {
+                            ""
+                        }
                     }
                     onTag(epc, rssi)
                 }
@@ -176,9 +182,25 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
     override fun readTagFromBuffer(): Pair<String, String>? {
         return try {
             val tag = reader?.readTagFromBuffer() ?: return null
-            val epc = tag.epc?.trim().orEmpty()
+            val epc = try {
+                tag.getEPC()?.trim().orEmpty()
+            } catch (_: Throwable) {
+                ""
+            }.ifEmpty {
+                tag.epc?.trim().orEmpty()
+            }
             if (epc.isEmpty()) return null
-            val rssi = tag.rssi?.toString() ?: "0"
+            val rssi = try {
+                tag.rssi?.toString()?.trim().orEmpty()
+            } catch (_: Throwable) {
+                ""
+            }.ifEmpty {
+                try {
+                    tag.getRssi()?.trim().orEmpty()
+                } catch (_: Throwable) {
+                    ""
+                }
+            }
             epc to rssi
         } catch (_: Throwable) {
             null
@@ -186,11 +208,29 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
     }
 
     override fun applyLedBlinkInventoryNoFilter(): Boolean {
-        android.util.Log.w(
-            "UhfUartFacade",
-            "Unfiltered LED Tag mode refused (would light every LED in range)",
-        )
-        return false
+        return try {
+            val r = reader ?: return false
+            // uhf-uart-demo Tag LED start with no rows checked:
+            // setFilter(empty list) then Solid = MODE_LED_TAG.
+            val emptied = try {
+                r.setFilter(ArrayList<com.rscja.deviceapi.entity.FilterEntity>())
+            } catch (_: Throwable) {
+                false
+            }
+            if (!emptied) {
+                try {
+                    r.setFilter(0, 0, 0, "")
+                } catch (_: Throwable) {
+                    clearEpcFilters(r)
+                }
+            }
+            val ok = setLedTagSolid(r)
+            android.util.Log.i("UhfUartFacade", "Tag LED Inventory Solid (no check) => $ok")
+            ok
+        } catch (e: Throwable) {
+            android.util.Log.w("UhfUartFacade", "Tag LED first pass failed: ${e.message}")
+            false
+        }
     }
 
     override fun applyLedTagBlinkMode(epcs: Collection<String>): Boolean {
@@ -205,11 +245,11 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
                 }.thenByDescending { it.length },
             )
             val filterEpcs = if (selected.size <= 8) selected else ArrayList(selected.take(8))
-            if (!installEpcFilter(r, filterEpcs)) {
-                android.util.Log.w("UhfUartFacade", "Search LED setFilter(${filterEpcs.size}) failed")
+            // Demo Tag LED checked rows: offset 32 only. Offset 0 lights other chips.
+            if (!installEpcFilterStrict(r, filterEpcs)) {
+                android.util.Log.w("UhfUartFacade", "Search LED strict setFilter(${filterEpcs.size}) failed")
                 return false
             }
-            // Demo checkbox "LED tag" = MODE_LED_TAG. Filter is already LabelStock-only.
             val ok = setLedTagSolid(r)
             android.util.Log.i("UhfUartFacade", "Search LED Tag MODE_LED_TAG epcs=${filterEpcs.size} => $ok")
             ok
@@ -264,10 +304,37 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
     private fun ledEpcsOf(epcs: Collection<String>): LinkedHashSet<String> {
         val unique = LinkedHashSet<String>()
         for (raw in epcs) {
-            val epc = raw.trim()
-            if (epc.isNotEmpty()) unique.add(epc)
+            val epc = raw.trim().uppercase()
+            if (epc.length != 24 && epc.length != 32) continue
+            if (epc.any { ch -> ch !in '0'..'9' && ch !in 'A'..'F' }) continue
+            unique.add(epc)
         }
         return unique
+    }
+
+    /**
+     * Demo Tag LED checked filter only: Bank_EPC, offset 32, epc.length*4.
+     * Offset 0 is not used — it can light a different chip.
+     */
+    private fun installEpcFilterStrict(
+        r: com.rscja.deviceapi.RFIDWithUHFUART,
+        selected: List<String>,
+    ): Boolean {
+        if (selected.isEmpty()) return false
+        if (tryFilterList(r, selected, 32)) return true
+        for (epc in selected) {
+            try {
+                if (r.setFilter(
+                        com.rscja.deviceapi.interfaces.IUHF.Bank_EPC,
+                        32,
+                        epc.length * 4,
+                        epc,
+                    )
+                ) return true
+            } catch (_: Throwable) {
+            }
+        }
+        return false
     }
 
     /**

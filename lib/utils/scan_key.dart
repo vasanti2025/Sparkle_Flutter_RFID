@@ -35,4 +35,13 @@ void addScanKeyVariants(String raw, void Function(String key) add) {
   add(key);
   final stripped = stripScanKey00(key);
   if (stripped.isNotEmpty && stripped != key) add(stripped);
+  if (!key.startsWith('00') && key.length + 2 <= 64) add('00$key');
+  if (stripped.isNotEmpty &&
+      stripped != key &&
+      !stripped.startsWith('00') &&
+      stripped.length + 2 <= 64) {
+    add('00$stripped');
+  }
+  if (key.length > 24) add(key.substring(0, 24));
+  if (key.length > 32) add(key.substring(0, 32));
 }

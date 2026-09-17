@@ -617,6 +617,7 @@ class RfidService {
     required int power,
     List<String>? searchTags,
     List<String>? ledEpcs,
+    String ledMode = 'epc',
   }) async {
     _power = power;
     await ensureReady();
@@ -639,9 +640,7 @@ class RfidService {
           searchTags.length <= 2000) {
         await setSearchTags(searchTags);
       }
-      if (ledEpcs != null && ledEpcs.isNotEmpty) {
-        await setSearchLedEpcs(ledEpcs);
-      }
+      await setSearchLedEpcs(ledEpcs ?? const <String>[]);
       await prepareForScan();
       await setInventoryScanMode(false);
       for (var attempt = 0; attempt < 3; attempt++) {
@@ -657,6 +656,7 @@ class RfidService {
               'power': power,
               'inventory': false,
               'playStartSound': false,
+              'ledMode': ledMode,
             }) ??
             false;
         if (started) return true;

@@ -54,6 +54,7 @@ class ProductViewModel extends ChangeNotifier {
   int _offset = 0;
   static const int _pageSize = 50;
   int _filteredTotalCount = 0;
+  int _listLoadGeneration = 0;
 
   List<BulkItem> get products => _products;
   bool get isListLoading => _isListLoading;
@@ -152,6 +153,7 @@ class ProductViewModel extends ChangeNotifier {
     _offset = 0;
     _hasReachedEnd = false;
     _isListLoading = false;
+    _listLoadGeneration++;
     resetFiltersWithoutRefresh();
     notifyListeners();
   }
@@ -172,6 +174,7 @@ class ProductViewModel extends ChangeNotifier {
 
   /// Drop in-memory Product List so the next open reloads from SQLite.
   void invalidateStockList() {
+    _listLoadGeneration++;
     _products.clear();
     _offset = 0;
     _hasReachedEnd = false;
@@ -325,10 +328,12 @@ class ProductViewModel extends ChangeNotifier {
 
     _isListLoading = true;
     notifyListeners();
+    final generation = _listLoadGeneration;
 
     try {
       if (_offset == 0) {
         await _refreshFilteredTotalCount();
+        if (generation != _listLoadGeneration) return;
       }
 
       final items = await _dbService.getMinimalItemsPagedFiltered(
@@ -341,20 +346,26 @@ class ProductViewModel extends ChangeNotifier {
         design: _selectedDesign,
         purity: _selectedPurity,
       );
-      
+      if (generation != _listLoadGeneration) return;
+
       if (items.length < _pageSize) {
         _hasReachedEnd = true;
       }
 
-      _products.addAll(items);
+      final uniqueItems = _uniqueProductsToAppend(items);
+      _products.addAll(uniqueItems);
       _offset += items.length;
       // Begin image download/decode BEFORE UI rebuild so thumbs arrive with rows.
-      ProductImage.warmUrls(items.map((e) => e.imageUrl));
+      ProductImage.warmUrls(uniqueItems.map((e) => e.imageUrl));
     } catch (e) {
-      _errorMessage = 'Failed to load products: ${e.toString()}';
+      if (generation == _listLoadGeneration) {
+        _errorMessage = 'Failed to load products: ${e.toString()}';
+      }
     } finally {
-      _isListLoading = false;
-      notifyListeners();
+      if (generation == _listLoadGeneration) {
+        _isListLoading = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -375,6 +386,7 @@ class ProductViewModel extends ChangeNotifier {
 
   // Clear list and restart pagination
   Future<void> refreshList() async {
+    _listLoadGeneration++;
     _products.clear();
     _offset = 0;
     _hasReachedEnd = false;
@@ -382,6 +394,44 @@ class ProductViewModel extends ChangeNotifier {
     _filteredTotalCount = 0;
     notifyListeners();
     await loadNextPage();
+  }
+
+  String _stableRowKey(BulkItem item) {
+    if (item.id != null && item.id! > 0) return 'id:${item.id}';
+    if (item.bulkItemId > 0) return 'bid:${item.bulkItemId}';
+    return 'row:${item.itemCode}|${item.epc}|${item.rfid}|${item.tid}';
+  }
+
+  Iterable<String> _searchCollapseKeys(BulkItem item) sync* {
+    if (item.bulkItemId > 0) yield 'bid:${item.bulkItemId}';
+    final code = item.itemCode.trim().toUpperCase();
+    if (code.isNotEmpty) yield 'code:$code';
+    final rfid = item.rfid.trim().toUpperCase();
+    if (rfid.isNotEmpty) yield 'rfid:$rfid';
+    final epc = item.epc.trim().toUpperCase();
+    if (epc.isNotEmpty) yield 'epc:$epc';
+    final tid = item.tid.trim().toUpperCase();
+    if (tid.isNotEmpty) yield 'tid:$tid';
+  }
+
+  List<BulkItem> _uniqueProductsToAppend(List<BulkItem> items) {
+    if (items.isEmpty) return const [];
+    final searching = _searchQuery.trim().isNotEmpty;
+    final seen = <String>{};
+    for (final existing in _products) {
+      seen.add(_stableRowKey(existing));
+      if (searching) seen.addAll(_searchCollapseKeys(existing));
+    }
+    final unique = <BulkItem>[];
+    for (final item in items) {
+      final rowKey = _stableRowKey(item);
+      if (seen.contains(rowKey)) continue;
+      if (searching && _searchCollapseKeys(item).any(seen.contains)) continue;
+      seen.add(rowKey);
+      if (searching) seen.addAll(_searchCollapseKeys(item));
+      unique.add(item);
+    }
+    return unique;
   }
 
   // Fetch distinct options for filter dropdowns from SQLite database

@@ -465,7 +465,14 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
       final success = await api.addRFIDScannedData(payload);
       if (success) {
         _showToast(context.sRead.itemsSavedSuccessfully);
-        await _loadScannedDataFromServer();
+        _uiFlushTimer?.cancel();
+        _uiFlushTimer = null;
+        _pendingTags.clear();
+        if (mounted) {
+          setState(() {
+            _desktopScans.clear();
+          });
+        }
       } else {
         _showToast(context.sRead.failedToSaveItemsToServer);
       }

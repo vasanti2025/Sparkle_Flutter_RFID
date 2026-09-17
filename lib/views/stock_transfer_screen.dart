@@ -572,10 +572,10 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('${s.tr('totalQty')}: ${rows.length}', style: AppFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600)),
-                      Text('${s.tr('selectedQty')}: ${selected.length}', style: AppFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600)),
-                      Text('${s.tr('grossWt')}: ${totalGross.toStringAsFixed(2)}', style: AppFonts.poppins(fontSize: 11)),
-                      Text('${s.tr('netWt')}: ${totalNet.toStringAsFixed(2)}', style: AppFonts.poppins(fontSize: 11)),
+                      Text('T qty: ${rows.length}', style: AppFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600)),
+                      Text('Set Qty: ${selected.length}', style: AppFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600)),
+                      Text('Gr wt: ${totalGross.toStringAsFixed(2)}', style: AppFonts.poppins(fontSize: 11)),
+                      Text('ntWt: ${totalNet.toStringAsFixed(2)}', style: AppFonts.poppins(fontSize: 11)),
                     ],
                   ),
                 ),

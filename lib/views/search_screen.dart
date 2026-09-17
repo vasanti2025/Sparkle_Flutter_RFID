@@ -528,6 +528,9 @@ class _SearchScreenState extends State<SearchScreen> {
       if (index == null && epc.length > 32) {
         index = _tagIndexMap[epc.substring(0, 32)];
       }
+      if (index == null && !epc.startsWith('00') && epc.length + 2 <= 64) {
+        index = _tagIndexMap['00$epc'];
+      }
       if (index == null || index < 0 || index >= _searchItems.length) return;
 
       _lastRssiUpdateMs[index] = now;
@@ -599,10 +602,16 @@ class _SearchScreenState extends State<SearchScreen> {
       _displayIndexValid = false;
       _startProximityDecay();
 
+      final unmatchedWide = _isLargeUnmatched && _searchQuery.trim().isEmpty;
+      final ledEpcs = unmatchedWide ? const <String>[] : _collectSearchLedEpcs();
+      // Unmatched: demo Tag LED, no filter (LED + normal).
+      // Global: filter to searched EPCs only so other LED tags stay dark.
+      final ledMode = unmatchedWide ? 'all' : 'filter';
       final started = await _rfidService.startSearchScanning(
         power: _selectedPower.clamp(1, 30),
         searchTags: tagsToSend,
-        ledEpcs: _collectSearchLedEpcs(),
+        ledEpcs: ledEpcs,
+        ledMode: ledMode,
       );
 
       if (!mounted) return;
@@ -825,6 +834,7 @@ class _SearchScreenState extends State<SearchScreen> {
     void addItem(SearchItem item) {
       addChip(item.epc);
       addChip(item.rfid);
+      addChip(item.tid);
       addChip(item.hex);
     }
 

@@ -173,6 +173,18 @@ class DbService {
     return rfid;
   }
 
+  /// Collapse duplicate labelled-stock copies (same bulkItemId / itemCode / RFID)
+  /// so Product List search does not show the same piece twice.
+  static const String _productListIdentitySql = '''
+CASE
+  WHEN IFNULL(bulkItemId, 0) != 0 THEN 'b:' || bulkItemId
+  WHEN TRIM(IFNULL(itemCode, '')) != '' THEN 'c:' || UPPER(TRIM(itemCode))
+  WHEN TRIM(IFNULL(rfid, '')) != '' THEN 'r:' || UPPER(TRIM(rfid))
+  WHEN TRIM(IFNULL(epc, '')) != '' THEN 'e:' || UPPER(TRIM(epc))
+  ELSE 'i:' || id
+END
+''';
+
   static const List<String> _labelledTransferColumns = [
     'id',
     'bulkItemId',
@@ -794,14 +806,29 @@ class DbService {
 
     final whereString = whereClauses.isNotEmpty ? whereClauses.join(' AND ') : null;
 
-    final List<Map<String, dynamic>> maps = await db.query(
-      'bulk_items',
-      where: whereString,
-      whereArgs: whereArgs,
-      orderBy: 'bulkItemId',
-      limit: limit,
-      offset: offset,
-    );
+    final searching = searchQuery != null && searchQuery.trim().isNotEmpty;
+    final List<Map<String, dynamic>> maps = searching
+        ? await db.rawQuery(
+            '''
+SELECT b.* FROM bulk_items b
+INNER JOIN (
+  SELECT MIN(id) AS id FROM bulk_items
+  ${whereString != null ? 'WHERE $whereString' : ''}
+  GROUP BY $_productListIdentitySql
+) d ON b.id = d.id
+ORDER BY b.bulkItemId ASC, b.id ASC
+LIMIT ? OFFSET ?
+''',
+            [...whereArgs, limit, offset],
+          )
+        : await db.query(
+            'bulk_items',
+            where: whereString,
+            whereArgs: whereArgs,
+            orderBy: 'bulkItemId ASC, id ASC',
+            limit: limit,
+            offset: offset,
+          );
 
     return List.generate(maps.length, (i) {
       return BulkItem.fromMap(maps[i]);
@@ -850,6 +877,21 @@ class DbService {
     }
 
     final whereString = whereClauses.isNotEmpty ? whereClauses.join(' AND ') : null;
+
+    final searching = searchQuery != null && searchQuery.trim().isNotEmpty;
+    if (searching) {
+      final result = await db.rawQuery(
+        '''
+SELECT COUNT(*) FROM (
+  SELECT MIN(id) AS id FROM bulk_items
+  ${whereString != null ? 'WHERE $whereString' : ''}
+  GROUP BY $_productListIdentitySql
+)
+''',
+        whereArgs,
+      );
+      return Sqflite.firstIntValue(result) ?? 0;
+    }
 
     final result = await db.query(
       'bulk_items',
@@ -903,12 +945,26 @@ class DbService {
 
     final whereString = whereClauses.isNotEmpty ? whereClauses.join(' AND ') : null;
 
-    final List<Map<String, dynamic>> maps = await db.query(
-      'bulk_items',
-      where: whereString,
-      whereArgs: whereArgs,
-      orderBy: 'bulkItemId',
-    );
+    final searching = searchQuery != null && searchQuery.trim().isNotEmpty;
+    final List<Map<String, dynamic>> maps = searching
+        ? await db.rawQuery(
+            '''
+SELECT b.* FROM bulk_items b
+INNER JOIN (
+  SELECT MIN(id) AS id FROM bulk_items
+  ${whereString != null ? 'WHERE $whereString' : ''}
+  GROUP BY $_productListIdentitySql
+) d ON b.id = d.id
+ORDER BY b.bulkItemId ASC, b.id ASC
+''',
+            whereArgs,
+          )
+        : await db.query(
+            'bulk_items',
+            where: whereString,
+            whereArgs: whereArgs,
+            orderBy: 'bulkItemId ASC, id ASC',
+          );
 
     return List.generate(maps.length, (i) {
       return BulkItem.fromMap(maps[i]);
