@@ -37,6 +37,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
   final Set<String> _pendingTagKeys = {};
   final TrayGscanSession _trayGscanSession = TrayGscanSession();
   StockTransferViewModel? _vm;
+  int _epoch = 0;
 
   /// Sparkle: trim + uppercase + strip spaces before EPC/RFID match.
   static String _norm(String value) =>
@@ -47,6 +48,10 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
     super.initState();
     _power = context.read<PrefService>().stockTransferPower;
     _vm = context.read<StockTransferViewModel>();
+    // Clear previous From/To/type before the first frame so Home → Stock Transfer
+    // never shows the last visit's selections.
+    _vm!.resetTransferForm(notify: false);
+    _epoch = _vm!.formEpoch;
     _vm!.addListener(_onVmChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
@@ -77,6 +82,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
 
   @override
   void dispose() {
+    _vm?.resetTransferForm(notify: false);
     _vm?.removeListener(_onVmChanged);
     _tagUiTimer?.cancel();
     _tagSub?.cancel();
@@ -89,6 +95,9 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
   void _onVmChanged() {
     final vm = _vm;
     if (vm == null) return;
+    if (vm.formEpoch != _epoch) {
+      _epoch = vm.formEpoch;
+    }
     _syncRfidIndex(vm);
   }
 
@@ -320,6 +329,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                   category: draftCat == StockTransferViewModel.categoryPlaceholder ? null : draftCat,
                   product: draftProd == StockTransferViewModel.productPlaceholder ? null : draftProd,
                   design: draftDes == StockTransferViewModel.designPlaceholder ? null : draftDes,
+                  epoch: _epoch,
                 );
                 setState(() => _checkedKeys.clear());
                 Navigator.pop(ctx);
@@ -347,6 +357,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
           labelOf: (o) => o,
           title: label,
         );
+        if (!mounted || _epoch != (_vm?.formEpoch ?? -1)) return;
         if (picked != null) onPick(picked);
       },
       child: InputDecorator(
@@ -358,13 +369,20 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
 
   Future<void> _pickOption(String title, List<String> options, ValueChanged<String> onSelect) async {
     if (options.isEmpty) return;
+    final epoch = _epoch;
     final picked = await showScrollableOptionSheet<String>(
       context: context,
       options: options,
       labelOf: (o) => o,
       title: title,
     );
+    if (!mounted || epoch != _epoch || epoch != (_vm?.formEpoch ?? -1)) return;
     if (picked != null) onSelect(picked);
+  }
+
+  void _leaveToHome() {
+    _vm?.resetTransferForm(notify: false);
+    Navigator.pop(context);
   }
 
   @override
@@ -380,13 +398,21 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
         ? vm.displayItems
         : vm.searchItemCodeSuggestions(searchQuery);
 
-    return Scaffold(
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) {
+          _vm?.resetTransferForm(notify: false);
+        }
+      },
+      child: Scaffold(
       backgroundColor: Colors.white,
       appBar: productGradientAppBar(
         context: context,
         title: s.stockTransfer,
         showCounter: true,
         selectedCount: _power,
+        onBack: _leaveToHome,
         onCountSelected: (v) {
           setState(() => _power = v.clamp(1, 30));
           context.read<PrefService>().savePower(PrefService.keyStockTransferCount, v);
@@ -410,7 +436,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                         vm.selectedTransferType ?? s.tr('transferType'),
                         () {
                         _pickOption(s.tr('transferType'), vm.transferTypes.map((e) => e.transferType).toList(), (v) {
-                          vm.selectTransferType(v);
+                          vm.selectTransferType(v, epoch: _epoch);
                           setState(() => _checkedKeys.clear());
                         });
                       })),
@@ -419,7 +445,8 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                         vm.selectedFrom == StockTransferViewModel.fromPlaceholder ? s.tr('from') : vm.selectedFrom,
                         () {
                         _pickOption(s.tr('from'), vm.fromOptions, (v) async {
-                          await vm.selectFrom(v);
+                          await vm.selectFrom(v, epoch: _epoch);
+                          if (!mounted) return;
                           setState(() => _checkedKeys.clear());
                         });
                       })),
@@ -428,7 +455,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                         vm.selectedTo == StockTransferViewModel.toPlaceholder ? s.tr('to') : vm.selectedTo,
                         () {
                         _pickOption(s.tr('to'), vm.toOptions, (v) async {
-                          await vm.selectTo(v);
+                          await vm.selectTo(v, epoch: _epoch);
                         });
                       })),
                     ],
@@ -610,6 +637,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                         setState(() {
                           _checkedKeys.clear();
                           _pendingTagKeys.clear();
+                          _searchCtrl.clear();
                         });
                       }
                     });
@@ -622,6 +650,16 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                       '/stock_transfer_in_out',
                       arguments: {'requestType': requestType},
                     );
+                    if (!mounted) return;
+                    // List / approve / reject sit on top of this screen, so
+                    // initState does not run again. Start a fresh form.
+                    _vm?.resetTransferForm();
+                    _epoch = _vm?.formEpoch ?? _epoch;
+                    setState(() {
+                      _checkedKeys.clear();
+                      _pendingTagKeys.clear();
+                      _searchCtrl.clear();
+                    });
                   },
                   onScan: _startSingleScan,
                   onGscan: _startGscan,
@@ -631,6 +669,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
             ),
           ),
         ],
+      ),
       ),
     );
   }

@@ -1022,12 +1022,72 @@ ORDER BY b.bulkItemId ASC, b.id ASC
     final rows = await db.query(
       'bulk_items',
       columns: [idColumn],
-      where: '$column = ?',
+      where: 'LOWER(TRIM($column)) = LOWER(TRIM(?)) AND IFNULL($idColumn, 0) != 0',
       whereArgs: [name],
       limit: 1,
     );
     if (rows.isEmpty) return null;
     return (rows.first[idColumn] as num?)?.toInt();
+  }
+
+  Future<Map<int, String>> getEntityNamesByIds(String type, Iterable<int> ids) async {
+    final unique = ids.where((id) => id > 0).toSet().toList();
+    if (unique.isEmpty) return {};
+    final t = type.toLowerCase();
+    late final String column;
+    late final String idColumn;
+    switch (t) {
+      case 'counter':
+        column = 'counterName';
+        idColumn = 'counterId';
+      case 'branch':
+        column = 'branchName';
+        idColumn = 'branchId';
+      case 'box':
+        column = 'boxName';
+        idColumn = 'boxId';
+      case 'packet':
+        column = 'packetName';
+        idColumn = 'packetId';
+      default:
+        return {};
+    }
+    final db = await database;
+    final placeholders = List.filled(unique.length, '?').join(',');
+    final rows = await db.query(
+      'bulk_items',
+      columns: [idColumn, column],
+      where: '$idColumn IN ($placeholders) AND TRIM(IFNULL($column, "")) != ""',
+      whereArgs: unique,
+    );
+    final map = <int, String>{};
+    for (final row in rows) {
+      final id = (row[idColumn] as num?)?.toInt() ?? 0;
+      final name = row[column]?.toString().trim() ?? '';
+      if (id > 0 && name.isNotEmpty) map[id] = name;
+    }
+    return map;
+  }
+
+  Future<Map<String, String>> getStockLocationNames(int bulkItemId) async {
+    if (bulkItemId <= 0) return const {};
+    final db = await database;
+    final rows = await db.query(
+      'bulk_items',
+      columns: ['counterName', 'boxName', 'branchName', 'packetName'],
+      where: 'bulkItemId = ?',
+      whereArgs: [bulkItemId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return const {};
+    final row = rows.first;
+    String pick(String key) => row[key]?.toString().trim() ?? '';
+    return {
+      'counter': pick('counterName'),
+      'box': pick('boxName'),
+      'branch': pick('branchName'),
+      'packet': pick('packetName'),
+    };
   }
 
   Future<List<BulkItem>> getLabelledBulkItems() async {
@@ -1102,6 +1162,81 @@ ORDER BY b.bulkItemId ASC, b.id ASC
     );
     if (count > 0) invalidateBulkCache();
     return count;
+  }
+
+  /// After a stock transfer, move labelled rows to the destination location.
+  Future<void> updateStockTransferLocations({
+    required List<BulkItem> items,
+    int? branchId,
+    String? branchName,
+    int? counterId,
+    String? counterName,
+    int? boxId,
+    String? boxName,
+    int? packetId,
+    String? packetName,
+  }) async {
+    if (items.isEmpty) return;
+    final values = <String, Object?>{};
+    if (branchId != null) values['branchId'] = branchId;
+    if (branchName != null) values['branchName'] = branchName;
+    if (counterId != null) values['counterId'] = counterId;
+    if (counterName != null) values['counterName'] = counterName;
+    if (boxId != null) values['boxId'] = boxId;
+    if (boxName != null) {
+      values['boxName'] = boxName;
+      values['box'] = boxName;
+    }
+    if (packetId != null) values['packetId'] = packetId;
+    if (packetName != null) values['packetName'] = packetName;
+    if (values.isEmpty) return;
+
+    final db = await database;
+    await db.transaction((txn) async {
+      for (final item in items) {
+        var updated = 0;
+        final code = item.itemCode.trim();
+        if (code.isNotEmpty) {
+          updated = await txn.update(
+            'bulk_items',
+            values,
+            where: 'LOWER(TRIM(itemCode)) = LOWER(?)',
+            whereArgs: [code],
+          );
+        }
+        if (updated == 0 && item.bulkItemId > 0) {
+          updated = await txn.update(
+            'bulk_items',
+            values,
+            where: 'bulkItemId = ?',
+            whereArgs: [item.bulkItemId],
+          );
+        }
+        if (updated == 0) {
+          final rfid = item.rfid.trim();
+          if (rfid.isNotEmpty) {
+            updated = await txn.update(
+              'bulk_items',
+              values,
+              where: 'LOWER(TRIM(rfid)) = LOWER(?)',
+              whereArgs: [rfid],
+            );
+          }
+        }
+        if (updated == 0) {
+          final epc = item.epc.trim();
+          if (epc.isNotEmpty) {
+            await txn.update(
+              'bulk_items',
+              values,
+              where: 'LOWER(TRIM(epc)) = LOWER(?)',
+              whereArgs: [epc],
+            );
+          }
+        }
+      }
+    });
+    invalidateBulkCache();
   }
 
   String _normStockKey(String raw) =>

@@ -2274,36 +2274,119 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     );
   }
 
+  /// Pixel-stable Scan Display columns so header, rows, and Total stay aligned
+  /// on the gun. Category flexes; Qty / Gross Wt / M Qty / M Wt / Status are fixed.
+  static const Map<int, TableColumnWidth> _groupColumnWidths = {
+    0: FlexColumnWidth(1.2),
+    1: FixedColumnWidth(34),
+    2: FixedColumnWidth(60),
+    3: FixedColumnWidth(42),
+    4: FixedColumnWidth(46),
+    5: FixedColumnWidth(52),
+  };
+  static const EdgeInsets _groupCellPad = EdgeInsets.symmetric(horizontal: 1, vertical: 6);
+
+  Widget _groupTable(List<Widget> cells) {
+    return Table(
+      columnWidths: _groupColumnWidths,
+      defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+      children: [TableRow(children: cells)],
+    );
+  }
+
+  Widget _groupTextCell(
+    String text, {
+    required TextAlign align,
+    required TextStyle style,
+    bool fitHeader = false,
+  }) {
+    final alignment = align == TextAlign.center
+        ? Alignment.center
+        : (align == TextAlign.right ? Alignment.centerRight : Alignment.centerLeft);
+    final label = Text(
+      text,
+      textAlign: align,
+      maxLines: 1,
+      overflow: fitHeader ? TextOverflow.visible : TextOverflow.ellipsis,
+      softWrap: false,
+      style: style,
+    );
+    return Padding(
+      padding: _groupCellPad,
+      child: fitHeader
+          ? FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: alignment,
+              child: label,
+            )
+          : label,
+    );
+  }
+
+  Widget _groupIconCell(Widget child) {
+    return Padding(
+      padding: _groupCellPad,
+      child: Center(child: child),
+    );
+  }
+
+  TextStyle get _groupHeaderStyle => AppFonts.poppins(
+        color: Colors.white,
+        fontSize: 8.5,
+        fontWeight: FontWeight.w600,
+      );
+
+  TextStyle get _groupBodyStyle => AppFonts.poppins(
+        fontSize: 10.5,
+        color: Colors.grey[800],
+      );
+
+  TextStyle get _groupNameStyle => AppFonts.poppins(
+        fontSize: 10.5,
+        color: Colors.black87,
+      );
+
+  TextStyle get _scanSummaryTextStyle => AppFonts.poppins(
+        color: Colors.white,
+        fontSize: 9.5,
+        fontWeight: FontWeight.w600,
+      );
+
   Widget _buildTableHeader() {
     final s = context.s;
     return Container(
       color: const Color(0xFF3B363E),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
-        children: [
-          if (_currentLevel == 'DesignItems' || _selectedMenu == 'UNLABELLED') ...[
-            _buildHeaderCell(s.fieldDesign, 2.8),
-            _buildHeaderCell(s.rfidNo, 1.8),
-            _buildHeaderCell(s.itemcode, 1.7),
-            _buildHeaderCell(s.colGrossWt, 1.7),
-            _buildHeaderCell(s.status, 1.0, isCenter: true),
-          ] else ...[
-            _buildHeaderCell(
-              _currentLevel == 'Category'
-                  ? s.fieldCategory
-                  : (_currentLevel == 'Product'
-                      ? s.fieldProduct
-                      : (_currentLevel == 'Design' ? s.fieldDesign : _currentLevel)),
-              2,
-            ),
-            _buildHeaderCell(s.qty, 1),
-            _buildHeaderCell(s.colGrossWt, 1.5),
-            _buildHeaderCell(s.mQty, 1),
-            _buildHeaderCell(s.mWt, 1.5),
-            _buildHeaderCell(s.status, 1, isCenter: true),
-          ]
-        ],
-      ),
+      padding: const EdgeInsets.fromLTRB(6, 2, 6, 2),
+      child: (_currentLevel == 'DesignItems' || _selectedMenu == 'UNLABELLED')
+          ? Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  _buildHeaderCell(s.fieldDesign, 2.8),
+                  _buildHeaderCell(s.rfidNo, 1.8),
+                  _buildHeaderCell(s.itemcode, 1.7),
+                  _buildHeaderCell(s.colGrossWt, 1.7),
+                  _buildHeaderCell(s.status, 1.0, isCenter: true),
+                ],
+              ),
+            )
+          : _groupTable([
+              _groupTextCell(
+                _currentLevel == 'Category'
+                    ? s.fieldCategory
+                    : (_currentLevel == 'Product'
+                        ? s.fieldProduct
+                        : (_currentLevel == 'Design' ? s.fieldDesign : _currentLevel)),
+                align: TextAlign.left,
+                style: _groupHeaderStyle,
+                fitHeader: true,
+              ),
+              _groupTextCell(s.qty, align: TextAlign.center, style: _groupHeaderStyle, fitHeader: true),
+              _groupTextCell(s.colGrossWt, align: TextAlign.center, style: _groupHeaderStyle, fitHeader: true),
+              _groupTextCell(s.mQty, align: TextAlign.center, style: _groupHeaderStyle, fitHeader: true),
+              _groupTextCell(s.mWt, align: TextAlign.center, style: _groupHeaderStyle, fitHeader: true),
+              _groupTextCell(s.status, align: TextAlign.center, style: _groupHeaderStyle, fitHeader: true),
+            ]),
     );
   }
 
@@ -2360,49 +2443,24 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         });
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 6),
         decoration: BoxDecoration(
           border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
         ),
-        child: Row(
-          children: [
-            Expanded(
-              flex: 20,
-              child: Text(
-                label,
-                style: AppFonts.poppins(fontSize: 12, color: Colors.black87),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+        child: _groupTable([
+          _groupTextCell(label, align: TextAlign.left, style: _groupNameStyle),
+          _groupTextCell('$qty', align: TextAlign.center, style: _groupBodyStyle),
+          _groupTextCell(grossWt.toStringAsFixed(3), align: TextAlign.center, style: _groupBodyStyle),
+          _groupTextCell('$mQty', align: TextAlign.center, style: _groupBodyStyle),
+          _groupTextCell(mWt.toStringAsFixed(3), align: TextAlign.center, style: _groupBodyStyle),
+          _groupIconCell(
+            Icon(
+              isMatched ? Icons.check_circle : Icons.cancel,
+              color: isMatched ? Colors.green : Colors.red,
+              size: 16,
             ),
-            Expanded(
-              flex: 10,
-              child: Text('$qty', style: AppFonts.poppins(fontSize: 12, color: Colors.grey[700])),
-            ),
-            Expanded(
-              flex: 15,
-              child: Text(grossWt.toStringAsFixed(3), style: AppFonts.poppins(fontSize: 12, color: Colors.grey[700])),
-            ),
-            Expanded(
-              flex: 10,
-              child: Text('$mQty', style: AppFonts.poppins(fontSize: 12, color: Colors.grey[700])),
-            ),
-            Expanded(
-              flex: 15,
-              child: Text(mWt.toStringAsFixed(3), style: AppFonts.poppins(fontSize: 12, color: Colors.grey[700])),
-            ),
-            Expanded(
-              flex: 10,
-              child: Center(
-                child: Icon(
-                  isMatched ? Icons.check_circle : Icons.cancel,
-                  color: isMatched ? Colors.green : Colors.red,
-                  size: 18,
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ]),
       ),
     );
   }
@@ -2501,10 +2559,11 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
     return Container(
       color: const Color(0xFF3B363E),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: Row(
-        children: showDesignSummary
-            ? [
+      padding: const EdgeInsets.fromLTRB(6, 2, 6, 2),
+      child: showDesignSummary
+          ? Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
                 _buildSummaryCell(s.total, 2),
                 _buildSummaryCell('$totalCount', 2),
                 Expanded(
@@ -2526,16 +2585,16 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                 ),
                 _buildSummaryCell(totalGrossWt.toStringAsFixed(3), 2),
                 _buildSummaryCell('', 1),
-              ]
-            : [
-                _buildSummaryCell(s.total, 2),
-                _buildSummaryCell('$totalCount', 1),
-                _buildSummaryCell(totalGrossWt.toStringAsFixed(3), 1.5),
-                _buildSummaryCell('$matchedCount', 1),
-                _buildSummaryCell(totalMatchedWt.toStringAsFixed(3), 1.5),
-                _buildSummaryCell('', 1),
               ],
-      ),
+            )
+          : _groupTable([
+              _groupTextCell(s.total, align: TextAlign.left, style: _scanSummaryTextStyle),
+              _groupTextCell('$totalCount', align: TextAlign.center, style: _scanSummaryTextStyle),
+              _groupTextCell(totalGrossWt.toStringAsFixed(3), align: TextAlign.center, style: _scanSummaryTextStyle),
+              _groupTextCell('$matchedCount', align: TextAlign.center, style: _scanSummaryTextStyle),
+              _groupTextCell(totalMatchedWt.toStringAsFixed(3), align: TextAlign.center, style: _scanSummaryTextStyle),
+              _groupIconCell(const SizedBox.shrink()),
+            ]),
     );
   }
 

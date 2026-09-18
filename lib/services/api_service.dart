@@ -862,6 +862,22 @@ class ApiService {
     required String clientCode,
     required String reportDate,
   }) async {
+    final body = await getConsolidatedStockVerificationReportRaw(
+      clientCode: clientCode,
+      reportDate: reportDate,
+    );
+    if (body == null || body.isEmpty) return null;
+    final decoded = jsonDecode(body);
+    if (decoded is Map<String, dynamic>) return decoded;
+    if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    return null;
+  }
+
+  /// Raw JSON string so callers can decode + parse off the UI isolate.
+  Future<String?> getConsolidatedStockVerificationReportRaw({
+    required String clientCode,
+    required String reportDate,
+  }) async {
     try {
       final response = await _dio.post(
         'api/ProductMaster/GetConsolidationStockVerificationReport',
@@ -869,9 +885,17 @@ class ApiService {
           'ClientCode': clientCode,
           'ReportDate': reportDate,
         },
+        options: Options(
+          responseType: ResponseType.plain,
+          receiveTimeout: const Duration(minutes: 5),
+        ),
       );
-      if (response.statusCode == 200 && response.data is Map<String, dynamic>) {
-        return response.data as Map<String, dynamic>;
+      if (response.statusCode == 200 && response.data is String) {
+        final text = (response.data as String).trim();
+        return text.isEmpty ? null : text;
+      }
+      if (response.statusCode == 200 && response.data != null) {
+        return jsonEncode(response.data);
       }
       return null;
     } on DioException catch (e) {
@@ -879,22 +903,121 @@ class ApiService {
     }
   }
 
+  dynamic _decodeJsonBody(dynamic data) {
+    if (data == null) return null;
+    if (data is Map || data is List) return data;
+    String? text;
+    if (data is String) {
+      text = data;
+    } else if (data is List<int>) {
+      text = utf8.decode(data);
+    }
+    if (text == null) return data;
+    var trimmed = text.trim();
+    if (trimmed.isEmpty) return null;
+    if (trimmed.codeUnitAt(0) == 0xFEFF) {
+      trimmed = trimmed.substring(1).trim();
+    }
+    final decoded = jsonDecode(trimmed);
+    if (decoded is String) {
+      final inner = decoded.trim();
+      if (inner.isEmpty) return null;
+      return jsonDecode(inner);
+    }
+    return decoded;
+  }
+
+  Map<String, dynamic>? _asSessionListPayload(dynamic data) {
+    final decoded = _decodeJsonBody(data);
+    if (decoded is List) {
+      return {'Sessions': decoded, 'TotalSessions': decoded.length};
+    }
+    if (decoded is Map) {
+      return Map<String, dynamic>.from(decoded);
+    }
+    return null;
+  }
+
   Future<Map<String, dynamic>?> getAllStockVerificationSessions(String clientCode) async {
+    try {
+      // Sparkle/web list call: ClientCode only. ReturnAllData:false returns no rows.
+      final response = await _dio.post(
+        'api/ProductMaster/GetAllStockVerificationBySession',
+        data: {'ClientCode': clientCode.trim()},
+        options: Options(
+          receiveTimeout: const Duration(minutes: 5),
+          extra: {'skip_api_log_body': true},
+        ),
+      );
+      if (response.statusCode != 200 || response.data == null) {
+        debugPrint(
+          'GetAllStockVerificationBySession status=${response.statusCode} data=${response.data == null}',
+        );
+        return null;
+      }
+      try {
+        final payload = _asSessionListPayload(response.data);
+        if (payload == null) {
+          debugPrint(
+            'GetAllStockVerificationBySession unexpected type=${response.data.runtimeType}',
+          );
+        } else {
+          debugPrint(
+            'GetAllStockVerificationBySession keys=${payload.keys.toList()} '
+            'client=${clientCode.trim()}',
+          );
+        }
+        return payload;
+      } catch (e) {
+        debugPrint('GetAllStockVerificationBySession decode: $e');
+        throw Exception('Failed to load batch sessions: $e');
+      }
+    } on DioException catch (e) {
+      throw Exception('Failed to load batch sessions: ${e.message}');
+    }
+  }
+
+  Future<String?> getAllStockVerificationSessionsRaw(String clientCode) async {
     try {
       final response = await _dio.post(
         'api/ProductMaster/GetAllStockVerificationBySession',
-        data: {'ClientCode': clientCode},
+        data: {'ClientCode': clientCode.trim()},
+        options: Options(
+          responseType: ResponseType.plain,
+          receiveTimeout: const Duration(minutes: 5),
+        ),
       );
-      if (response.statusCode == 200 && response.data is Map<String, dynamic>) {
-        return response.data as Map<String, dynamic>;
+      if (response.statusCode != 200 || response.data == null) return null;
+      if (response.data is String) {
+        final text = (response.data as String).trim();
+        return text.isEmpty ? null : text;
       }
-      return null;
+      if (response.data is List<int>) {
+        final text = utf8.decode(response.data as List<int>).trim();
+        return text.isEmpty ? null : text;
+      }
+      return jsonEncode(response.data);
     } on DioException catch (e) {
       throw Exception('Failed to load batch sessions: ${e.message}');
     }
   }
 
   Future<Map<String, dynamic>?> getStockVerificationBatchDetails({
+    required String clientCode,
+    required String scanBatchId,
+  }) async {
+    final body = await getStockVerificationBatchDetailsRaw(
+      clientCode: clientCode,
+      scanBatchId: scanBatchId,
+    );
+    if (body == null || body.isEmpty) return null;
+    final decoded = jsonDecode(body);
+    if (decoded is Map<String, dynamic>) return decoded;
+    if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    return null;
+  }
+
+  Future<String?> getStockVerificationBatchDetailsRaw({
     required String clientCode,
     required String scanBatchId,
   }) async {
@@ -906,9 +1029,17 @@ class ApiService {
           'ScanBatchId': scanBatchId,
           'ReturnAllData': true,
         },
+        options: Options(
+          responseType: ResponseType.plain,
+          receiveTimeout: const Duration(minutes: 5),
+        ),
       );
-      if (response.statusCode == 200 && response.data is Map<String, dynamic>) {
-        return response.data as Map<String, dynamic>;
+      if (response.statusCode == 200 && response.data is String) {
+        final text = (response.data as String).trim();
+        return text.isEmpty ? null : text;
+      }
+      if (response.statusCode == 200 && response.data != null) {
+        return jsonEncode(response.data);
       }
       return null;
     } on DioException catch (e) {
@@ -1215,8 +1346,8 @@ class ApiService {
       );
       if (response.statusCode == 200 && response.data is List) {
         return (response.data as List)
-            .whereType<Map<String, dynamic>>()
-            .map(TransferType.fromJson)
+            .whereType<Map>()
+            .map((e) => TransferType.fromJson(Map<String, dynamic>.from(e)))
             .toList();
       }
       return [];
@@ -1268,7 +1399,18 @@ class ApiService {
         if (body is List) {
           rawList = body;
         } else if (body is Map) {
-          for (final key in ['data', 'Data', 'result', 'Result', 'StockTransfers', 'stockTransfers']) {
+          for (final key in [
+            'data',
+            'Data',
+            'result',
+            'Result',
+            'StockTransfers',
+            'stockTransfers',
+            'items',
+            'Items',
+            'value',
+            'Value',
+          ]) {
             if (body[key] is List) {
               rawList = body[key] as List;
               break;
@@ -1287,12 +1429,12 @@ class ApiService {
           debugPrint('GetAllStockTransfers parsed=${parsed.length}');
           return parsed;
         }
+        return [];
       }
-      debugPrint('GetAllStockTransfers empty/unparsed status=${response.statusCode}');
-      return [];
+      throw Exception('GetAllStockTransfers HTTP ${response.statusCode}');
     } catch (e) {
       debugPrint('Error getAllStockTransfers: $e');
-      return [];
+      rethrow;
     }
   }
 
@@ -1708,10 +1850,18 @@ class ApiService {
           sendTimeout: const Duration(seconds: 20),
         ),
       );
-      if (response.statusCode == 200 && response.data is List) {
-        return (response.data as List)
-            .whereType<Map<String, dynamic>>()
-            .map(UserPermission.fromJson)
+      if (response.statusCode == 200) {
+        final data = response.data;
+        List list = const [];
+        if (data is List) {
+          list = data;
+        } else if (data is Map) {
+          final nested = data['data'] ?? data['Data'] ?? data['result'] ?? data['Result'];
+          if (nested is List) list = nested;
+        }
+        return list
+            .whereType<Map>()
+            .map((e) => UserPermission.fromJson(Map<String, dynamic>.from(e)))
             .toList();
       }
       return [];

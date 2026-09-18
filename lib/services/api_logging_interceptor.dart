@@ -7,13 +7,17 @@ class ApiLoggingInterceptor extends Interceptor {
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     if (AppLogger.enabled) {
-      options.extra['_api_started_at'] = DateTime.now();
-      AppLogger.logApiRequest(
-        method: options.method,
-        url: _fullUrl(options),
-        headers: Map<String, dynamic>.from(options.headers),
-        body: options.data,
-      );
+      try {
+        options.extra['_api_started_at'] = DateTime.now();
+        AppLogger.logApiRequest(
+          method: options.method,
+          url: _fullUrl(options),
+          headers: Map<String, dynamic>.from(options.headers),
+          body: _logBody(options.path, options.extra, options.data),
+        );
+      } catch (e) {
+        AppLogger.log('API request log failed: $e', tag: 'API');
+      }
     }
     handler.next(options);
   }
@@ -21,13 +25,21 @@ class ApiLoggingInterceptor extends Interceptor {
   @override
   void onResponse(Response response, ResponseInterceptorHandler handler) {
     if (AppLogger.enabled) {
-      AppLogger.logApiResponse(
-        method: response.requestOptions.method,
-        url: _fullUrl(response.requestOptions),
-        statusCode: response.statusCode,
-        elapsed: _elapsed(response.requestOptions),
-        data: response.data,
-      );
+      try {
+        AppLogger.logApiResponse(
+          method: response.requestOptions.method,
+          url: _fullUrl(response.requestOptions),
+          statusCode: response.statusCode,
+          elapsed: _elapsed(response.requestOptions),
+          data: _logBody(
+            response.requestOptions.path,
+            response.requestOptions.extra,
+            response.data,
+          ),
+        );
+      } catch (e) {
+        AppLogger.log('API response log failed: $e', tag: 'API');
+      }
     }
     handler.next(response);
   }
@@ -35,17 +47,37 @@ class ApiLoggingInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
     if (AppLogger.enabled) {
-      AppLogger.logApiFailure(
-        method: err.requestOptions.method,
-        url: _fullUrl(err.requestOptions),
-        elapsed: _elapsed(err.requestOptions),
-        error: err.message ?? err.type,
-        statusCode: err.response?.statusCode,
-        responseData: err.response?.data,
-        stackTrace: err.stackTrace,
-      );
+      try {
+        AppLogger.logApiFailure(
+          method: err.requestOptions.method,
+          url: _fullUrl(err.requestOptions),
+          elapsed: _elapsed(err.requestOptions),
+          error: err.message ?? err.type,
+          statusCode: err.response?.statusCode,
+          responseData: _logBody(
+            err.requestOptions.path,
+            err.requestOptions.extra,
+            err.response?.data,
+          ),
+          stackTrace: err.stackTrace,
+        );
+      } catch (e) {
+        AppLogger.log('API error log failed: $e', tag: 'API');
+      }
     }
     handler.next(err);
+  }
+
+  Object? _logBody(String path, Map<String, dynamic> extra, Object? data) {
+    if (extra['skip_api_log_body'] == true ||
+        path.toLowerCase().contains('getallstockverificationbysession')) {
+      if (data == null) return null;
+      if (data is String) return '[omitted ${data.length} chars]';
+      if (data is List) return '[omitted list ${data.length}]';
+      if (data is Map) return '[omitted map keys=${data.keys.length}]';
+      return '[omitted ${data.runtimeType}]';
+    }
+    return data;
   }
 
   String _fullUrl(RequestOptions options) {

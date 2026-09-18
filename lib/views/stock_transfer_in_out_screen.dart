@@ -26,6 +26,7 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen>
   List<StockTransferInOutItem> _transfers = [];
   bool _loading = false;
   String? _error;
+  int _loadGeneration = 0;
 
   static const double _srW = 40;
   static const double _colW = 90;
@@ -75,7 +76,9 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen>
 
   Future<void> _loadTransfers({bool showLoader = true}) async {
     final vm = context.read<StockTransferViewModel>();
-    if (showLoader && mounted) {
+    final generation = ++_loadGeneration;
+    final useLoader = showLoader && _transfers.isEmpty;
+    if (useLoader && mounted) {
       setState(() {
         _loading = true;
         _error = null;
@@ -96,11 +99,20 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen>
         requestType: widget.requestType,
         transferTypeFilterId: typeId,
       );
-      if (mounted) setState(() => _transfers = list);
+      if (!mounted || generation != _loadGeneration) return;
+      setState(() {
+        _transfers = list;
+        _error = null;
+      });
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (!mounted || generation != _loadGeneration) return;
+      setState(() {
+        if (_transfers.isEmpty) _error = e.toString();
+      });
     } finally {
-      if (mounted && showLoader) setState(() => _loading = false);
+      if (mounted && generation == _loadGeneration && useLoader) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -298,7 +310,9 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen>
             'items': item.labelledStockItems,
             'isSelfApproval': item.isSelfApproval,
           },
-        ).then((_) => _loadTransfers());
+        ).then((_) {
+          if (mounted) _loadTransfers(showLoader: false);
+        });
       },
       child: Container(
         color: index.isEven ? Colors.white : const Color(0xFFF7F7F7),
@@ -306,8 +320,8 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen>
         child: Row(
           children: [
             _cell('${index + 1}', _srW),
-            _cell(item.sourceName, _colW),
-            _cell(item.destinationName, _colW),
+            _cell(item.sourceName.trim().isEmpty ? '-' : item.sourceName, _colW),
+            _cell(item.destinationName.trim().isEmpty ? '-' : item.destinationName, _colW),
             _cell(grossWt, _colW),
             _cell(netWt, _colW),
             _cell(item.transferByEmployee, _colW),

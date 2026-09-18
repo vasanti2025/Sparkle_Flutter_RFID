@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 
 import '../models/stock_verification_report.dart';
@@ -7,6 +9,117 @@ import '../services/consolidated_report_export_service.dart';
 import '../services/pref_service.dart';
 
 enum ReportLoadState { idle, loading, success, error }
+
+Map<String, dynamic> _decodeJsonObject(String body) {
+  final decoded = jsonDecode(body);
+  if (decoded is Map<String, dynamic>) return decoded;
+  if (decoded is Map) return Map<String, dynamic>.from(decoded);
+  throw const FormatException('Expected a JSON object');
+}
+
+/// Hierarchy + counts only (no item rows) so the tree can paint like the web report.
+StockVerificationReportResponse parseConsolidatedTreeIsolate(String body) {
+  return StockVerificationReportResponse.fromJson(
+    _decodeJsonObject(body),
+    includeItems: false,
+  );
+}
+
+SessionListResponse parseSessionsIsolate(String body) {
+  final decoded = jsonDecode(body);
+  if (decoded is List) {
+    return SessionListResponse.fromJson({'Sessions': decoded, 'TotalSessions': decoded.length});
+  }
+  if (decoded is Map<String, dynamic>) return SessionListResponse.fromJson(decoded);
+  if (decoded is Map) return SessionListResponse.fromJson(Map<String, dynamic>.from(decoded));
+  throw const FormatException('Expected a JSON object');
+}
+
+List<Map<String, dynamic>> extractConsolidatedItemsIsolate(Map<String, dynamic> args) {
+  final json = _decodeJsonObject(args['body'] as String);
+  final branchId = args['branchId'] as int;
+  final type = (args['type'] as String? ?? 'TOTAL').toUpperCase();
+  final categoryId = args['categoryId'] as int?;
+  final productId = args['productId'] as int?;
+  final designId = args['designId'] as int?;
+
+  final branches = json['Branches'] ?? json['branches'];
+  if (branches is! List) return const [];
+
+  Map<String, dynamic>? asMap(dynamic v) {
+    if (v is Map<String, dynamic>) return v;
+    if (v is Map) return Map<String, dynamic>.from(v);
+    return null;
+  }
+
+  int asInt(dynamic v) {
+    if (v is int) return v;
+    if (v is double) return v.round();
+    return int.tryParse(v?.toString() ?? '') ?? 0;
+  }
+
+  Map<String, dynamic>? branchMap;
+  for (final e in branches) {
+    final map = asMap(e);
+    if (map != null && asInt(map['BranchId'] ?? map['branchId']) == branchId) {
+      branchMap = map;
+      break;
+    }
+  }
+  if (branchMap == null) return const [];
+
+  final items = <Map<String, dynamic>>[];
+  final categories = branchMap['Categories'] ?? branchMap['categories'];
+  if (categories is! List) return const [];
+
+  for (final c in categories) {
+    final cat = asMap(c);
+    if (cat == null) continue;
+    if (categoryId != null && asInt(cat['CategoryId'] ?? cat['categoryId']) != categoryId) {
+      continue;
+    }
+    final products = cat['Products'] ?? cat['products'];
+    if (products is! List) continue;
+    for (final p in products) {
+      final prod = asMap(p);
+      if (prod == null) continue;
+      if (productId != null && asInt(prod['ProductId'] ?? prod['productId']) != productId) {
+        continue;
+      }
+      final designs = prod['Designs'] ?? prod['designs'];
+      if (designs is! List) continue;
+      for (final d in designs) {
+        final des = asMap(d);
+        if (des == null) continue;
+        if (designId != null && asInt(des['DesignId'] ?? des['designId']) != designId) {
+          continue;
+        }
+        final rawItems = des['Items'] ?? des['items'];
+        if (rawItems is! List) continue;
+        for (final it in rawItems) {
+          final item = asMap(it);
+          if (item == null) continue;
+          final status = item['Status']?.toString() ?? item['status']?.toString() ?? '';
+          if (type == 'MATCHED' && status.toLowerCase() != 'matched') continue;
+          if (type == 'UNMATCHED' && status.toLowerCase() != 'unmatched') continue;
+          items.add(item);
+        }
+      }
+    }
+  }
+  return items;
+}
+
+StockVerificationReportResponse parseConsolidatedFullIsolate(String body) {
+  return StockVerificationReportResponse.fromJson(
+    _decodeJsonObject(body),
+    includeItems: true,
+  );
+}
+
+Map<String, dynamic> parseBatchDetailsFromStringIsolate(String body) {
+  return parseBatchDetailsIsolate(_decodeJsonObject(body));
+}
 
 /// Isolate entry: keep only display fields so large payloads parse off the UI thread.
 Map<String, dynamic> parseBatchDetailsIsolate(Map<String, dynamic> json) {
@@ -84,6 +197,10 @@ class StockVerificationViewModel extends ChangeNotifier {
   StockVerificationReportResponse? _consolidatedReport;
   StockVerificationReportResponse? get consolidatedReport => _consolidatedReport;
 
+  /// Raw payload kept for detail/export so the tree can skip item rows.
+  String? _consolidatedBody;
+  String? _consolidatedCacheDate;
+
   SessionListResponse? _sessionList;
   SessionListResponse? get sessionList => _sessionList;
 
@@ -104,9 +221,22 @@ class StockVerificationViewModel extends ChangeNotifier {
   int _exportProgress = 0;
   int get exportProgress => _exportProgress;
 
-  String get clientCode => _prefService.getEmployee()?.clientCode ?? '';
+  Future<void>? _sessionsInFlight;
+  Future<void>? _consolidatedInFlight;
+  String? _consolidatedInFlightDate;
+  int _sessionsFetchId = 0;
+
+  String get clientCode {
+    final employee = _prefService.getEmployee();
+    final fromEmployee = employee?.clientCode?.trim() ?? '';
+    if (fromEmployee.isNotEmpty) return fromEmployee;
+    final fromNested = employee?.clients?.clientCode?.trim() ?? '';
+    if (fromNested.isNotEmpty) return fromNested;
+    return _prefService.getClient()?.clientCode?.trim() ?? '';
+  }
 
   Future<void> loadBranches() async {
+    if (_branches.isNotEmpty) return;
     try {
       final raw = await _apiService.getAllBranches(clientCode);
       _branches = raw.map((e) => ReportBranchOption.fromJson(e as Map<String, dynamic>)).toList();
@@ -116,61 +246,182 @@ class StockVerificationViewModel extends ChangeNotifier {
     }
   }
 
-  Future<void> fetchConsolidatedReport(String reportDate) async {
+  Future<void> fetchConsolidatedReport(String reportDate, {bool force = false}) async {
+    if (!force &&
+        _consolidatedCacheDate == reportDate &&
+        _consolidatedReport != null &&
+        _consolidatedState == ReportLoadState.success) {
+      return;
+    }
+    if (_consolidatedInFlight != null && _consolidatedInFlightDate == reportDate) {
+      await _consolidatedInFlight;
+      return;
+    }
+
     _consolidatedState = ReportLoadState.loading;
     _errorMessage = null;
     notifyListeners();
 
+    final pending = _doFetchConsolidated(reportDate);
+    _consolidatedInFlight = pending;
+    _consolidatedInFlightDate = reportDate;
     try {
-      final raw = await _apiService.getConsolidatedStockVerificationReport(
+      await pending;
+    } finally {
+      if (_consolidatedInFlightDate == reportDate) {
+        _consolidatedInFlight = null;
+        _consolidatedInFlightDate = null;
+      }
+    }
+  }
+
+  Future<void> _doFetchConsolidated(String reportDate) async {
+    try {
+      final body = await _apiService.getConsolidatedStockVerificationReportRaw(
         clientCode: clientCode,
         reportDate: reportDate,
       );
-      if (raw != null) {
-        _consolidatedReport = StockVerificationReportResponse.fromJson(raw);
-        _consolidatedState = ReportLoadState.success;
-      } else {
+      if (body == null || body.isEmpty) {
         _consolidatedReport = null;
+        _consolidatedBody = null;
+        _consolidatedCacheDate = null;
         _consolidatedState = ReportLoadState.error;
         _errorMessage = 'No report data';
+        notifyListeners();
+        return;
       }
+      // Tree without item rows — same early paint as the web report.
+      final tree = await compute(parseConsolidatedTreeIsolate, body);
+      _consolidatedBody = body;
+      _consolidatedCacheDate = reportDate;
+      _consolidatedReport = tree;
+      _consolidatedState = ReportLoadState.success;
+      notifyListeners();
     } catch (e) {
       _consolidatedState = ReportLoadState.error;
       _errorMessage = e.toString();
+      notifyListeners();
     }
-    notifyListeners();
   }
 
-  Future<void> fetchSessions() async {
-    _sessionState = ReportLoadState.loading;
-    _errorMessage = null;
-    notifyListeners();
-
-    try {
-      final raw = await _apiService.getAllStockVerificationSessions(clientCode);
-      if (raw != null) {
-        final list = SessionListResponse.fromJson(raw);
-        _originalSessions = List<ReportSessionItem>.from(list.sessions);
-        _sessionList = list;
-        _sessionState = ReportLoadState.success;
-      } else {
-        _sessionList = null;
-        _originalSessions = [];
-        _sessionState = ReportLoadState.error;
-        _errorMessage = 'No sessions found';
-      }
-    } catch (e) {
-      _sessionState = ReportLoadState.error;
-      _errorMessage = e.toString();
+  Future<void> fetchSessions({bool force = false}) async {
+    if (_sessionsInFlight != null) {
+      await _sessionsInFlight;
+      return;
     }
+    final hasSessions = _originalSessions.isNotEmpty && _sessionState == ReportLoadState.success;
+    if (!force && hasSessions) {
+      return;
+    }
+
+    final keepListVisible = _originalSessions.isNotEmpty;
+    if (!keepListVisible) {
+      _sessionState = ReportLoadState.loading;
+      _errorMessage = null;
+      notifyListeners();
+    }
+
+    final pending = _doFetchSessions();
+    _sessionsInFlight = pending;
+    try {
+      await pending;
+    } finally {
+      if (identical(_sessionsInFlight, pending)) {
+        _sessionsInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _doFetchSessions() async {
+    final fetchId = ++_sessionsFetchId;
+    final previousOriginal = List<ReportSessionItem>.from(_originalSessions);
+    final previousList = _sessionList;
+    Object? lastError;
+
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      if (fetchId != _sessionsFetchId) return;
+      try {
+        var code = clientCode;
+        if (code.isEmpty) {
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+          if (fetchId != _sessionsFetchId) return;
+          code = clientCode;
+        }
+        debugPrint('BatchWise fetch attempt=$attempt ClientCode="$code"');
+        if (code.isEmpty) {
+          lastError = 'No sessions found';
+          break;
+        }
+
+        final raw = await _apiService.getAllStockVerificationSessions(code);
+        if (fetchId != _sessionsFetchId) return;
+        if (raw == null) {
+          lastError = 'No sessions found';
+          if (attempt < 3) {
+            await Future<void>.delayed(Duration(milliseconds: 400 * attempt));
+            continue;
+          }
+          break;
+        }
+
+        final list = SessionListResponse.fromJson(raw);
+        debugPrint(
+          'BatchWise sessions=${list.sessions.length} '
+          'total=${list.totalSessions} keys=${raw.keys.toList()}',
+        );
+        if (list.sessions.isNotEmpty) {
+          if (fetchId != _sessionsFetchId) return;
+          _originalSessions = List<ReportSessionItem>.from(list.sessions);
+          _sessionList = list;
+          _sessionState = ReportLoadState.success;
+          _errorMessage = null;
+          notifyListeners();
+          return;
+        }
+
+        lastError = 'No sessions found';
+        if (attempt < 3) {
+          await Future<void>.delayed(Duration(milliseconds: 400 * attempt));
+        }
+      } catch (e) {
+        lastError = e;
+        debugPrint('BatchWise fetch attempt=$attempt error=$e');
+        if (attempt < 3) {
+          await Future<void>.delayed(Duration(milliseconds: 400 * attempt));
+        }
+      }
+    }
+
+    if (fetchId != _sessionsFetchId) return;
+    if (previousOriginal.isNotEmpty) {
+      _originalSessions = previousOriginal;
+      _sessionList = previousList;
+      _sessionState = ReportLoadState.success;
+      _errorMessage = null;
+      notifyListeners();
+      return;
+    }
+
+    _sessionList = null;
+    _originalSessions = [];
+    _sessionState = ReportLoadState.error;
+    _errorMessage = lastError?.toString() ?? 'No sessions found';
     notifyListeners();
   }
 
   void filterSessions({int? branchId, required String fromDate, required String toDate}) {
     if (_sessionList == null) return;
+    String dateKey(String startedOn) {
+      final s = startedOn.trim();
+      if (s.length >= 10 && s[4] == '-') return s.substring(0, 10);
+      final match = RegExp(r'^(\d{2})[/-](\d{2})[/-](\d{4})').firstMatch(s);
+      if (match != null) return '${match[3]}-${match[2]}-${match[1]}';
+      return s.length >= 10 ? s.substring(0, 10) : s;
+    }
+
     final filtered = _originalSessions.where((session) {
       final branchMatch = branchId == null || session.branchId == branchId;
-      final dateStr = session.startedOn.length >= 10 ? session.startedOn.substring(0, 10) : session.startedOn;
+      final dateStr = dateKey(session.startedOn);
       final dateMatch = dateStr.compareTo(fromDate) >= 0 && dateStr.compareTo(toDate) <= 0;
       return branchMatch && dateMatch;
     }).toList();
@@ -186,11 +437,11 @@ class StockVerificationViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final raw = await _apiService.getStockVerificationBatchDetails(
+      final body = await _apiService.getStockVerificationBatchDetailsRaw(
         clientCode: clientCode,
         scanBatchId: scanBatchId,
       );
-      if (raw == null) {
+      if (body == null || body.isEmpty) {
         _batchDetails = null;
         _batchDetailsState = ReportLoadState.error;
         _errorMessage = 'No batch details';
@@ -198,8 +449,7 @@ class StockVerificationViewModel extends ChangeNotifier {
         return;
       }
 
-      // Heavy JSON trim + parse off the UI thread
-      final compact = await compute(parseBatchDetailsIsolate, Map<String, dynamic>.from(raw));
+      final compact = await compute(parseBatchDetailsFromStringIsolate, body);
       _batchDetails = BatchDetailsResponse.fromCompact(compact);
       _batchDetailsState = ReportLoadState.success;
     } catch (e) {
@@ -245,11 +495,18 @@ class StockVerificationViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final raw = await _apiService.getConsolidatedStockVerificationReport(
-        clientCode: clientCode,
-        reportDate: date,
-      );
-      if (raw == null) {
+      var body = _consolidatedBody;
+      if (body == null || _consolidatedCacheDate != date) {
+        body = await _apiService.getConsolidatedStockVerificationReportRaw(
+          clientCode: clientCode,
+          reportDate: date,
+        );
+        if (body != null && body.isNotEmpty) {
+          _consolidatedBody = body;
+          _consolidatedCacheDate = date;
+        }
+      }
+      if (body == null || body.isEmpty) {
         _detailItems = [];
         _detailState = ReportLoadState.error;
         _errorMessage = 'No data available';
@@ -257,50 +514,15 @@ class StockVerificationViewModel extends ChangeNotifier {
         return;
       }
 
-      final report = StockVerificationReportResponse.fromJson(raw);
-      ReportBranch? branch;
-      for (final b in report.branches) {
-        if (b.branchId == branchId) {
-          branch = b;
-          break;
-        }
-      }
-      if (branch == null) {
-        _detailItems = [];
-        _detailState = ReportLoadState.error;
-        _errorMessage = 'Branch not found';
-        notifyListeners();
-        return;
-      }
-
-      final categories = branch.categories
-          .where((c) => categoryId == null || c.categoryId == categoryId)
-          .toList();
-
-      final products = categories
-          .expand((c) => c.products)
-          .where((p) => productId == null || p.productId == productId)
-          .toList();
-
-      final designs = products
-          .expand((p) => p.designs)
-          .where((d) => designId == null || d.designId == designId)
-          .toList();
-
-      var items = designs.expand((d) => d.items).toList();
-
-      switch (type.toUpperCase()) {
-        case 'MATCHED':
-          items = items.where((i) => i.status?.toLowerCase() == 'matched').toList();
-          break;
-        case 'UNMATCHED':
-          items = items.where((i) => i.status?.toLowerCase() == 'unmatched').toList();
-          break;
-        default:
-          break;
-      }
-
-      _detailItems = items;
+      final rawItems = await compute(extractConsolidatedItemsIsolate, <String, dynamic>{
+        'body': body,
+        'branchId': branchId,
+        'type': type,
+        'categoryId': categoryId,
+        'productId': productId,
+        'designId': designId,
+      });
+      _detailItems = rawItems.map(ReportItem.fromJson).toList();
       _detailState = ReportLoadState.success;
     } catch (e) {
       _detailState = ReportLoadState.error;
@@ -310,14 +532,27 @@ class StockVerificationViewModel extends ChangeNotifier {
   }
 
   Future<String?> exportConsolidatedReport(void Function(int count)? onProgress) async {
-    if (_consolidatedReport == null) return 'No report to export';
+    if (_consolidatedReport == null && (_consolidatedBody == null || _consolidatedBody!.isEmpty)) {
+      return 'No report to export';
+    }
     _isExporting = true;
     _exportProgress = 0;
     notifyListeners();
 
     try {
+      var report = _consolidatedReport;
+      final hasItems = report?.branches.any(
+            (b) => b.categories.any(
+              (c) => c.products.any((p) => p.designs.any((d) => d.items.isNotEmpty)),
+            ),
+          ) ??
+          false;
+      if (!hasItems && _consolidatedBody != null && _consolidatedBody!.isNotEmpty) {
+        report = await compute(parseConsolidatedFullIsolate, _consolidatedBody!);
+      }
+      if (report == null) return 'No report to export';
       final file = await ConsolidatedReportExportService.exportToCsv(
-        report: _consolidatedReport!,
+        report: report,
         onProgress: (c) {
           _exportProgress = c;
           onProgress?.call(c);

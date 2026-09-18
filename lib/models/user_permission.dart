@@ -1,5 +1,21 @@
 import 'dart:convert';
 
+int _jsonInt(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+String _jsonObjectString(dynamic value) {
+  if (value == null) return '';
+  if (value is String) return value;
+  try {
+    return jsonEncode(value);
+  } catch (_) {
+    return value.toString();
+  }
+}
+
 class BranchSelection {
   final int id;
   final String name;
@@ -7,21 +23,25 @@ class BranchSelection {
   BranchSelection({required this.id, required this.name});
 
   factory BranchSelection.fromJson(Map<String, dynamic> json) => BranchSelection(
-        id: (json['Id'] as num?)?.toInt() ?? 0,
-        name: json['Name']?.toString() ?? '',
+        id: _jsonInt(json['Id'] ?? json['id'] ?? json['BranchId'] ?? json['branchId']),
+        name: (json['Name'] ?? json['name'] ?? json['BranchName'] ?? json['branchName'])
+                ?.toString() ??
+            '',
       );
 }
 
 List<BranchSelection> parseBranchSelectionJson(String? json) {
-  if (json == null || json.trim().isEmpty) return [];
+  if (json == null || json.trim().isEmpty || json.trim() == 'null') return [];
   try {
     final decoded = jsonDecode(json);
     if (decoded is! List) return [];
-    return decoded
-        .whereType<Map<String, dynamic>>()
-        .map(BranchSelection.fromJson)
-        .where((b) => b.name.isNotEmpty)
-        .toList();
+    final out = <BranchSelection>[];
+    for (final e in decoded) {
+      if (e is! Map) continue;
+      final branch = BranchSelection.fromJson(Map<String, dynamic>.from(e));
+      if (branch.name.isNotEmpty || branch.id > 0) out.add(branch);
+    }
+    return out;
   } catch (_) {
     return [];
   }
@@ -51,20 +71,24 @@ class UserPermission {
   });
 
   String get displayName {
-    final name = firstName.trim();
+    final name = '${firstName.trim()} ${lastName.trim()}'.trim();
     if (name.isNotEmpty) return name;
-    return employeeId.toString();
+    return employeeId > 0 ? employeeId.toString() : userId.toString();
   }
 
   factory UserPermission.fromJson(Map<String, dynamic> json) => UserPermission(
-        userId: (json['UserId'] as num?)?.toInt() ?? 0,
-        firstName: json['FirstName']?.toString() ?? '',
-        lastName: json['LastName']?.toString() ?? '',
-        roleId: (json['RoleId'] as num?)?.toInt() ?? 0,
-        roleName: json['RoleName']?.toString() ?? '',
-        clientCode: json['ClientCode']?.toString() ?? '',
-        branchSelectionJson: json['BranchSelectionJson']?.toString() ?? '',
-        companySelectionJson: json['CompanySelectionJson']?.toString() ?? '',
-        employeeId: (json['EmployeeId'] as num?)?.toInt() ?? 0,
+        userId: _jsonInt(json['UserId'] ?? json['userId']),
+        firstName: json['FirstName']?.toString() ?? json['firstName']?.toString() ?? '',
+        lastName: json['LastName']?.toString() ?? json['lastName']?.toString() ?? '',
+        roleId: _jsonInt(json['RoleId'] ?? json['roleId']),
+        roleName: json['RoleName']?.toString() ?? json['roleName']?.toString() ?? '',
+        clientCode: json['ClientCode']?.toString() ?? json['clientCode']?.toString() ?? '',
+        branchSelectionJson: _jsonObjectString(
+          json['BranchSelectionJson'] ?? json['branchSelectionJson'],
+        ),
+        companySelectionJson: _jsonObjectString(
+          json['CompanySelectionJson'] ?? json['companySelectionJson'],
+        ),
+        employeeId: _jsonInt(json['EmployeeId'] ?? json['employeeId']),
       );
 }

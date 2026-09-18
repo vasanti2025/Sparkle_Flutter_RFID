@@ -1,8 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
 import '../models/stock_transfer_models.dart';
+import '../services/db_service.dart';
+import '../services/label_stock_sync_service.dart';
+import '../services/pref_service.dart';
 import '../viewmodels/stock_transfer_view_model.dart';
 import 'widgets/product_form_widgets.dart';
 
@@ -187,10 +192,31 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
       SnackBar(content: Text(msg ?? actionLabel)),
     );
 
-    // Sparkle: after Out Request approve, leave detail so list refreshes.
-    if (ok && widget.requestType == 'Out Request' && statusType == 1) {
-      Navigator.of(context).pop(true);
-    }
+    if (!ok) return;
+
+    // Same as Sample Out: refresh labelled stock in the background (Click to Sync
+    // isolate) with no product-screen overlay, then return to Stock Transfer.
+    final prefs = context.read<PrefService>();
+    final db = context.read<DbService>();
+    final stockVm = context.read<StockTransferViewModel>();
+    unawaited(_syncLabelStockInBackground(prefs, db, stockVm));
+
+    stockVm.resetTransferForm(notify: false);
+    Navigator.of(context).popUntil((route) {
+      return route.settings.name == '/stock_transfer' || route.isFirst;
+    });
+  }
+
+  Future<void> _syncLabelStockInBackground(
+    PrefService prefs,
+    DbService db,
+    StockTransferViewModel stockVm,
+  ) async {
+    await LabelStockSyncService.syncFromServer(
+      prefService: prefs,
+      dbService: db,
+    );
+    await stockVm.loadAllLabelledStock();
   }
 
   @override

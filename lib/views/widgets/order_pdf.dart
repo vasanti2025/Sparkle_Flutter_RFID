@@ -931,10 +931,16 @@ pw.TableRow _orderDataRow(_OrderPdfRow r) {
 }
 
 String _orderBarCode(Map<String, dynamic> item) {
+  // Print "Bar Code" is the RFID/tag barcode (e.g. PJ02608), not ItemCode (e.g. PRD2608).
   return _displayText(_firstNonEmpty([
-    item['ProductNo']?.toString(),
-    item['ProductCode']?.toString(),
-    item['ItemCode']?.toString(),
+    item['RFIDCode']?.toString(),
+    item['RfidCode']?.toString(),
+    item['RFID']?.toString(),
+    item['Rfid']?.toString(),
+    item['BarCode']?.toString(),
+    item['Barcode']?.toString(),
+    item['BarcodeNumber']?.toString(),
+    item['BarcodeNo']?.toString(),
   ]));
 }
 

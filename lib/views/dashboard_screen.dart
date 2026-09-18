@@ -110,12 +110,25 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Future<void> _pushNamed(BuildContext context, String route, [Object? arguments]) async {
     if (_navigating || !mounted) return;
+    final isStockTransfer = route == '/stock_transfer';
+    if (isStockTransfer) {
+      _resetStockTransferForm(context);
+    }
     _navigating = true;
     try {
       await Navigator.pushNamed(context, route, arguments: arguments);
     } finally {
+      if (isStockTransfer) {
+        _resetStockTransferForm(context);
+      }
       if (mounted) _navigating = false;
     }
+  }
+
+  void _resetStockTransferForm(BuildContext context) {
+    try {
+      context.read<StockTransferViewModel>().resetTransferForm(notify: false);
+    } catch (_) {}
   }
 
   void _navigateByKey(BuildContext context, String key, dynamic s) {

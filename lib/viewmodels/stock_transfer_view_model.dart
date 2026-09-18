@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../models/bulk_item.dart';
 import '../models/stock_transfer_models.dart';
 import '../models/user_permission.dart';
+import '../models/wholesale_master.dart';
 import '../services/api_service.dart';
 import '../services/db_service.dart';
 import '../services/pref_service.dart';
@@ -58,7 +59,10 @@ class StockTransferViewModel extends ChangeNotifier {
             .id;
   }
 
-  bool get isBranchToBranch => transferTypeId == 15;
+  bool get isBranchToBranch {
+    if (transferTypeId == 15) return true;
+    return _fromType == 'branch' && _toType == 'branch';
+  }
 
   (String?, String?) _parseTransferType(String? type) {
     if (type == null || !type.toLowerCase().contains(' to ')) return (null, null);
@@ -73,6 +77,9 @@ class StockTransferViewModel extends ChangeNotifier {
   List<String> _packetNames = [];
   List<String> _accessibleBranchNames = [];
   List<UserPermission> allEmployees = [];
+  List<WholesaleCounter> _masterCounters = [];
+  List<WholesaleBranch> _branchMasters = [];
+  bool _masterLocationsLoaded = false;
 
   static const String fromPlaceholder = '__from__';
   static const String toPlaceholder = '__to__';
@@ -82,8 +89,35 @@ class StockTransferViewModel extends ChangeNotifier {
   static const String designPlaceholder = '__design__';
 
   bool _initialized = false;
+  int _formEpoch = 0;
+
+  int get formEpoch => _formEpoch;
+
+  bool _epochOk(int? epoch) => epoch == null || epoch == _formEpoch;
+
+  /// Clears From/To/type/preview when Stock Transfer is opened again.
+  /// Keeps labelled stock in memory so reopen stays fast.
+  void resetTransferForm({bool notify = true}) {
+    _formEpoch++;
+    selectedTransferType = null;
+    selectedFrom = fromPlaceholder;
+    selectedTo = toPlaceholder;
+    appliedCategory = null;
+    appliedProduct = null;
+    appliedDesign = null;
+    sourceBranchId = null;
+    destinationBranchId = null;
+    previewItems = [];
+    errorMessage = null;
+    transferStatusMessage = null;
+    if (allLabelledItems.isNotEmpty) {
+      filteredItems = List.from(allLabelledItems);
+    }
+    if (notify) notifyListeners();
+  }
 
   void resetSession() {
+    _formEpoch++;
     _initialized = false;
     transferTypes = [];
     allLabelledItems = [];
@@ -103,6 +137,9 @@ class StockTransferViewModel extends ChangeNotifier {
     _packetNames = [];
     _accessibleBranchNames = [];
     allEmployees = [];
+    _masterCounters = [];
+    _branchMasters = [];
+    _masterLocationsLoaded = false;
     errorMessage = null;
     transferStatusMessage = null;
     isLoading = false;
@@ -141,6 +178,7 @@ class StockTransferViewModel extends ChangeNotifier {
   }
 
   Future<void> loadAllLabelledStock() async {
+    final epoch = _formEpoch;
     try {
       // Page load so Stock Transfer open doesn't freeze the UI on large DBs.
       const pageSize = 3000;
@@ -157,14 +195,24 @@ class StockTransferViewModel extends ChangeNotifier {
         if (all.length >= 20000) break;
       }
       allLabelledItems = all;
+      if (epoch != _formEpoch) {
+        filteredItems = List.from(allLabelledItems);
+        notifyListeners();
+        return;
+      }
       // If From is set with a transfer type, keep that filter; else show all.
       if (selectedTransferType != null &&
           selectedFrom != fromPlaceholder &&
           _fromType != null) {
-        filteredItems = await _dbService.getLabelledBulkItemsFiltered(
+        final filtered = await _dbService.getLabelledBulkItemsFiltered(
           fromType: _fromType!,
           fromValue: selectedFrom,
         );
+        if (epoch != _formEpoch) {
+          filteredItems = List.from(allLabelledItems);
+        } else {
+          filteredItems = filtered;
+        }
       } else {
         filteredItems = List.from(allLabelledItems);
       }
@@ -186,9 +234,10 @@ class StockTransferViewModel extends ChangeNotifier {
         _dbService.getDistinctPacketNames(),
       ]);
       final dbCounters = results[0];
-      final apiCounters = clientCode.isNotEmpty
-          ? await _apiService.getAllCounterNames(clientCode)
-          : <String>[];
+      if (clientCode.isNotEmpty) {
+        await ensureMasterLocationsLoaded();
+      }
+      final apiCounters = _masterCounters.map((c) => c.name).where((n) => n.trim().isNotEmpty);
       // Union API + DB names so dropdown matches items we can actually filter.
       final merged = <String>{...apiCounters, ...dbCounters}.toList()..sort();
       _counterNames = merged.isNotEmpty ? merged : dbCounters;
@@ -226,11 +275,30 @@ class StockTransferViewModel extends ChangeNotifier {
   }
 
   List<UserPermission> employeesForDestinationBranch(int? branchId) {
-    // Sparkle: if destination branch unknown, filtered list is empty (not all employees).
-    if (branchId == null || branchId <= 0) return const [];
-    return allEmployees.where((emp) {
-      return parseBranchSelectionJson(emp.branchSelectionJson).any((b) => b.id == branchId);
-    }).toList();
+    if (allEmployees.isEmpty) return const [];
+
+    List<UserPermission> byId() {
+      if (branchId == null || branchId <= 0) return const [];
+      return allEmployees.where((emp) {
+        return parseBranchSelectionJson(emp.branchSelectionJson).any((b) => b.id == branchId);
+      }).toList();
+    }
+
+    final matchedId = byId();
+    if (matchedId.isNotEmpty) return matchedId;
+
+    final destName = selectedTo.trim().toLowerCase();
+    if (destName.isNotEmpty && destName != toPlaceholder) {
+      final matchedName = allEmployees.where((emp) {
+        return parseBranchSelectionJson(emp.branchSelectionJson).any(
+          (b) => b.name.trim().toLowerCase() == destName,
+        );
+      }).toList();
+      if (matchedName.isNotEmpty) return matchedName;
+    }
+
+    // Keep the dropdown usable if branch filter could not match.
+    return List<UserPermission>.from(allEmployees);
   }
 
   void setAccessibleBranches(List<String> names) {
@@ -255,56 +323,100 @@ class StockTransferViewModel extends ChangeNotifier {
     }
   }
 
-  void selectTransferType(String type) {
+  void selectTransferType(String type, {int? epoch}) {
+    if (!_epochOk(epoch)) return;
     selectedTransferType = type;
     selectedFrom = fromPlaceholder;
     selectedTo = toPlaceholder;
     sourceBranchId = null;
     destinationBranchId = null;
-    if (transferTypeId == 15) {
+    if (isBranchToBranch) {
       loadUserPermissions();
     }
     // Keep showing all labelled stock until From is chosen.
     unawaited(loadAllLabelledStock());
   }
 
-  Future<void> selectFrom(String value) async {
+  Future<void> selectFrom(String value, {int? epoch}) async {
+    if (!_epochOk(epoch)) return;
     if (value == fromPlaceholder) return;
+    final start = _formEpoch;
     selectedFrom = value;
     await _applyFromFilter();
+    if (start != _formEpoch) return;
     _clearCategoryFilters(clearChecks: true);
     notifyListeners();
   }
 
-  Future<void> selectTo(String value) async {
+  Future<void> selectTo(String value, {int? epoch}) async {
+    if (!_epochOk(epoch)) return;
     if (value == toPlaceholder) return;
+    final start = _formEpoch;
     selectedTo = value;
-    if (isBranchToBranch && _fromType == 'branch') {
-      sourceBranchId = await _dbService.getEntityIdByName('branch', selectedFrom);
-      destinationBranchId = await _dbService.getEntityIdByName('branch', selectedTo);
-    } else if (isBranchToBranch) {
-      // Type 15 always resolves From/To as branches even if name parse differs.
-      sourceBranchId = await _dbService.getEntityIdByName('branch', selectedFrom);
-      destinationBranchId = await _dbService.getEntityIdByName('branch', selectedTo);
+    if (isBranchToBranch) {
+      sourceBranchId = await _resolveBranchId(selectedFrom);
+      destinationBranchId = await _resolveBranchId(selectedTo);
+    }
+    if (start != _formEpoch) return;
+    notifyListeners();
+  }
+
+  Future<int?> _resolveBranchId(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty || trimmed == fromPlaceholder || trimmed == toPlaceholder) {
+      return null;
+    }
+    final dbId = await _dbService.getEntityIdByName('branch', trimmed);
+    if (dbId != null && dbId > 0) return dbId;
+
+    await ensureMasterLocationsLoaded();
+    final needle = trimmed.toLowerCase();
+    for (final branch in _branchMasters) {
+      if (branch.id > 0 && branch.name.trim().toLowerCase() == needle) {
+        return branch.id;
+      }
+    }
+    for (final emp in allEmployees) {
+      for (final branch in parseBranchSelectionJson(emp.branchSelectionJson)) {
+        if (branch.id > 0 && branch.name.trim().toLowerCase() == needle) {
+          return branch.id;
+        }
+      }
+    }
+    return null;
+  }
+
+  Future<void> ensureBranchIdsForTransfer() async {
+    if (!isBranchToBranch) return;
+    if (allEmployees.isEmpty) {
+      await loadUserPermissions();
+    }
+    if (sourceBranchId == null || sourceBranchId! <= 0) {
+      sourceBranchId = await _resolveBranchId(selectedFrom);
+    }
+    if (destinationBranchId == null || destinationBranchId! <= 0) {
+      destinationBranchId = await _resolveBranchId(selectedTo);
     }
     notifyListeners();
   }
 
   Future<void> _applyFromFilter() async {
+    final epoch = _formEpoch;
     final fromType = _fromType;
     if (fromType == null || selectedFrom == fromPlaceholder) {
       await loadAllLabelledStock();
       return;
     }
     try {
-      filteredItems = await _dbService.getLabelledBulkItemsFiltered(
+      var next = await _dbService.getLabelledBulkItemsFiltered(
         fromType: fromType,
         fromValue: selectedFrom.trim(),
       );
+      if (epoch != _formEpoch) return;
       // If exact name match found nothing, try case-insensitive contains from local cache.
-      if (filteredItems.isEmpty && allLabelledItems.isNotEmpty) {
+      if (next.isEmpty && allLabelledItems.isNotEmpty) {
         final needle = selectedFrom.trim().toLowerCase();
-        filteredItems = allLabelledItems.where((item) {
+        next = allLabelledItems.where((item) {
           final value = switch (fromType) {
             'counter' => item.counterName,
             'branch' => item.branchName,
@@ -316,6 +428,8 @@ class StockTransferViewModel extends ChangeNotifier {
               value.trim().toLowerCase().contains(needle);
         }).toList();
       }
+      if (epoch != _formEpoch) return;
+      filteredItems = next;
       notifyListeners();
     } catch (e) {
       debugPrint('_applyFromFilter error: $e');
@@ -327,7 +441,9 @@ class StockTransferViewModel extends ChangeNotifier {
     String? category,
     String? product,
     String? design,
+    int? epoch,
   }) {
+    if (!_epochOk(epoch)) return;
     appliedCategory = category;
     appliedProduct = product;
     appliedDesign = design;
@@ -354,14 +470,30 @@ class StockTransferViewModel extends ChangeNotifier {
   }
 
   Future<void> ensureTransferTypesLoaded() async {
-    if (transferTypes.isNotEmpty) return;
+    if (transferTypes.isEmpty) {
+      final clientCode = _prefService.getEmployee()?.clientCode ?? '';
+      if (clientCode.isNotEmpty) {
+        try {
+          transferTypes = await _apiService.getStockTransferTypes(clientCode);
+          notifyListeners();
+        } catch (e) {
+          debugPrint('ensureTransferTypesLoaded error: $e');
+        }
+      }
+    }
+    await ensureMasterLocationsLoaded();
+  }
+
+  Future<void> ensureMasterLocationsLoaded() async {
+    if (_masterLocationsLoaded) return;
     final clientCode = _prefService.getEmployee()?.clientCode ?? '';
     if (clientCode.isEmpty) return;
     try {
-      transferTypes = await _apiService.getStockTransferTypes(clientCode);
-      notifyListeners();
+      _masterCounters = await _apiService.getAllCounters(clientCode);
+      _branchMasters = await _apiService.getWholesaleBranches(clientCode);
+      _masterLocationsLoaded = true;
     } catch (e) {
-      debugPrint('ensureTransferTypesLoaded error: $e');
+      debugPrint('ensureMasterLocationsLoaded error: $e');
     }
   }
 
@@ -420,7 +552,18 @@ class StockTransferViewModel extends ChangeNotifier {
   }
 
   Future<int> resolveEntityId(String type, String name) async {
-    return await _dbService.getEntityIdByName(type, name) ?? 0;
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return 0;
+    await ensureMasterLocationsLoaded();
+    if (type.toLowerCase() == 'counter') {
+      for (final counter in _masterCounters) {
+        if (counter.id > 0 &&
+            counter.name.trim().toLowerCase() == trimmed.toLowerCase()) {
+          return counter.id;
+        }
+      }
+    }
+    return await _dbService.getEntityIdByName(type, trimmed) ?? 0;
   }
 
   /// Sparkle submit: `UserPreferences.getBranchID()` (login-saved defaultBranchId).
@@ -434,6 +577,83 @@ class StockTransferViewModel extends ChangeNotifier {
   /// Do NOT substitute defaultBranchId here (that was returning empty for LS000419).
   int sparkleListBranchId() {
     return _prefService.getEmployee()?.branchNo ?? 0;
+  }
+
+  Future<void> _applyLocalTransferMove({
+    required List<BulkItem> moved,
+    required String? toType,
+    required String toName,
+    required int destId,
+  }) async {
+    if (moved.isEmpty || toName.trim().isEmpty) return;
+    int? branchId;
+    String? branchName;
+    int? counterId;
+    String? counterName;
+    int? boxId;
+    String? boxName;
+    int? packetId;
+    String? packetName;
+    final type = (toType ?? '').trim().toLowerCase();
+    if (type == 'branch' || isBranchToBranch) {
+      branchId = destId > 0 ? destId : null;
+      branchName = toName.trim();
+    } else if (type == 'counter') {
+      counterId = destId > 0 ? destId : null;
+      counterName = toName.trim();
+    } else if (type == 'box') {
+      boxId = destId > 0 ? destId : null;
+      boxName = toName.trim();
+    } else if (type == 'packet') {
+      packetId = destId > 0 ? destId : null;
+      packetName = toName.trim();
+    }
+    if (branchName == null &&
+        counterName == null &&
+        boxName == null &&
+        packetName == null) {
+      return;
+    }
+
+    try {
+      await _dbService.updateStockTransferLocations(
+        items: moved,
+        branchId: branchId,
+        branchName: branchName,
+        counterId: counterId,
+        counterName: counterName,
+        boxId: boxId,
+        boxName: boxName,
+        packetId: packetId,
+        packetName: packetName,
+      );
+    } catch (e) {
+      debugPrint('_applyLocalTransferMove db: $e');
+    }
+
+    final keys = moved.map(itemKey).where((k) => k.isNotEmpty).toSet();
+    BulkItem relocate(BulkItem item) {
+      final map = item.toMap();
+      if (branchId != null) map['branchId'] = branchId;
+      if (branchName != null) map['branchName'] = branchName;
+      if (counterId != null) map['counterId'] = counterId;
+      if (counterName != null) map['counterName'] = counterName;
+      if (boxId != null) map['boxId'] = boxId;
+      if (boxName != null) {
+        map['boxName'] = boxName;
+        map['box'] = boxName;
+      }
+      if (packetId != null) map['packetId'] = packetId;
+      if (packetName != null) map['packetName'] = packetName;
+      return BulkItem.fromMap(map);
+    }
+
+    List<BulkItem> remap(List<BulkItem> list) => [
+          for (final item in list)
+            keys.contains(itemKey(item)) ? relocate(item) : item,
+        ];
+    allLabelledItems = remap(allLabelledItems);
+    filteredItems = remap(filteredItems);
   }
 
   /// Same payload rules as Sparkle [StockTransferPreviewScreen] OK handler.
@@ -470,8 +690,6 @@ class StockTransferViewModel extends ChangeNotifier {
 
     // Default: same user / same branch (counter↔box, etc.)
     var transferTo = transferByEmployee;
-    var transferToBranch = sourceBranch.toString();
-    var destinationBranch = sourceBranch;
 
     if (isBranchToBranch) {
       final other = transferToEmployee.trim();
@@ -480,8 +698,6 @@ class StockTransferViewModel extends ChangeNotifier {
         return false;
       }
       transferTo = other;
-      destinationBranch = destinationBranchId ?? sourceBranch;
-      transferToBranch = destinationBranch.toString();
     }
 
     final fromType = _fromType;
@@ -491,19 +707,42 @@ class StockTransferViewModel extends ChangeNotifier {
     final toName =
         selectedTo != toPlaceholder && selectedTo.trim().isNotEmpty ? selectedTo.trim() : '';
 
-    final sourceId = isBranchToBranch
-        ? sourceBranch
-        : (fromName.isNotEmpty && fromType != null && fromType.isNotEmpty
-            ? await resolveEntityId(fromType, fromName)
-            : sourceBranch);
+    late final int sourceId;
+    late final int destinationId;
+    late final String transferedBranch;
+    late final String transferToBranch;
 
-    final destinationId = isBranchToBranch
-        ? destinationBranch
-        : (toName.isNotEmpty && toType != null && toType.isNotEmpty
-            ? await resolveEntityId(toType, toName)
-            : sourceBranch);
+    if (isBranchToBranch) {
+      final fromId = (sourceBranchId != null && sourceBranchId! > 0)
+          ? sourceBranchId!
+          : (await _resolveBranchId(fromName) ?? 0);
+      var toId = (destinationBranchId != null && destinationBranchId! > 0)
+          ? destinationBranchId!
+          : (await _resolveBranchId(toName) ?? 0);
+      if (toId <= 0 && toName.isNotEmpty) {
+        toId = await resolveEntityId('branch', toName);
+      }
+      if (toId <= 0) {
+        transferStatusMessage = 'Could not resolve destination branch';
+        return false;
+      }
+      sourceId = fromId > 0 ? fromId : sourceBranch;
+      destinationId = toId;
+      sourceBranchId = sourceId;
+      destinationBranchId = destinationId;
+      transferedBranch = sourceId.toString();
+      transferToBranch = destinationId.toString();
+    } else {
+      sourceId = fromName.isNotEmpty && fromType != null && fromType.isNotEmpty
+          ? await resolveEntityId(fromType, fromName)
+          : sourceBranch;
+      destinationId = toName.isNotEmpty && toType != null && toType.isNotEmpty
+          ? await resolveEntityId(toType, toName)
+          : sourceBranch;
+      transferedBranch = sourceBranch.toString();
+      transferToBranch = sourceBranch.toString();
+    }
 
-    final transferredKeys = previewItems.map(itemKey).where((k) => k.isNotEmpty).toSet();
     final stockItems = previewItems
         .map((e) {
           // Sparkle: bulkItemId ?: itemCode.toInt — keep positive ids only.
@@ -526,7 +765,7 @@ class StockTransferViewModel extends ChangeNotifier {
       transferByEmployee: transferByEmployee,
       transferedToBranch: transferToBranch,
       transferToEmployee: transferTo,
-      transferedBranch: sourceBranch.toString(),
+      transferedBranch: transferedBranch,
       source: sourceId,
       destination: destinationId,
       remarks: remarks,
@@ -536,7 +775,7 @@ class StockTransferViewModel extends ChangeNotifier {
 
     debugPrint(
       'submitTransfer Sparkle-parity: '
-      'TransferedBranch=$sourceBranch listBranch=${sparkleListBranchId()} '
+      'TransferedBranch=$transferedBranch TransferedToBranch=$transferToBranch '
       'userId=${employee?.id} employeeId=${employee?.employeeId} '
       'typeId=$typeId source=$sourceId dest=$destinationId items=${stockItems.length}',
     );
@@ -548,13 +787,14 @@ class StockTransferViewModel extends ChangeNotifier {
       final ok = await _apiService.addStockTransfer(request);
       transferStatusMessage = ok ? 'Transfer successful' : 'Transfer failed';
       if (ok) {
-        previewItems = [];
-        if (transferredKeys.isNotEmpty) {
-          filteredItems =
-              filteredItems.where((i) => !transferredKeys.contains(itemKey(i))).toList();
-          allLabelledItems =
-              allLabelledItems.where((i) => !transferredKeys.contains(itemKey(i))).toList();
-        }
+        final moved = List<BulkItem>.from(previewItems);
+        await _applyLocalTransferMove(
+          moved: moved,
+          toType: isBranchToBranch ? 'branch' : toType,
+          toName: toName,
+          destId: destinationId,
+        );
+        resetTransferForm(notify: false);
       }
       return ok;
     } catch (e) {
@@ -604,33 +844,117 @@ class StockTransferViewModel extends ChangeNotifier {
     }
 
     final byId = <int, StockTransferInOutItem>{};
+    var anySuccess = false;
 
-    void merge(List<StockTransferInOutItem> list) {
-      for (final item in list) {
-        if (item.id > 0) byId[item.id] = item;
+    Future<void> mergeFetch(int branchId, int uid) async {
+      try {
+        final list = await fetch(branchId, uid);
+        anySuccess = true;
+        for (final item in list) {
+          if (item.id > 0) byId[item.id] = item;
+        }
+      } catch (e) {
+        debugPrint('GetAllStockTransfers fetch failed branch=$branchId user=$uid: $e');
       }
     }
 
     // 1) Exact Sparkle query first (BranchId=0 when branchNo null).
-    merge(await fetch(listBranchId, userId));
+    await mergeFetch(listBranchId, userId);
 
     // 2) Also try submit branch (defaultBranchId) — covers TransferedBranch from AddStockTransfer.
     if (submitBranch > 0 && submitBranch != listBranchId) {
-      merge(await fetch(submitBranch, userId));
+      await mergeFetch(submitBranch, userId);
     }
 
     // 3) If still empty, try EmployeeId as UserID (some backends key Off EmpId).
     final empId = employee.employeeId ?? 0;
     if (byId.isEmpty && empId > 0 && empId != userId) {
       debugPrint('GetAllStockTransfers retry UserID=employeeId=$empId');
-      merge(await fetch(listBranchId, empId));
+      await mergeFetch(listBranchId, empId);
       if (submitBranch > 0 && submitBranch != listBranchId) {
-        merge(await fetch(submitBranch, empId));
+        await mergeFetch(submitBranch, empId);
       }
     }
 
+    if (!anySuccess && byId.isEmpty) {
+      throw Exception('Failed to load stock transfers');
+    }
+
     debugPrint('GetAllStockTransfers merged count=${byId.length}');
-    return byId.values.toList();
+    return _resolveInOutFromToNames(byId.values.toList());
+  }
+
+  Future<List<StockTransferInOutItem>> _resolveInOutFromToNames(
+    List<StockTransferInOutItem> items,
+  ) async {
+    if (items.isEmpty) return items;
+    await ensureMasterLocationsLoaded();
+
+    final allIds = items.expand((item) => [item.source ?? 0, item.destination ?? 0]);
+    final namesByType = <String, Map<int, String>>{
+      'counter': await _dbService.getEntityNamesByIds('counter', allIds),
+      'box': await _dbService.getEntityNamesByIds('box', allIds),
+      'branch': await _dbService.getEntityNamesByIds('branch', allIds),
+      'packet': await _dbService.getEntityNamesByIds('packet', allIds),
+    };
+    for (final counter in _masterCounters) {
+      if (counter.id > 0 && counter.name.trim().isNotEmpty) {
+        namesByType['counter']![counter.id] = counter.name.trim();
+      }
+    }
+
+    String? nameFor(String? type, int? id) {
+      final locId = id ?? 0;
+      if (locId <= 0) return null;
+      if (type != null && type.isNotEmpty) {
+        final typed = namesByType[type]?[locId]?.trim();
+        if (typed != null && typed.isNotEmpty) return typed;
+        return null;
+      }
+      for (final map in namesByType.values) {
+        final found = map[locId]?.trim();
+        if (found != null && found.isNotEmpty) return found;
+      }
+      return null;
+    }
+
+    final resolved = <StockTransferInOutItem>[];
+    for (final item in items) {
+      final (fromType, toType) = parseTransferEndpointTypes(item.stockTransferTypeName);
+      final firstLine =
+          item.labelledStockItems.isNotEmpty ? item.labelledStockItems.first : null;
+
+      // Only explicit From/To names — never the stock's current counter/box for To.
+      // Counter→Counter stock is still at From (Counter1) until approved.
+      String? from = cleanTransferLocationName(item.sourceName) ??
+          cleanTransferLocationName(firstLine?.sourceName);
+      String? to = cleanTransferLocationName(item.destinationName) ??
+          cleanTransferLocationName(firstLine?.destinationName);
+
+      from ??= nameFor(fromType, item.source);
+      to ??= nameFor(toType, item.destination);
+
+      if (from == null) {
+        from = firstLine?.locationNameForType(fromType);
+        final stockId = firstLine?.id ?? 0;
+        if (from == null && stockId > 0) {
+          final loc = await _dbService.getStockLocationNames(stockId);
+          from = cleanTransferLocationName(fromType != null ? loc[fromType] : null) ??
+              cleanTransferLocationName(loc['counter']) ??
+              cleanTransferLocationName(loc['box']) ??
+              cleanTransferLocationName(loc['branch']) ??
+              cleanTransferLocationName(loc['packet']);
+        }
+      }
+
+      if (to == null && (toType == null || toType == 'branch')) {
+        to = cleanTransferLocationName(item.transferedToBranch) ??
+            nameFor('branch', int.tryParse(item.transferedToBranch.trim()));
+      }
+
+      resolved.add(item.withFromTo(from ?? '-', to ?? '-'));
+    }
+    return resolved;
   }
 
   Future<String?> cancelTransfer(int id) async {

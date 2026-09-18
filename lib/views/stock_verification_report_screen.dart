@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:rfid_flutter/utils/app_fonts.dart';
 import 'package:provider/provider.dart';
@@ -7,7 +9,6 @@ import '../../models/stock_verification_report.dart';
 import '../../services/consolidated_report_export_service.dart';
 import '../../viewmodels/stock_verification_view_model.dart';
 import '../utils/app_dropdown.dart';
-import '../utils/nav_perf.dart';
 import 'widgets/consolidated_report_tree.dart';
 
 class StockVerificationReportScreen extends StatefulWidget {
@@ -32,20 +33,17 @@ class _StockVerificationReportScreenState extends State<StockVerificationReportS
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      runAfterRouteSettled(context, () {
-        if (mounted) _loadData();
-      });
+      if (mounted) _loadData();
     });
   }
 
   Future<void> _loadData() async {
     final vm = context.read<StockVerificationViewModel>();
-    await vm.loadBranches();
+    unawaited(vm.loadBranches());
     if (_reportType == 'SCAN') {
       await vm.fetchConsolidatedReport(_selectedDate);
     } else {
-      await vm.fetchSessions();
+      await vm.fetchSessions(force: true);
     }
   }
 
@@ -55,7 +53,7 @@ class _StockVerificationReportScreenState extends State<StockVerificationReportS
     if (type == 'SCAN') {
       await vm.fetchConsolidatedReport(_selectedDate);
     } else {
-      await vm.fetchSessions();
+      await vm.fetchSessions(force: true);
     }
   }
 
@@ -228,15 +226,34 @@ class _StockVerificationReportScreenState extends State<StockVerificationReportS
   }
 
   Widget _buildBatchBody(StockVerificationViewModel vm) {
+    Widget emptyOrError(String message) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Text(message, textAlign: TextAlign.center),
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: () => vm.fetchSessions(force: true),
+              child: Text(context.s.retry),
+            ),
+          ],
+        ),
+      );
+    }
+
     switch (vm.sessionState) {
       case ReportLoadState.loading:
         return const Center(child: CircularProgressIndicator());
       case ReportLoadState.error:
-        return Center(child: Text(vm.errorMessage ?? context.s.errorLoadingSessions));
+        return emptyOrError(vm.errorMessage ?? context.s.errorLoadingSessions);
       case ReportLoadState.success:
         final sessions = vm.sessionList?.sessions ?? [];
         if (sessions.isEmpty) {
-          return Center(child: Text(context.s.noSessionsFound));
+          return emptyOrError(context.s.noSessionsFound);
         }
         return ListView.builder(
           itemCount: sessions.length,

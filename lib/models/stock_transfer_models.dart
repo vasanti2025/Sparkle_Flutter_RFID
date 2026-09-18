@@ -9,11 +9,19 @@ class TransferType {
     required this.clientCode,
   });
 
-  factory TransferType.fromJson(Map<String, dynamic> json) => TransferType(
-        id: (json['Id'] as num?)?.toInt() ?? 0,
-        transferType: json['TransferType']?.toString() ?? '',
-        clientCode: json['ClientCode']?.toString() ?? '',
-      );
+  factory TransferType.fromJson(Map<String, dynamic> json) {
+    int asInt(dynamic v) {
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      return int.tryParse(v?.toString() ?? '') ?? 0;
+    }
+
+    return TransferType(
+      id: asInt(json['Id'] ?? json['id']),
+      transferType: json['TransferType']?.toString() ?? json['transferType']?.toString() ?? '',
+      clientCode: json['ClientCode']?.toString() ?? json['clientCode']?.toString() ?? '',
+    );
+  }
 }
 
 class StockTransferItemPayload {
@@ -134,6 +142,58 @@ String transferStatusLabel(int? status, {String pending = 'Pending'}) {
   };
 }
 
+dynamic _jsonPick(Map<dynamic, dynamic> json, List<String> keys) {
+  for (final key in keys) {
+    if (json.containsKey(key) && json[key] != null) return json[key];
+  }
+  final lower = <String, dynamic>{};
+  for (final entry in json.entries) {
+    lower[entry.key.toString().toLowerCase()] = entry.value;
+  }
+  for (final key in keys) {
+    final v = lower[key.toLowerCase()];
+    if (v != null) return v;
+  }
+  return null;
+}
+
+String _jsonStr(Map<dynamic, dynamic> json, List<String> keys) {
+  final v = _jsonPick(json, keys);
+  if (v == null) return '';
+  final s = v.toString().trim();
+  if (s.isEmpty || s.toLowerCase() == 'null') return '';
+  return s;
+}
+
+int? _jsonInt(Map<dynamic, dynamic> json, List<String> keys) {
+  final v = _jsonPick(json, keys);
+  if (v == null) return null;
+  if (v is num) return v.toInt();
+  return int.tryParse(v.toString().trim());
+}
+
+Map<String, dynamic>? _asStringMap(dynamic value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) return Map<String, dynamic>.from(value);
+  return null;
+}
+
+/// Sparkle parseTransferEndpointTypes: "Counter to Box" → (counter, box).
+(String?, String?) parseTransferEndpointTypes(String? typeName) {
+  final normalized = typeName?.trim().replaceAll(RegExp(r'\s+'), ' ') ?? '';
+  if (normalized.isEmpty) return (null, null);
+  final parts = normalized.split(RegExp(r'\s+to\s+', caseSensitive: false));
+  if (parts.length < 2) return (null, null);
+  return (parts[0].trim().toLowerCase(), parts[1].trim().toLowerCase());
+}
+
+String? cleanTransferLocationName(String? value) {
+  final s = value?.trim() ?? '';
+  if (s.isEmpty || s == '-' || s.toLowerCase() == 'null') return null;
+  if (RegExp(r'^\d+$').hasMatch(s)) return null;
+  return s;
+}
+
 class LabelledStockItem {
   final int? id;
   final int? transferItemId;
@@ -145,6 +205,15 @@ class LabelledStockItem {
   final String? branchName;
   final String? grossWeight;
   final String? netWeight;
+  final String? sourceName;
+  final String? destinationName;
+  final String? counterName;
+  final String? boxName;
+  final String? packetName;
+  final int? counterId;
+  final int? boxId;
+  final int? packetId;
+  final int? branchId;
 
   LabelledStockItem({
     this.id,
@@ -157,36 +226,68 @@ class LabelledStockItem {
     this.branchName,
     this.grossWeight,
     this.netWeight,
+    this.sourceName,
+    this.destinationName,
+    this.counterName,
+    this.boxName,
+    this.packetName,
+    this.counterId,
+    this.boxId,
+    this.packetId,
+    this.branchId,
   });
 
   factory LabelledStockItem.fromJson(Map<String, dynamic> json) {
     // Sparkle lineItemToLabelledStock:
     //   Id = LabelledStockId/StockId
     //   TransferItemId = TransferItemId ?: line.Id
-    final lineId = (json['Id'] as num?)?.toInt() ?? int.tryParse('${json['Id'] ?? ''}');
-    final transferItemId = (json['TransferItemId'] as num?)?.toInt() ??
-        int.tryParse('${json['TransferItemId'] ?? ''}') ??
-        lineId;
-    final stockId = (json['LabelledStockId'] as num?)?.toInt() ??
-        (json['StockId'] as num?)?.toInt() ??
-        int.tryParse('${json['LabelledStockId'] ?? json['StockId'] ?? ''}') ??
-        lineId;
+    final lineId = _jsonInt(json, const ['Id']);
+    final transferItemId = _jsonInt(json, const ['TransferItemId']) ?? lineId;
+    final stockId = _jsonInt(json, const ['LabelledStockId', 'StockId']) ?? lineId;
 
     return LabelledStockItem(
       id: stockId,
       transferItemId: transferItemId,
-      itemCode: json['ItemCode']?.toString(),
-      rfidCode: json['RFIDCode']?.toString() ?? json['RFID']?.toString(),
+      itemCode: _jsonStr(json, const ['ItemCode']),
+      rfidCode: _jsonStr(json, const ['RFIDCode', 'RFID']),
       requestStatus: parseTransferRequestStatus(
-        json['RequestStatus'] ?? json['Status'],
+        _jsonPick(json, const ['RequestStatus', 'Status']),
       ),
-      productName: json['ProductTitle']?.toString() ??
-          json['ProductName']?.toString(),
-      categoryName: json['CategoryName']?.toString() ?? json['Category']?.toString(),
-      branchName: json['BranchName']?.toString() ?? json['Branch']?.toString(),
-      grossWeight: json['GrossWeight']?.toString() ?? json['GrossWt']?.toString(),
-      netWeight: json['NetWeight']?.toString() ?? json['NetWt']?.toString(),
+      productName: _jsonStr(json, const ['ProductTitle', 'ProductName']),
+      categoryName: _jsonStr(json, const ['CategoryName', 'Category']),
+      branchName: _jsonStr(json, const ['BranchName', 'Branch']),
+      grossWeight: _jsonStr(json, const ['GrossWeight', 'GrossWt']),
+      netWeight: _jsonStr(json, const ['NetWeight', 'NetWt']),
+      sourceName: _jsonStr(json, const ['SourceName']),
+      destinationName: _jsonStr(json, const ['DestinationName']),
+      counterName: _jsonStr(json, const ['CounterName']),
+      boxName: _jsonStr(json, const ['BoxName']),
+      packetName: _jsonStr(json, const ['PacketName']),
+      counterId: _jsonInt(json, const ['CounterId']),
+      boxId: _jsonInt(json, const ['BoxId']),
+      packetId: _jsonInt(json, const ['PacketId']),
+      branchId: _jsonInt(json, const ['BranchId']),
     );
+  }
+
+  String? locationNameForType(String? type) {
+    return switch (type?.toLowerCase()) {
+      'counter' => cleanTransferLocationName(counterName),
+      'box' => cleanTransferLocationName(boxName),
+      'packet' => cleanTransferLocationName(packetName),
+      'branch' => cleanTransferLocationName(branchName),
+      _ => null,
+    };
+  }
+
+  int? locationIdForType(String? type) {
+    return switch (type?.toLowerCase()) {
+      'counter' => counterId,
+      'box' => boxId,
+      'packet' => packetId,
+      'branch' => branchId,
+      _ => null,
+    };
   }
 
   /// Approve API needs TransferItemId (or line Id), not ItemCode/RFID.
@@ -235,38 +336,59 @@ class StockTransferInOutItem {
 
   factory StockTransferInOutItem.fromJson(Map<String, dynamic> json) {
     final items = <LabelledStockItem>[];
-    final labelled = json['LabelledStockItems'];
-    if (labelled is List && labelled.isNotEmpty) {
-      for (final e in labelled) {
-        if (e is Map<String, dynamic>) items.add(LabelledStockItem.fromJson(e));
-      }
-    } else {
-      final lines = json['StockTransferItems'];
-      if (lines is List) {
-        for (final e in lines) {
-          if (e is Map<String, dynamic>) items.add(LabelledStockItem.fromJson(e));
-        }
+    void addRows(dynamic raw) {
+      if (raw is! List) return;
+      for (final e in raw) {
+        final map = _asStringMap(e);
+        if (map != null) items.add(LabelledStockItem.fromJson(map));
       }
     }
 
+    addRows(_jsonPick(json, const ['LabelledStockItems', 'labelledStockItems']));
+    if (items.isEmpty) {
+      addRows(_jsonPick(json, const ['StockTransferItems', 'stockTransferItems']));
+    }
+
     return StockTransferInOutItem(
-      id: (json['Id'] as num?)?.toInt() ?? 0,
-      transferTypeId: (json['TransferTypeId'] as num?)?.toInt() ?? 0,
-      source: (json['Source'] as num?)?.toInt(),
-      destination: (json['Destination'] as num?)?.toInt(),
-      sourceName: json['SourceName']?.toString() ?? '',
-      destinationName: json['DestinationName']?.toString() ?? '',
-      transferByEmployee: json['TransferByEmployee']?.toString() ?? '',
-      transferToEmployee: json['TransferToEmployee']?.toString() ?? '',
-      transferedToBranch: json['TransferedToBranch']?.toString() ?? '',
-      receivedByEmployee: json['ReceivedByEmployee']?.toString() ?? '',
-      stockTransferTypeName: json['StockTransferTypeName']?.toString() ?? '',
-      pending: (json['Pending'] as num?)?.toInt() ?? 0,
-      approved: (json['Approved'] as num?)?.toInt() ?? 0,
-      rejected: (json['Rejected'] as num?)?.toInt() ?? 0,
-      lost: (json['Lost'] as num?)?.toInt() ?? 0,
-      requestType: json['RequestType']?.toString() ?? '',
+      id: _jsonInt(json, const ['Id']) ?? 0,
+      transferTypeId: _jsonInt(json, const ['TransferTypeId']) ?? 0,
+      source: _jsonInt(json, const ['Source']),
+      destination: _jsonInt(json, const ['Destination']),
+      sourceName: _jsonStr(json, const ['SourceName']),
+      destinationName: _jsonStr(json, const ['DestinationName']),
+      transferByEmployee: _jsonStr(json, const ['TransferByEmployee']),
+      transferToEmployee: _jsonStr(json, const ['TransferToEmployee']),
+      transferedToBranch: _jsonStr(json, const ['TransferedToBranch']),
+      receivedByEmployee: _jsonStr(json, const ['ReceivedByEmployee']),
+      stockTransferTypeName: _jsonStr(json, const ['StockTransferTypeName']),
+      pending: _jsonInt(json, const ['Pending']) ?? 0,
+      approved: _jsonInt(json, const ['Approved']) ?? 0,
+      rejected: _jsonInt(json, const ['Rejected']) ?? 0,
+      lost: _jsonInt(json, const ['Lost']) ?? 0,
+      requestType: _jsonStr(json, const ['RequestType']),
       labelledStockItems: items,
+    );
+  }
+
+  StockTransferInOutItem withFromTo(String from, String to) {
+    return StockTransferInOutItem(
+      id: id,
+      transferTypeId: transferTypeId,
+      source: source,
+      destination: destination,
+      sourceName: from,
+      destinationName: to,
+      transferByEmployee: transferByEmployee,
+      transferToEmployee: transferToEmployee,
+      transferedToBranch: transferedToBranch,
+      receivedByEmployee: receivedByEmployee,
+      stockTransferTypeName: stockTransferTypeName,
+      pending: pending,
+      approved: approved,
+      rejected: rejected,
+      lost: lost,
+      requestType: requestType,
+      labelledStockItems: labelledStockItems,
     );
   }
 

@@ -5,7 +5,6 @@ import '../l10n/l10n_extension.dart';
 import '../models/bulk_item.dart';
 import '../models/user_permission.dart';
 import '../services/pref_service.dart';
-import '../utils/app_dropdown.dart';
 import '../viewmodels/stock_transfer_view_model.dart';
 import 'widgets/product_form_widgets.dart';
 
@@ -25,6 +24,7 @@ class _StockTransferPreviewScreenState extends State<StockTransferPreviewScreen>
   /// Sparkle `showTransferPopup`
   bool _showTransferPopup = false;
   bool _submitting = false;
+  bool _employeeMenuOpen = false;
   String _transferredBy = '';
   String? _transferredToEmployeeId; // EmployeeId string for branch-to-branch
 
@@ -81,15 +81,18 @@ class _StockTransferPreviewScreenState extends State<StockTransferPreviewScreen>
   }
 
   /// Sparkle: Transfer click → show TransferDetailsDialogNew immediately.
-  void _openTransferPopup(StockTransferViewModel vm) {
+  Future<void> _openTransferPopup(StockTransferViewModel vm) async {
     setState(() {
       _showTransferPopup = true;
       _transferredToEmployeeId = null;
+      _employeeMenuOpen = false;
       _remarkCtrl.clear();
       _submitting = false;
     });
+    await vm.ensureBranchIdsForTransfer();
+    if (!mounted) return;
     if (vm.isBranchToBranch && vm.allEmployees.isEmpty) {
-      vm.loadUserPermissions();
+      await vm.loadUserPermissions();
     }
   }
 
@@ -138,29 +141,27 @@ class _StockTransferPreviewScreenState extends State<StockTransferPreviewScreen>
     }
   }
 
-  Future<void> _pickEmployee(List<UserPermission> employees) async {
+  String _permissionId(UserPermission emp) {
+    if (emp.employeeId > 0) return emp.employeeId.toString();
+    return emp.userId.toString();
+  }
+
+  void _toggleEmployeeMenu(List<UserPermission> employees, StockTransferViewModel vm) {
     if (employees.isEmpty) {
+      vm.loadUserPermissions();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(context.sRead.tr('selectEmployeeError'))),
       );
       return;
     }
-    final picked = await showScrollableOptionSheet<UserPermission>(
-      context: context,
-      options: employees,
-      labelOf: (e) => '${e.displayName} (${e.employeeId})',
-      title: context.sRead.tr('selectEmployee'),
-    );
-    if (picked != null && mounted) {
-      setState(() => _transferredToEmployeeId = picked.employeeId.toString());
-    }
+    setState(() => _employeeMenuOpen = !_employeeMenuOpen);
   }
 
   String _employeeLabel(List<UserPermission> employees) {
     final id = _transferredToEmployeeId;
     if (id == null || id.isEmpty) return context.sRead.tr('selectEmployee');
     for (final e in employees) {
-      if (e.employeeId.toString() == id) return e.displayName;
+      if (_permissionId(e) == id) return e.displayName;
     }
     return id;
   }
@@ -254,8 +255,49 @@ class _StockTransferPreviewScreenState extends State<StockTransferPreviewScreen>
                     label: s.tr('transferredTo'),
                     value: _employeeLabel(employees),
                     isPlaceholder: _transferredToEmployeeId == null,
-                    onTap: () => _pickEmployee(employees),
+                    onTap: () => _toggleEmployeeMenu(employees, vm),
                   ),
+                  if (_employeeMenuOpen)
+                    Container(
+                      width: double.infinity,
+                      constraints: const BoxConstraints(maxHeight: 180),
+                      margin: const EdgeInsets.only(top: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF7F7F7),
+                        border: Border.all(color: const Color(0xFFDDDDDD)),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: employees.isEmpty
+                          ? Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Text(
+                                s.tr('selectEmployeeError'),
+                                style: GoogleFonts.poppins(fontSize: 13, color: Colors.black54),
+                              ),
+                            )
+                          : ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: employees.length,
+                              separatorBuilder: (_, __) => const Divider(height: 1),
+                              itemBuilder: (_, index) {
+                                final emp = employees[index];
+                                final id = _permissionId(emp);
+                                return ListTile(
+                                  dense: true,
+                                  title: Text(
+                                    '${emp.displayName} ($id)',
+                                    style: GoogleFonts.poppins(fontSize: 13),
+                                  ),
+                                  onTap: () {
+                                    setState(() {
+                                      _transferredToEmployeeId = id;
+                                      _employeeMenuOpen = false;
+                                    });
+                                  },
+                                );
+                              },
+                            ),
+                    ),
                 ],
                 const SizedBox(height: 10),
                 Container(

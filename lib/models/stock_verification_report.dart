@@ -1,3 +1,145 @@
+Map<String, dynamic>? _asStringKeyedMap(dynamic value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) {
+    try {
+      return Map<String, dynamic>.from(value);
+    } catch (_) {
+      return {
+        for (final entry in value.entries) entry.key.toString(): entry.value,
+      };
+    }
+  }
+  return null;
+}
+
+int _asInt(dynamic v) {
+  if (v is int) return v;
+  if (v is double) return v.round();
+  return int.tryParse(v?.toString() ?? '') ?? 0;
+}
+
+List<ReportItem> _parseReportItems(dynamic raw) {
+  if (raw is! List) return const [];
+  final out = <ReportItem>[];
+  for (final e in raw) {
+    final map = _asStringKeyedMap(e);
+    if (map != null) out.add(ReportItem.fromJson(map));
+  }
+  return out;
+}
+
+dynamic _unwrapDotNetList(dynamic value) {
+  final map = _asStringKeyedMap(value);
+  if (map == null) return value;
+  return map[r'$values'] ?? map[r'$Values'] ?? map['Values'] ?? value;
+}
+
+bool _isSkippedSessionSearchKey(String lower) {
+  return lower == 'matchedlist' ||
+      lower == 'unmatchedlist' ||
+      lower == 'items' ||
+      lower == 'branches' ||
+      lower == 'categories' ||
+      lower == 'products' ||
+      lower == 'designs' ||
+      lower == 'images';
+}
+
+bool _isSessionRow(dynamic value) {
+  final map = _asStringKeyedMap(_unwrapDotNetList(value));
+  if (map == null) return false;
+  for (final key in map.keys) {
+    final lower = key.toString().toLowerCase().replaceAll('_', '');
+    if (lower == 'scanbatchid' ||
+        lower == 'sessionid' ||
+        lower == 'sessionnumber' ||
+        lower == 'batchname') {
+      return true;
+    }
+  }
+  return false;
+}
+
+List<dynamic>? _asSessionRows(dynamic value) {
+  final unwrapped = _unwrapDotNetList(value);
+  if (unwrapped is! List) return null;
+  if (unwrapped.isEmpty) return unwrapped;
+  for (final item in unwrapped) {
+    if (_isSessionRow(item)) return unwrapped;
+  }
+  return null;
+}
+
+List<dynamic>? _findSessionsList(dynamic node, [int depth = 0]) {
+  if (depth > 6 || node == null) return null;
+
+  final unwrapped = _unwrapDotNetList(node);
+  final direct = _asSessionRows(unwrapped);
+  if (direct != null && direct.isNotEmpty) return direct;
+
+  final json = _asStringKeyedMap(unwrapped);
+  if (json == null) {
+    if (unwrapped is List) {
+      for (final item in unwrapped) {
+        final found = _findSessionsList(item, depth + 1);
+        if (found != null && found.isNotEmpty) return found;
+      }
+    }
+    return direct;
+  }
+
+  List<dynamic>? emptyHit;
+
+  List<dynamic>? fromExactKey(String lowerKey) {
+    for (final key in json.keys) {
+      if (key.toString().trim().toLowerCase() != lowerKey) continue;
+      final unwrapped = _unwrapDotNetList(json[key]);
+      if (unwrapped is List) {
+        if (unwrapped.isNotEmpty) return unwrapped;
+        emptyHit ??= unwrapped;
+      }
+      final nested = _findSessionsList(json[key], depth + 1);
+      if (nested != null && nested.isNotEmpty) return nested;
+    }
+    return null;
+  }
+
+  for (final key in const ['sessions', 'sessionlist', 'session', 'scanbatches', 'batches']) {
+    final found = fromExactKey(key);
+    if (found != null && found.isNotEmpty) return found;
+  }
+
+  for (final entry in json.entries) {
+    final lower = entry.key.toString().trim().toLowerCase();
+    if (_isSkippedSessionSearchKey(lower)) continue;
+    final found = _asSessionRows(entry.value);
+    if (found != null && found.isNotEmpty) return found;
+  }
+
+  for (final entry in json.entries) {
+    final lower = entry.key.toString().trim().toLowerCase();
+    if (_isSkippedSessionSearchKey(lower)) continue;
+    final nested = _asStringKeyedMap(_unwrapDotNetList(entry.value));
+    if (nested == null) continue;
+    final found = _findSessionsList(nested, depth + 1);
+    if (found != null && found.isNotEmpty) return found;
+    if (found != null) emptyHit ??= found;
+  }
+
+  final hasWrapperKeys = json.keys.any((key) {
+    final lower = key.toString().trim().toLowerCase();
+    return lower == 'sessions' ||
+        lower == 'sessionlist' ||
+        lower == 'totalsessions' ||
+        lower == 'message';
+  });
+  if (!hasWrapperKeys && _isSessionRow(json)) {
+    return [json];
+  }
+
+  return emptyHit;
+}
+
 class ReportSessionItem {
   final int sessionNumber;
   final String sessionId;
@@ -32,20 +174,28 @@ class ReportSessionItem {
       return int.tryParse(v?.toString() ?? '') ?? 0;
     }
 
+    String str(dynamic value) {
+      if (value == null) return '';
+      final text = value.toString().trim();
+      return text == 'null' ? '' : text;
+    }
+
     return ReportSessionItem(
-      sessionNumber: asInt(json['SessionNumber']),
-      sessionId: json['SessionId']?.toString() ?? '',
-      scanBatchId: json['ScanBatchId']?.toString() ?? '',
-      batchName: json['BatchName']?.toString() ?? '',
+      sessionNumber: asInt(json['SessionNumber'] ?? json['sessionNumber']),
+      sessionId: str(json['SessionId'] ?? json['sessionId']),
+      scanBatchId: str(
+        json['ScanBatchId'] ?? json['scanBatchId'] ?? json['ScanBatchID'],
+      ),
+      batchName: str(json['BatchName'] ?? json['batchName']),
       branchId: json['BranchId'] is int
           ? json['BranchId'] as int
-          : int.tryParse(json['BranchId']?.toString() ?? ''),
-      branchName: json['BranchName']?.toString(),
-      startedOn: json['StartedOn']?.toString() ?? '',
-      endedOn: json['EndedOn']?.toString() ?? '',
-      totalQty: asInt(json['TotalQty']),
-      matchQty: asInt(json['MatchQty']),
-      unmatchQty: asInt(json['UnmatchQty']),
+          : int.tryParse('${json['BranchId'] ?? json['branchId'] ?? ''}'),
+      branchName: json['BranchName']?.toString() ?? json['branchName']?.toString(),
+      startedOn: str(json['StartedOn'] ?? json['startedOn']),
+      endedOn: str(json['EndedOn'] ?? json['endedOn']),
+      totalQty: asInt(json['TotalQty'] ?? json['totalQty']),
+      matchQty: asInt(json['MatchQty'] ?? json['matchQty'] ?? json['MatchedQty']),
+      unmatchQty: asInt(json['UnmatchQty'] ?? json['unmatchQty'] ?? json['UnmatchedQty']),
     );
   }
 }
@@ -64,12 +214,25 @@ class SessionListResponse {
   });
 
   factory SessionListResponse.fromJson(Map<String, dynamic> json) {
-    final raw = json['Sessions'] as List? ?? [];
+    var raw = _findSessionsList(json);
+    if (raw == null || raw.isEmpty) {
+      final fallback = _unwrapDotNetList(json['Sessions'] ?? json['sessions']);
+      if (fallback is List && fallback.isNotEmpty) {
+        raw = fallback;
+      }
+    }
+    final sessions = <ReportSessionItem>[];
+    if (raw != null) {
+      for (final e in raw) {
+        final map = _asStringKeyedMap(_unwrapDotNetList(e));
+        if (map != null) sessions.add(ReportSessionItem.fromJson(map));
+      }
+    }
     return SessionListResponse(
-      message: json['Message']?.toString() ?? '',
-      clientCode: json['ClientCode']?.toString() ?? '',
-      totalSessions: json['TotalSessions'] as int? ?? 0,
-      sessions: raw.map((e) => ReportSessionItem.fromJson(e as Map<String, dynamic>)).toList(),
+      message: json['Message']?.toString() ?? json['message']?.toString() ?? '',
+      clientCode: json['ClientCode']?.toString() ?? json['clientCode']?.toString() ?? '',
+      totalSessions: _asInt(json['TotalSessions'] ?? json['totalSessions'] ?? sessions.length),
+      sessions: sessions,
     );
   }
 
@@ -139,15 +302,15 @@ class ReportDesign {
     required this.items,
   });
 
-  factory ReportDesign.fromJson(Map<String, dynamic> json) {
-    final raw = json['Items'] as List? ?? [];
+  factory ReportDesign.fromJson(Map<String, dynamic> json, {bool includeItems = true}) {
+    final raw = includeItems ? (json['Items'] ?? json['items']) : null;
     return ReportDesign(
-      designId: json['DesignId'] as int?,
-      designName: json['DesignName']?.toString(),
-      totalInventoryItems: json['TotalInventoryItems'] as int?,
-      totalScannedItems: json['TotalScannedItems'] as int?,
-      notScannedItems: json['NotScannedItems'] as int?,
-      items: raw.map((e) => ReportItem.fromJson(e as Map<String, dynamic>)).toList(),
+      designId: json['DesignId'] as int? ?? json['designId'] as int?,
+      designName: json['DesignName']?.toString() ?? json['designName']?.toString(),
+      totalInventoryItems: json['TotalInventoryItems'] as int? ?? json['totalInventoryItems'] as int?,
+      totalScannedItems: json['TotalScannedItems'] as int? ?? json['totalScannedItems'] as int?,
+      notScannedItems: json['NotScannedItems'] as int? ?? json['notScannedItems'] as int?,
+      items: _parseReportItems(raw),
     );
   }
 }
@@ -169,15 +332,22 @@ class ReportProduct {
     required this.designs,
   });
 
-  factory ReportProduct.fromJson(Map<String, dynamic> json) {
-    final raw = json['Designs'] as List? ?? [];
+  factory ReportProduct.fromJson(Map<String, dynamic> json, {bool includeItems = true}) {
+    final raw = json['Designs'] ?? json['designs'];
+    final designs = <ReportDesign>[];
+    if (raw is List) {
+      for (final e in raw) {
+        final map = _asStringKeyedMap(e);
+        if (map != null) designs.add(ReportDesign.fromJson(map, includeItems: includeItems));
+      }
+    }
     return ReportProduct(
-      productId: json['ProductId'] as int?,
-      productName: json['ProductName']?.toString(),
-      totalInventoryItems: json['TotalInventoryItems'] as int?,
-      totalScannedItems: json['TotalScannedItems'] as int?,
-      notScannedItems: json['NotScannedItems'] as int?,
-      designs: raw.map((e) => ReportDesign.fromJson(e as Map<String, dynamic>)).toList(),
+      productId: json['ProductId'] as int? ?? json['productId'] as int?,
+      productName: json['ProductName']?.toString() ?? json['productName']?.toString(),
+      totalInventoryItems: json['TotalInventoryItems'] as int? ?? json['totalInventoryItems'] as int?,
+      totalScannedItems: json['TotalScannedItems'] as int? ?? json['totalScannedItems'] as int?,
+      notScannedItems: json['NotScannedItems'] as int? ?? json['notScannedItems'] as int?,
+      designs: designs,
     );
   }
 }
@@ -199,15 +369,22 @@ class ReportCategory {
     required this.products,
   });
 
-  factory ReportCategory.fromJson(Map<String, dynamic> json) {
-    final raw = json['Products'] as List? ?? [];
+  factory ReportCategory.fromJson(Map<String, dynamic> json, {bool includeItems = true}) {
+    final raw = json['Products'] ?? json['products'];
+    final products = <ReportProduct>[];
+    if (raw is List) {
+      for (final e in raw) {
+        final map = _asStringKeyedMap(e);
+        if (map != null) products.add(ReportProduct.fromJson(map, includeItems: includeItems));
+      }
+    }
     return ReportCategory(
-      categoryId: json['CategoryId'] as int?,
-      categoryName: json['CategoryName']?.toString(),
-      totalInventoryItems: json['TotalInventoryItems'] as int?,
-      totalScannedItems: json['TotalScannedItems'] as int?,
-      notScannedItems: json['NotScannedItems'] as int?,
-      products: raw.map((e) => ReportProduct.fromJson(e as Map<String, dynamic>)).toList(),
+      categoryId: json['CategoryId'] as int? ?? json['categoryId'] as int?,
+      categoryName: json['CategoryName']?.toString() ?? json['categoryName']?.toString(),
+      totalInventoryItems: json['TotalInventoryItems'] as int? ?? json['totalInventoryItems'] as int?,
+      totalScannedItems: json['TotalScannedItems'] as int? ?? json['totalScannedItems'] as int?,
+      notScannedItems: json['NotScannedItems'] as int? ?? json['notScannedItems'] as int?,
+      products: products,
     );
   }
 }
@@ -229,15 +406,22 @@ class ReportBranch {
     required this.categories,
   });
 
-  factory ReportBranch.fromJson(Map<String, dynamic> json) {
-    final raw = json['Categories'] as List? ?? [];
+  factory ReportBranch.fromJson(Map<String, dynamic> json, {bool includeItems = true}) {
+    final raw = json['Categories'] ?? json['categories'];
+    final categories = <ReportCategory>[];
+    if (raw is List) {
+      for (final e in raw) {
+        final map = _asStringKeyedMap(e);
+        if (map != null) categories.add(ReportCategory.fromJson(map, includeItems: includeItems));
+      }
+    }
     return ReportBranch(
-      branchId: json['BranchId'] as int?,
-      branchName: json['BranchName']?.toString(),
-      totalInventoryItems: json['TotalInventoryItems'] as int?,
-      totalScannedItems: json['TotalScannedItems'] as int?,
-      notScannedItems: json['NotScannedItems'] as int?,
-      categories: raw.map((e) => ReportCategory.fromJson(e as Map<String, dynamic>)).toList(),
+      branchId: json['BranchId'] as int? ?? json['branchId'] as int?,
+      branchName: json['BranchName']?.toString() ?? json['branchName']?.toString(),
+      totalInventoryItems: json['TotalInventoryItems'] as int? ?? json['totalInventoryItems'] as int?,
+      totalScannedItems: json['TotalScannedItems'] as int? ?? json['totalScannedItems'] as int?,
+      notScannedItems: json['NotScannedItems'] as int? ?? json['notScannedItems'] as int?,
+      categories: categories,
     );
   }
 }
@@ -255,13 +439,25 @@ class StockVerificationReportResponse {
     required this.branches,
   });
 
-  factory StockVerificationReportResponse.fromJson(Map<String, dynamic> json) {
-    final raw = json['Branches'] as List? ?? [];
+  factory StockVerificationReportResponse.fromJson(
+    Map<String, dynamic> json, {
+    bool includeItems = true,
+  }) {
+    final raw = json['Branches'] ?? json['branches'];
+    final branches = <ReportBranch>[];
+    if (raw is List) {
+      for (final e in raw) {
+        final map = _asStringKeyedMap(e);
+        if (map != null) {
+          branches.add(ReportBranch.fromJson(map, includeItems: includeItems));
+        }
+      }
+    }
     return StockVerificationReportResponse(
-      message: json['Message']?.toString(),
-      reportDate: json['ReportDate']?.toString(),
-      totalRecordsFetched: json['TotalRecordsFetched'] as int?,
-      branches: raw.map((e) => ReportBranch.fromJson(e as Map<String, dynamic>)).toList(),
+      message: json['Message']?.toString() ?? json['message']?.toString(),
+      reportDate: json['ReportDate']?.toString() ?? json['reportDate']?.toString(),
+      totalRecordsFetched: json['TotalRecordsFetched'] as int? ?? json['totalRecordsFetched'] as int?,
+      branches: branches,
     );
   }
 
