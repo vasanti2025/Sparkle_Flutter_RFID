@@ -242,6 +242,46 @@ class RfidService {
     await waitForBleConnection(isR6: true, timeout: const Duration(seconds: 12));
   }
 
+  /// Auto-detect a Chainway tray reader that is already paired/connected at
+  /// the Android system Bluetooth level, without requiring the user to first
+  /// open in-app Settings and pick a device manually.
+  ///
+  /// There is no reliable name pattern to identify "this is the tray reader"
+  /// among arbitrary bonded devices (headphones, printer, etc.), so this
+  /// probes bonded candidates with the real Chainway BLE SDK handshake —
+  /// only a genuine UHF tray reader will complete [waitForBleConnection]
+  /// within the timeout, which naturally filters out unrelated accessories.
+  /// Returns the matched {name, address} map, or null if nothing matched.
+  Future<Map<String, String>?> tryAutoDiscoverTrayDevice({
+    Duration perDeviceTimeout = const Duration(seconds: 6),
+    int maxCandidates = 3,
+  }) async {
+    await ensureReady();
+    if (!_isSupported) return null;
+    final candidates = await listBondedBluetoothDevices();
+    if (candidates.isEmpty) return null;
+
+    for (final candidate in candidates.take(maxCandidates)) {
+      final address = candidate['address'] ?? '';
+      if (address.isEmpty) continue;
+      debugPrint('Tray auto-discover: probing $address (${candidate['name']})');
+      final applied = await applyTrayMode(enabled: true, address: address);
+      if (!applied) continue;
+      final connected = await waitForBleConnection(
+        isR6: false,
+        timeout: perDeviceTimeout,
+      );
+      if (connected) {
+        debugPrint('Tray auto-discover: matched $address');
+        return candidate;
+      }
+      // Not a compatible reader (or not currently reachable) — reset before
+      // trying the next candidate so probes never overlap.
+      await applyTrayMode(enabled: false);
+    }
+    return null;
+  }
+
   Future<bool> applyTrayMode({
     required bool enabled,
     String address = '',
