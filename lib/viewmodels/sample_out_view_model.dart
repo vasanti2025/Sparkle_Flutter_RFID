@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../models/customer.dart';
 import '../models/customer_tunch.dart';
 import '../models/delivery_challan.dart';
+import '../models/bulk_item.dart';
 import '../models/sample_out.dart';
 import '../services/api_service.dart';
 import '../services/db_service.dart';
@@ -40,6 +41,13 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
 
   final List<ChallanDetailsModel> _productList = [];
   List<ChallanDetailsModel> get productList => _productList;
+
+  /// Snapshot of every active API line (including duplicate Ids) when edit opens.
+  final List<ChallanDetailsModel> _originalEditItems = [];
+
+  /// After a successful edit, keep the saved lines even if GetAllCustomerIssue
+  /// still returns leftover rows.
+  final Map<int, List<Map<String, dynamic>>> _savedIssueItemsById = {};
 
   CustomerModel? _selectedCustomer;
   CustomerModel? get selectedCustomer => _selectedCustomer;
@@ -101,9 +109,11 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
       await fetchAllSampleOut();
       await fetchLastSampleOutNo();
 
-      _selectedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      _returnDate = _selectedDate;
-      _description = '';
+      if (_selectedSampleOut == null) {
+        _selectedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
+        _returnDate = _selectedDate;
+        _description = '';
+      }
     } catch (e) {
       _errorMessage = e.toString();
     } finally {
@@ -121,7 +131,9 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
       if (mem != null && mem.isNotEmpty) {
         _sampleOutList = mem
             .whereType<Map>()
-            .map((c) => SampleOutModel.fromJson(Map<String, dynamic>.from(c)))
+            .map((c) => _withSavedIssueItems(
+                  SampleOutModel.fromJson(Map<String, dynamic>.from(c)),
+                ))
             .toList();
         notifyListeners();
       } else {
@@ -129,7 +141,9 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
         if (cached.isNotEmpty) {
           _sampleOutList = cached
               .whereType<Map>()
-              .map((c) => SampleOutModel.fromJson(Map<String, dynamic>.from(c)))
+              .map((c) => _withSavedIssueItems(
+                    SampleOutModel.fromJson(Map<String, dynamic>.from(c)),
+                  ))
               .toList();
           notifyListeners();
         }
@@ -157,9 +171,11 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
       final raw = await _apiService.getAllSampleOut(code);
       _sampleOutList = raw
           .whereType<Map>()
-          .map((c) => SampleOutModel.fromJson(Map<String, dynamic>.from(c)))
+          .map((c) => _withSavedIssueItems(
+                SampleOutModel.fromJson(Map<String, dynamic>.from(c)),
+              ))
           .toList();
-      await ListJsonCache.instance.save(key, raw);
+      await ListJsonCache.instance.save(key, _cacheRawWithSavedItems(raw));
     } catch (e) {
       if (_sampleOutList.isEmpty) {
         _errorMessage = e.toString();
@@ -192,6 +208,12 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
       for (final item in sampleOut.issueItems) {
         _productList.add(SampleOutModel.issueItemToDetails(item));
       }
+      final originals = sampleOut.allActiveIssueItems.isNotEmpty
+          ? sampleOut.allActiveIssueItems
+          : sampleOut.issueItems;
+      _originalEditItems
+        ..clear()
+        ..addAll(originals.map(SampleOutModel.issueItemToDetails));
       _selectedDate = sampleOut.date.isNotEmpty
           ? sampleOut.date
           : DateFormat('yyyy-MM-dd').format(DateTime.now());
@@ -251,6 +273,50 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
     return 0.0;
   }
 
+  bool _isSameSampleOutLine(ChallanDetailsModel a, ChallanDetailsModel b) {
+    if (a.challanId > 0 && b.challanId > 0) return a.challanId == b.challanId;
+    if (a.labelledStockId > 0 && b.labelledStockId > 0) {
+      return a.labelledStockId == b.labelledStockId;
+    }
+
+    bool same(String x, String y) {
+      final aa = x.trim().toUpperCase();
+      final bb = y.trim().toUpperCase();
+      return aa.isNotEmpty && bb.isNotEmpty && aa == bb;
+    }
+
+    final aTid = a.tid.isNotEmpty ? a.tid : a.tidNumber;
+    final bTid = b.tid.isNotEmpty ? b.tid : b.tidNumber;
+    return same(a.itemCode, b.itemCode) ||
+        same(a.rfidCode, b.rfidCode) ||
+        same(aTid, bTid);
+  }
+
+  /// True only when this labelled piece is already on the Sample Out list.
+  /// Empty RFID/TID/item-code must not count as a match — that blocked every
+  /// new item after the first (especially after editing a line).
+  bool _isSameSampleOutItem(ChallanDetailsModel existing, BulkItem matched) {
+    final existingId = existing.labelledStockId;
+    final matchedId = matched.bulkItemId;
+    if (existingId > 0 && matchedId > 0) {
+      return existingId == matchedId;
+    }
+
+    bool same(String a, String b) {
+      final x = a.trim().toUpperCase();
+      final y = b.trim().toUpperCase();
+      return x.isNotEmpty && y.isNotEmpty && x == y;
+    }
+
+    return same(existing.rfidCode, matched.rfid) ||
+        same(existing.rfidCode, matched.epc) ||
+        same(existing.tid, matched.tid) ||
+        same(existing.tidNumber, matched.tid) ||
+        same(existing.tid, matched.epc) ||
+        same(existing.tidNumber, matched.epc) ||
+        same(existing.itemCode, matched.itemCode);
+  }
+
   Future<String?> addProductByCodeOrRfid(String codeQuery, {bool notify = true}) async {
     final query = codeQuery.trim().toUpperCase();
     if (query.isEmpty) return 'Please enter item code or RFID';
@@ -262,12 +328,7 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
       return 'No item found with code/RFID: $codeQuery';
     }
 
-    final exists = _productList.any(
-      (x) =>
-          x.itemCode.toUpperCase() == matchedItem.itemCode.toUpperCase() ||
-          x.rfidCode.toUpperCase() == matchedItem.rfid.toUpperCase() ||
-          x.tid.toUpperCase() == matchedItem.tid.toUpperCase(),
-    );
+    final exists = _productList.any((x) => _isSameSampleOutItem(x, matchedItem));
 
     if (exists) {
       return 'Item already added';
@@ -473,6 +534,7 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
 
   void clearSampleOut() {
     _productList.clear();
+    _originalEditItems.clear();
     _selectedCustomer = null;
     _selectedSampleOut = null;
     _errorMessage = null;
@@ -482,21 +544,79 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
     notifyListeners();
   }
 
-  Map<String, dynamic> _buildIssueItemsPayload(String sampleOutNo, String clientCode, int branchId, String customerName, String sampleInDate) {
-    final custId = _selectedCustomer?.id ?? 0;
-    return {
-      'IssueItems': _productList
-          .map((item) => SampleOutModel.detailsToIssueItem(
-                item: item,
-                sampleOutNo: sampleOutNo,
-                customerId: custId,
-                clientCode: clientCode,
-                branchId: branchId,
-                customerName: customerName,
-                sampleInDate: sampleInDate,
-              ))
-          .toList(),
-    };
+  Map<String, dynamic> _toIssueItemPayload(
+    ChallanDetailsModel item, {
+    required String sampleOutNo,
+    required String clientCode,
+    required int branchId,
+    required String customerName,
+    required String sampleInDate,
+    required bool statusType,
+  }) {
+    return SampleOutModel.detailsToIssueItem(
+      item: item,
+      sampleOutNo: sampleOutNo,
+      customerId: _selectedCustomer?.id ?? 0,
+      clientCode: clientCode,
+      branchId: branchId,
+      customerName: customerName,
+      sampleInDate: sampleInDate,
+      statusType: statusType,
+    );
+  }
+
+  Map<String, dynamic> _buildIssueItemsPayload(
+    String sampleOutNo,
+    String clientCode,
+    int branchId,
+    String customerName,
+    String sampleInDate, {
+    bool markRemovedOriginalsInactive = false,
+  }) {
+    final items = _productList
+        .map((item) => _toIssueItemPayload(
+              item,
+              sampleOutNo: sampleOutNo,
+              clientCode: clientCode,
+              branchId: branchId,
+              customerName: customerName,
+              sampleInDate: sampleInDate,
+              statusType: true,
+            ))
+        .toList();
+
+    if (markRemovedOriginalsInactive) {
+      final remainingIds = _productList.map((e) => e.challanId).where((id) => id > 0).toSet();
+      final consumed = <int>{};
+      for (final original in _originalEditItems) {
+        var stillPresent = false;
+        if (original.challanId > 0) {
+          stillPresent = remainingIds.contains(original.challanId);
+        } else {
+          for (var i = 0; i < _productList.length; i++) {
+            if (consumed.contains(i)) continue;
+            if (_isSameSampleOutLine(_productList[i], original)) {
+              consumed.add(i);
+              stillPresent = true;
+              break;
+            }
+          }
+        }
+        if (!stillPresent) {
+          items.add(_toIssueItemPayload(
+            original,
+            sampleOutNo: sampleOutNo,
+            clientCode: clientCode,
+            branchId: branchId,
+            customerName: customerName,
+            sampleInDate: sampleInDate,
+            statusType: false,
+          ));
+        }
+      }
+    }
+
+    return {'IssueItems': items};
   }
 
   Future<Map<String, dynamic>?> submitSampleOut() async {
@@ -620,7 +740,14 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
         'TotalWt': _sumDouble((it) => it.totalWt).toString(),
         'StatusType': true,
         'SampleInDate': sampleInDate,
-        ..._buildIssueItemsPayload(sampleNo, code, branchId, customerName, sampleInDate),
+        ..._buildIssueItemsPayload(
+          sampleNo,
+          code,
+          branchId,
+          customerName,
+          sampleInDate,
+          markRemovedOriginalsInactive: true,
+        ),
       };
 
       final response = await _apiService.updateSampleOut(payload);
@@ -664,6 +791,13 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
           );
         }
         await fetchAllSampleOut();
+        await _syncLocalSampleOutAfterEdit(
+          sampleOutNo: sampleNo,
+          clientCode: code,
+          branchId: branchId,
+          customerName: customerName,
+          sampleInDate: sampleInDate,
+        );
         _isLoading = false;
         notifyListeners();
         return true;
@@ -678,6 +812,85 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
       notifyListeners();
       return false;
     }
+  }
+
+  int _asJsonInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  SampleOutModel _withSavedIssueItems(SampleOutModel model) {
+    final saved = _savedIssueItemsById[model.id];
+    if (saved == null) return model;
+    return model.copyWith(
+      quantity: saved.length,
+      issueItems: saved,
+      allActiveIssueItems: saved,
+    );
+  }
+
+  List<dynamic> _cacheRawWithSavedItems(List<dynamic> raw) {
+    if (_savedIssueItemsById.isEmpty) return raw;
+    return raw.map((e) {
+      if (e is! Map) return e;
+      final map = Map<String, dynamic>.from(e);
+      final saved = _savedIssueItemsById[_asJsonInt(map['Id'])];
+      if (saved == null) return e;
+      map['IssueItems'] = saved;
+      map['Quantity'] = saved.length;
+      return map;
+    }).toList();
+  }
+
+  /// After update, keep only the lines that were saved so list qty and edit match.
+  Future<void> _syncLocalSampleOutAfterEdit({
+    required String sampleOutNo,
+    required String clientCode,
+    required int branchId,
+    required String customerName,
+    required String sampleInDate,
+  }) async {
+    final selected = _selectedSampleOut;
+    if (selected == null) return;
+
+    final remaining = _productList
+        .map((product) => _toIssueItemPayload(
+              product,
+              sampleOutNo: sampleOutNo,
+              clientCode: clientCode,
+              branchId: branchId,
+              customerName: customerName,
+              sampleInDate: sampleInDate,
+              statusType: true,
+            ))
+        .toList();
+    _savedIssueItemsById[selected.id] = remaining;
+
+    final idx = _sampleOutList.indexWhere((e) => e.id == selected.id);
+    final source = idx >= 0 ? _sampleOutList[idx] : selected;
+    final patched = source.copyWith(
+      quantity: remaining.length,
+      issueItems: remaining,
+      allActiveIssueItems: remaining,
+      description: _description,
+      returnDate: _returnDate.isNotEmpty ? _returnDate : source.returnDate,
+      date: _selectedDate.isNotEmpty ? _selectedDate : source.date,
+      totalWt: _sumDouble((it) => it.totalWt).toString(),
+      totalGrossWt: _sumDouble((it) => it.grossWt).toString(),
+      totalNetWt: _sumDouble((it) => it.netWt).toString(),
+      totalStoneWeight: _sumDouble((it) => it.stoneAmt.isNotEmpty ? it.stoneAmt : it.stoneAmount).toString(),
+      totalDiamondWeight: _sumDouble((it) => it.diamondWt.isNotEmpty ? it.diamondWt : it.totalDiamondWeight).toString(),
+    );
+    if (idx >= 0) {
+      _sampleOutList[idx] = patched;
+    }
+    _selectedSampleOut = patched;
+
+    final key = 'sample_out_$clientCode';
+    final mem = ListJsonCache.instance.readMemory(key);
+    if (mem == null || mem.isEmpty) return;
+    await ListJsonCache.instance.save(key, _cacheRawWithSavedItems(mem));
   }
 
   SamplePrintData buildSampleOutPrintData({

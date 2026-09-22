@@ -242,7 +242,7 @@ class _SampleOutListScreenState extends State<SampleOutListScreen> {
         SpreadsheetColumnDef(
           header: s.headerQty,
           width: 50,
-          valueBuilder: (i) => '${list[i].quantity}',
+          valueBuilder: (i) => '${list[i].issueItems.length}',
         ),
       ],
       actionBuilder: (context, index) {

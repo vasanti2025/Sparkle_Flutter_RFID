@@ -21,6 +21,8 @@ class SampleOutModel {
   final String clientCode;
   final int branchId;
   final List<Map<String, dynamic>> issueItems;
+  /// Active API rows before de-dupe. Used on Update to inactivate leftover Ids.
+  final List<Map<String, dynamic>> allActiveIssueItems;
   final String? customerFirstName;
 
   SampleOutModel({
@@ -43,24 +45,28 @@ class SampleOutModel {
     required this.clientCode,
     required this.branchId,
     required this.issueItems,
+    List<Map<String, dynamic>>? allActiveIssueItems,
     this.customerFirstName,
-  });
+  }) : allActiveIssueItems = allActiveIssueItems ?? issueItems;
 
   factory SampleOutModel.fromJson(Map<String, dynamic> json) {
     final customer = json['Customer'] as Map<String, dynamic>?;
-    final items = (json['IssueItems'] as List? ?? [])
-        .map((e) => e as Map<String, dynamic>)
+    final allActive = (json['IssueItems'] as List? ?? [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .where(_isCurrentSampleOutLine)
         .toList();
+    final items = _dedupeIssueItems(allActive);
 
     return SampleOutModel(
-      id: json['Id'] as int? ?? 0,
+      id: _jsonInt(json['Id']),
       sampleStatus: json['SampleStatus']?.toString() ?? '',
       sampleOutNo: json['SampleOutNo']?.toString() ?? '',
-      statusType: json['StatusType'] as bool? ?? false,
+      statusType: json['StatusType'] == true || json['StatusType'] == 1,
       createdOn: json['CreatedOn']?.toString() ?? '',
       lastUpdated: json['LastUpdated']?.toString() ?? '',
-      customerId: json['CustomerId'] as int? ?? 0,
-      quantity: json['Quantity'] as int? ?? 0,
+      customerId: _jsonInt(json['CustomerId']),
+      quantity: items.length,
       totalWt: json['TotalWt']?.toString() ?? '0',
       totalGrossWt: json['TotalGrossWt']?.toString() ?? '0',
       totalNetWt: json['TotalNetWt']?.toString() ?? '0',
@@ -70,18 +76,111 @@ class SampleOutModel {
       description: json['Description']?.toString() ?? '',
       date: json['Date']?.toString() ?? '',
       clientCode: json['ClientCode']?.toString() ?? '',
-      branchId: json['BranchId'] as int? ?? 0,
+      branchId: _jsonInt(json['BranchId']),
       issueItems: items,
+      allActiveIssueItems: allActive,
       customerFirstName: customer?['FirstName']?.toString(),
+    );
+  }
+
+  SampleOutModel copyWith({
+    int? quantity,
+    String? totalWt,
+    String? totalGrossWt,
+    String? totalNetWt,
+    String? totalStoneWeight,
+    String? totalDiamondWeight,
+    String? returnDate,
+    String? description,
+    String? date,
+    List<Map<String, dynamic>>? issueItems,
+    List<Map<String, dynamic>>? allActiveIssueItems,
+  }) {
+    return SampleOutModel(
+      id: id,
+      sampleStatus: sampleStatus,
+      sampleOutNo: sampleOutNo,
+      statusType: statusType,
+      createdOn: createdOn,
+      lastUpdated: lastUpdated,
+      customerId: customerId,
+      quantity: quantity ?? this.quantity,
+      totalWt: totalWt ?? this.totalWt,
+      totalGrossWt: totalGrossWt ?? this.totalGrossWt,
+      totalNetWt: totalNetWt ?? this.totalNetWt,
+      totalStoneWeight: totalStoneWeight ?? this.totalStoneWeight,
+      totalDiamondWeight: totalDiamondWeight ?? this.totalDiamondWeight,
+      returnDate: returnDate ?? this.returnDate,
+      description: description ?? this.description,
+      date: date ?? this.date,
+      clientCode: clientCode,
+      branchId: branchId,
+      issueItems: issueItems ?? this.issueItems,
+      allActiveIssueItems: allActiveIssueItems ?? this.allActiveIssueItems,
+      customerFirstName: customerFirstName,
     );
   }
 
   String get customerName => customerFirstName ?? '';
 
+  static int _jsonInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  static bool _issueItemIsActive(Map<String, dynamic> item) {
+    final status = item['StatusType'];
+    if (status == false || status == 0 || status == 'false' || status == '0') {
+      return false;
+    }
+    return true;
+  }
+
+  static bool _isCurrentSampleOutLine(Map<String, dynamic> item) {
+    if (!_issueItemIsActive(item)) return false;
+    final status = (item['SampleStatus']?.toString() ?? '')
+        .trim()
+        .toLowerCase()
+        .replaceAll(' ', '');
+    if (status == 'samplein' || status == 'deleted' || status == 'cancelled') {
+      return false;
+    }
+    return true;
+  }
+
+  static String _issueItemDedupeKey(Map<String, dynamic> item) {
+    final stockId = _jsonInt(item['LabelledStockId']);
+    if (stockId > 0) return 'sid:$stockId';
+    final rfid = item['RFIDCode']?.toString().trim().toUpperCase() ?? '';
+    if (rfid.isNotEmpty) return 'rfid:$rfid';
+    final tid = item['TIDNumber']?.toString().trim().toUpperCase() ?? '';
+    if (tid.isNotEmpty) return 'tid:$tid';
+    final code = item['ItemCode']?.toString().trim().toUpperCase() ?? '';
+    if (code.isNotEmpty) return 'code:$code';
+    final id = _jsonInt(item['Id']);
+    if (id > 0) return 'id:$id';
+    return 'row:${identityHashCode(item)}';
+  }
+
+  static List<Map<String, dynamic>> _dedupeIssueItems(
+    List<Map<String, dynamic>> items,
+  ) {
+    final byKey = <String, Map<String, dynamic>>{};
+    for (final item in items) {
+      final key = _issueItemDedupeKey(item);
+      final existing = byKey[key];
+      if (existing == null || _jsonInt(item['Id']) >= _jsonInt(existing['Id'])) {
+        byKey[key] = item;
+      }
+    }
+    return byKey.values.toList();
+  }
+
   /// Maps API issue item to line-item model used in the create/edit screen.
   static ChallanDetailsModel issueItemToDetails(Map<String, dynamic> json) {
     return ChallanDetailsModel(
-      challanId: json['Id'] as int? ?? 0,
+      challanId: _jsonInt(json['Id']),
       mrp: '0.0',
       categoryName: json['CategoryName']?.toString() ?? '',
       challanStatus: json['SampleStatus']?.toString() ?? 'SampleOut',
@@ -91,8 +190,8 @@ class SampleOutModel {
       itemCode: json['ItemCode']?.toString() ?? '',
       grossWt: json['GrossWt']?.toString() ?? '0.0',
       netWt: json['NetWt']?.toString() ?? '0.0',
-      productId: json['ProductId'] as int? ?? 0,
-      customerId: json['CustomerId'] as int? ?? 0,
+      productId: _jsonInt(json['ProductId']),
+      customerId: _jsonInt(json['CustomerId']),
       metalRate: json['RatePerGram']?.toString() ?? '0.0',
       makingCharg: json['MetalAmount']?.toString() ?? '0.0',
       price: json['MetalAmount']?.toString() ?? '0.0',
@@ -120,15 +219,15 @@ class SampleOutModel {
       cuttingGrossWt: json['GrossWt']?.toString() ?? '0.0',
       cuttingNetWt: json['NetWt']?.toString() ?? '0.0',
       baseCurrency: 'INR',
-      categoryId: json['CategoryId'] as int? ?? 0,
-      purityId: json['PurityId'] as int? ?? 0,
+      categoryId: _jsonInt(json['CategoryId']),
+      purityId: _jsonInt(json['PurityId']),
       totalStoneWeight: json['StoneWeight']?.toString() ?? '0.0',
       totalStoneAmount: json['StoneAmount']?.toString() ?? '0.0',
       totalStonePieces: '0',
       totalDiamondWeight: json['DiamondWeight']?.toString() ?? '0.0',
       totalDiamondPieces: '0',
       totalDiamondAmount: json['DiamondAmount']?.toString() ?? '0.0',
-      skuId: json['SKUId'] as int? ?? 0,
+      skuId: _jsonInt(json['SKUId']),
       sku: json['SKU']?.toString() ?? '',
       fineWastageWt: json['FineWastageWt']?.toString() ?? '0.0',
       totalItemAmount: json['MetalAmount']?.toString() ?? '0.0',
@@ -157,10 +256,10 @@ class SampleOutModel {
       purity: json['PurityName']?.toString() ?? '',
       designName: json['DesignName']?.toString() ?? '',
       companyId: 0,
-      branchId: json['BranchId'] as int? ?? 0,
+      branchId: _jsonInt(json['BranchId']),
       counterId: 0,
       employeeId: 0,
-      labelledStockId: json['LabelledStockId'] as int? ?? 0,
+      labelledStockId: _jsonInt(json['LabelledStockId']),
       fineSilver: '0.0',
       fineGold: '0.0',
       debitSilver: '0.0',
@@ -170,7 +269,7 @@ class SampleOutModel {
       convertAmt: '0.0',
       pieces: json['Pieces']?.toString() ?? '1',
       stoneLessPercent: json['WastegePercentage']?.toString() ?? '0.0',
-      designId: json['DesignId'] as int? ?? 0,
+      designId: _jsonInt(json['DesignId']),
       packetId: 0,
       rfidCode: json['RFIDCode']?.toString() ?? '',
       image: '',
@@ -179,7 +278,7 @@ class SampleOutModel {
       diamondAmt: json['DiamondAmount']?.toString() ?? '0.0',
       finePer: json['FinePercentage']?.toString() ?? '0.0',
       fineWt: json['FineWastageWt']?.toString() ?? '0.0',
-      qty: json['Quantity'] as int? ?? 1,
+      qty: _jsonInt(json['Quantity']) <= 0 ? 1 : _jsonInt(json['Quantity']),
       tid: json['TIDNumber']?.toString() ?? '',
       totayRate: json['RatePerGram']?.toString() ?? '0.0',
       makingPercent: '0.0',
@@ -200,6 +299,7 @@ class SampleOutModel {
     required int branchId,
     required String customerName,
     required String sampleInDate,
+    bool statusType = true,
   }) {
     return {
       'ItemCode': item.itemCode,
@@ -221,7 +321,7 @@ class SampleOutModel {
       'RatePerGram': item.metalRate,
       'MetalAmount': item.metalAmount,
       'Description': item.description,
-      'SampleStatus': 'SampleOut',
+      'SampleStatus': item.challanStatus.isNotEmpty ? item.challanStatus : 'SampleOut',
       'ClientCode': clientCode,
       'StoneAmount': item.stoneAmt.isNotEmpty ? item.stoneAmt : item.stoneAmount,
       'SampleOutNo': sampleOutNo,
@@ -240,6 +340,9 @@ class SampleOutModel {
       'SampleInDate': sampleInDate,
       'CreatedOn': sampleInDate,
       'Customer': null,
+      'RFIDCode': item.rfidCode,
+      'TIDNumber': item.tid.isNotEmpty ? item.tid : item.tidNumber,
+      'StatusType': statusType,
     };
   }
 }
