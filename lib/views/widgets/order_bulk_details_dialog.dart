@@ -308,8 +308,8 @@ class _OrderBulkDetailsDialogState extends State<OrderBulkDetailsDialog> {
                             'color': _typeOfColor,
                             'screw': _screwType,
                             'polish': _polishType,
-                            'finePercentage': _finePerCtrl.text.trim(),
-                            'wastage': _wastageCtrl.text.trim(),
+                            'finePercentage': _asPercent2(_finePerCtrl.text.trim()),
+                            'wastage': _asPercent2(_wastageCtrl.text.trim()),
                             'orderDate': _orderDate,
                             'deliverDate': _deliverDate,
                           });
@@ -334,6 +334,12 @@ class _OrderBulkDetailsDialogState extends State<OrderBulkDetailsDialog> {
         ),
       ),
     );
+  }
+
+  static String _asPercent2(String raw) {
+    final v = double.tryParse(raw.trim());
+    if (v == null) return raw.trim();
+    return v.toStringAsFixed(2);
   }
 
   Widget _buildFieldRow(String label, TextEditingController controller,

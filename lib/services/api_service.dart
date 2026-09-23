@@ -143,6 +143,36 @@ class ApiService {
     return null;
   }
 
+  static List<dynamic> _asDynamicList(dynamic data) {
+    if (data is List) return data;
+    if (data is Map) {
+      final nested = data['data'] ??
+          data['Data'] ??
+          data['result'] ??
+          data['Result'] ??
+          data['quotations'] ??
+          data['Quotations'];
+      if (nested is List) return nested;
+    }
+    return const [];
+  }
+
+  static Map<String, dynamic>? _asSuccessMap(dynamic data, {dynamic fallbackNo}) {
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    if (data is bool && data) return {'success': true, 'QuotationNo': fallbackNo};
+    if (data is num) return {'Id': data.toInt(), 'QuotationNo': fallbackNo};
+    if (data is String && data.trim().isNotEmpty) {
+      final asId = int.tryParse(data.trim());
+      if (asId != null) return {'Id': asId, 'QuotationNo': fallbackNo};
+      return {'message': data, 'success': true, 'QuotationNo': fallbackNo};
+    }
+    if (data == null || (data is String && data.trim().isEmpty)) {
+      return {'success': true, 'QuotationNo': fallbackNo};
+    }
+    return null;
+  }
+
   // Delete product API call
   Future<bool> deleteProduct(int id, String clientCode) async {
     try {
@@ -686,8 +716,8 @@ class ApiService {
           'BranchId': branchId,
         },
       );
-      if (response.statusCode == 200 && response.data is List) {
-        return response.data as List;
+      if (response.statusCode == 200) {
+        return _asDynamicList(response.data);
       }
       return [];
     } on DioException catch (e) {
@@ -718,10 +748,10 @@ class ApiService {
         'api/Order/AddQuotation',
         data: request,
       );
-      if (response.statusCode == 200 && response.data is Map<String, dynamic>) {
-        return response.data as Map<String, dynamic>;
+      if (response.statusCode == 200) {
+        return _asSuccessMap(response.data, fallbackNo: request['QuotationNo']);
       }
-      return null;
+      throw Exception('AddQuotation failed: HTTP ${response.statusCode}');
     } on DioException catch (e) {
       throw Exception('Failed to save quotation: ${e.message}');
     }
@@ -737,10 +767,14 @@ class ApiService {
         try {
           return await _postQuotationUpdate('api/Order/UpadateQuotation', request);
         } on DioException catch (e2) {
-          throw Exception('Failed to update quotation: ${e2.message}');
+          throw Exception(
+            'Failed to update quotation: ${e2.message}${_dioBody(e2)}',
+          );
         }
       }
-      throw Exception('Failed to update quotation: ${e.message}');
+      throw Exception(
+        'Failed to update quotation: ${e.message}${_dioBody(e)}',
+      );
     }
   }
 
@@ -749,10 +783,18 @@ class ApiService {
     Map<String, dynamic> request,
   ) async {
     final response = await _dio.post(path, data: request);
-    if (response.statusCode == 200 && response.data is Map<String, dynamic>) {
-      return response.data as Map<String, dynamic>;
+    if (response.statusCode == 200) {
+      return _asSuccessMap(response.data, fallbackNo: request['QuotationNo']);
     }
-    return null;
+    throw Exception('Update quotation failed: HTTP ${response.statusCode}');
+  }
+
+  static String _dioBody(DioException e) {
+    final body = e.response?.data;
+    if (body == null) return '';
+    final text = body.toString();
+    if (text.isEmpty || text == 'null') return '';
+    return ' | $text';
   }
 
   // ---- Sample Out APIs ----------------------------------------------------

@@ -1,4 +1,5 @@
 class OrderItem {
+  final int id;
   final String rfidCode;
   final String branchId;
   final String branchName;
@@ -53,6 +54,7 @@ class OrderItem {
   final String categoryWt;
 
   OrderItem({
+    this.id = 0,
     required this.rfidCode,
     required this.branchId,
     required this.branchName,
@@ -108,6 +110,7 @@ class OrderItem {
   });
 
   OrderItem copyWith({
+    int? id,
     String? rfidCode,
     String? branchId,
     String? branchName,
@@ -162,6 +165,7 @@ class OrderItem {
     String? categoryWt,
   }) {
     return OrderItem(
+      id: id ?? this.id,
       rfidCode: rfidCode ?? this.rfidCode,
       branchId: branchId ?? this.branchId,
       branchName: branchName ?? this.branchName,
@@ -304,6 +308,7 @@ class OrderItem {
 
   factory OrderItem.fromJson(Map<String, dynamic> json) {
     return OrderItem(
+      id: _readInt(json['Id'] ?? json['QuotationItemId'] ?? json['OrderItemId']),
       rfidCode: json['RFIDCode']?.toString() ?? '',
       branchId: (json['BranchId'] ?? 0).toString(),
       branchName: json['BranchName']?.toString() ?? '',
@@ -337,17 +342,17 @@ class OrderItem {
       image: json['Image']?.toString() ?? '',
       netAmt: json['Amount']?.toString() ?? '0.00',
       diamondAmt: json['DiamondAmount']?.toString() ?? '0.00',
-      categoryId: json['CategoryId'] as int?,
+      categoryId: _readIntOrNull(json['CategoryId']),
       categoryName: json['CategoryName']?.toString() ?? '',
-      productId: json['ProductId'] as int? ?? 0,
+      productId: _readInt(json['ProductId']),
       productCode: json['ProductCode']?.toString() ?? '',
-      skuId: json['SKUId'] as int? ?? 0,
-      designid: json['DesignId'] as int? ?? 0,
+      skuId: _readInt(json['SKUId']),
+      designid: _readInt(json['DesignId']),
       designName: json['DesignName']?.toString() ?? '',
-      purityid: json['PurityId'] as int? ?? 0,
+      purityid: _readInt(json['PurityId']),
       counterId: int.tryParse(json['CounterId']?.toString() ?? '0') ?? 0,
       counterName: json['CounterName']?.toString() ?? '',
-      companyId: json['CompanyId'] as int? ?? 0,
+      companyId: _readInt(json['CompanyId']),
       epc: json['RfidCode']?.toString() ?? '',
       tid: json['TIDNumber']?.toString() ?? '',
       todaysRate: json['RatePerGram']?.toString() ?? '0.0',
@@ -357,5 +362,17 @@ class OrderItem {
       makingPerGram: json['MakingPerGram']?.toString() ?? '0.0',
       categoryWt: json['WeightCategories']?.toString() ?? '',
     );
+  }
+
+  static int _readInt(dynamic v) {
+    if (v == null) return 0;
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return int.tryParse(v.toString().trim()) ?? 0;
+  }
+
+  static int? _readIntOrNull(dynamic v) {
+    final n = _readInt(v);
+    return n == 0 && (v == null || v.toString().trim().isEmpty) ? null : n;
   }
 }

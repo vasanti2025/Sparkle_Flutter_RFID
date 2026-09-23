@@ -168,8 +168,8 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
       typeOfColor: '',
       screwType: '',
       polishType: '',
-      finePer: makingPercent.toString(),
-      wastage: matchedItem.makingPercent,
+      finePer: _formatPercent2(makingPercent.toString()),
+      wastage: _formatPercent2(matchedItem.makingPercent),
       orderDate: DateFormat('yyyy-MM-dd').format(DateTime.now()),
       deliverDate: DateFormat('yyyy-MM-dd').format(DateTime.now()),
       productName: matchedItem.productName,
@@ -204,7 +204,7 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
       epc: matchedItem.epc,
       tid: matchedItem.tid,
       todaysRate: rate.toStringAsFixed(2),
-      makingPercentage: matchedItem.makingPercent,
+      makingPercentage: _formatPercent2(matchedItem.makingPercent),
       makingFixedAmt: matchedItem.fixMaking,
       makingFixedWastage: matchedItem.fixWastage,
       makingPerGram: matchedItem.makingPerGram,
@@ -212,9 +212,42 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
     );
   }
 
+  static String _formatPercent2(String raw) {
+    final v = double.tryParse(raw.trim());
+    if (v == null) return raw;
+    return v.toStringAsFixed(2);
+  }
+
+  bool _isItemAlreadyAdded(String query, [BulkItem? matched]) {
+    final q = query.trim().toUpperCase();
+    if (q.isEmpty && matched == null) return false;
+    return _productList.any((x) {
+      final itemCode = x.itemCode.toUpperCase();
+      final rfid = x.rfidCode.toUpperCase();
+      final tid = x.tid.toUpperCase();
+      final epc = x.epc.toUpperCase();
+      if (q.isNotEmpty &&
+          (itemCode == q || rfid == q || tid == q || epc == q)) {
+        return true;
+      }
+      if (matched == null) return false;
+      final mCode = matched.itemCode.trim().toUpperCase();
+      final mRfid = matched.rfid.trim().toUpperCase();
+      final mTid = matched.tid.trim().toUpperCase();
+      final mEpc = matched.epc.trim().toUpperCase();
+      return (mCode.isNotEmpty && itemCode == mCode) ||
+          (mRfid.isNotEmpty && rfid == mRfid) ||
+          (mTid.isNotEmpty && tid == mTid) ||
+          (mEpc.isNotEmpty && epc == mEpc);
+    });
+  }
+
   Future<String?> addProductByCodeOrRfid(String codeQuery) async {
     final query = codeQuery.trim().toUpperCase();
     if (query.isEmpty) return 'Please enter item code or RFID';
+
+    // Duplicate against the current list first — skip the slow DB lookup.
+    if (_isItemAlreadyAdded(query)) return 'Item already added';
 
     final matchedItem = _dbService.findBulkItemByScanKeySync(codeQuery) ??
         await _dbService.findBulkItemByScanKey(codeQuery);
@@ -223,13 +256,7 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
       return 'No item found with code/RFID: $codeQuery';
     }
 
-    final exists = _productList.any(
-      (x) =>
-          x.itemCode.toUpperCase() == matchedItem.itemCode.toUpperCase() ||
-          x.rfidCode.toUpperCase() == matchedItem.rfid.toUpperCase() ||
-          x.tid.toUpperCase() == matchedItem.tid.toUpperCase(),
-    );
-    if (exists) return 'Item already added';
+    if (_isItemAlreadyAdded(query, matchedItem)) return 'Item already added';
 
     _productList.add(_buildItem(matchedItem));
     notifyListeners();
@@ -245,6 +272,7 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
       if (!acceptLiveScan(fromLiveScan)) break;
       final epc = epcRaw.trim().toUpperCase().replaceAll(' ', '');
       if (epc.isEmpty) continue;
+      if (_isItemAlreadyAdded(epc)) continue;
 
       final matchedItem = _dbService.findBulkItemByScanKeySync(epcRaw) ??
           await _dbService.findBulkItemByScanKey(epcRaw);
@@ -319,8 +347,8 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
         typeOfColor: color.isNotEmpty ? color : current.typeOfColor,
         screwType: screw.isNotEmpty ? screw : current.screwType,
         polishType: polish.isNotEmpty ? polish : current.polishType,
-        wastage: wastage.isNotEmpty ? wastage : current.wastage,
-        makingPercentage: wastage.isNotEmpty ? wastage : current.makingPercentage,
+        wastage: wastage.isNotEmpty ? _formatPercent2(wastage) : current.wastage,
+        makingPercentage: wastage.isNotEmpty ? _formatPercent2(wastage) : current.makingPercentage,
         orderDate: orderDate.isNotEmpty ? orderDate : current.orderDate,
         deliverDate: deliverDate.isNotEmpty ? deliverDate : current.deliverDate,
         todaysRate: rate.toStringAsFixed(2),
@@ -358,6 +386,8 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
   Map<String, dynamic> _quotationItemJson(OrderItem item, String clientCode) {
     final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
     return {
+      if (_isEditMode) 'Id': item.id,
+      if (_isEditMode && _editingQuotationId > 0) 'QuotationId': _editingQuotationId,
       'ItemCode': item.itemCode,
       'SKU': item.sku,
       'SKUId': item.skuId,
@@ -440,7 +470,6 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
 
       final custName =
           '${_selectedCustomer!.firstName ?? ''} ${_selectedCustomer!.lastName ?? ''}'.trim();
-      final items = _productList.map((it) => _quotationItemJson(it, clientCode)).toList();
       final totalGst = calculateGstAmount();
       // Single quotation date only (list shows QuotationDate).
       // Add → today; Update → keep existing QuotationDate when present.
@@ -448,8 +477,17 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
           ? _editingQuotationDate
           : DateFormat('yyyy-MM-dd').format(DateTime.now());
 
+      if (_isEditMode && _editingQuotationId <= 0) {
+        await _ensureEditingQuotationId(clientCode, branchId);
+      }
+      if (_isEditMode && _productList.any((it) => it.id <= 0)) {
+        await _ensureEditingItemIds(clientCode, branchId);
+      }
+
+      final items = _productList.map((it) => _quotationItemJson(it, clientCode)).toList();
+
       final payload = {
-        if (_isEditMode) 'Id': _editingQuotationId,
+        if (_isEditMode && _editingQuotationId > 0) 'Id': _editingQuotationId,
         'ClientCode': clientCode,
         'BranchId': branchId,
         'CustomerId': selectedCustId.toString(),
@@ -499,6 +537,8 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
           : await _apiService.addQuotation(payload);
 
       // Keep customer + QuotationDate from payload when API omits/overwrites them.
+      final responseItems = (response is Map) ? response['QuotationItem'] : null;
+      final savedItems = _mergeReturnedQuotationItems(items, responseItems);
       final merged = <String, dynamic>{
         ...payload,
         if (response is Map<String, dynamic>) ...response,
@@ -510,9 +550,11 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
         'BranchId': branchId,
         'Date': quotationDate,
         'QuotationDate': quotationDate,
-        'QuotationItem': items,
+        'QuotationItem': savedItems,
         'Remark': payload['Remark'],
       };
+      final mergedId = _parsePositiveId(merged['Id'] ?? merged['id']);
+      if (mergedId > 0) merged['Id'] = mergedId;
 
       await _upsertQuotationInHistory(merged, clientCode, branchId);
 
@@ -543,7 +585,108 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
   String _editingQuotationDate = '';
 
   String _quotationCacheKey(String clientCode, int branchId) =>
-      'quotation_${clientCode}_$branchId';
+      'quotation_$clientCode';
+
+  /// Server rows first; keep locally saved quotations (and their items/customer)
+  /// when GetAll omits them or returns an empty stub.
+  List<dynamic> _mergeQuotationLists(List<dynamic> primary, List<dynamic> extra) {
+    final byKey = <String, Map<String, dynamic>>{};
+    final order = <String>[];
+
+    String keyOf(Map q) {
+      final id = _parsePositiveId(q['Id']);
+      final no = q['QuotationNo']?.toString().trim() ?? '';
+      if (id > 0) return 'id:$id';
+      if (no.isNotEmpty) return 'no:$no';
+      return 'row:${identityHashCode(q)}';
+    }
+
+    void add(dynamic q, {required bool fromServer}) {
+      if (q is! Map) return;
+      final map = Map<String, dynamic>.from(q);
+      final key = keyOf(map);
+      final existing = byKey[key];
+      if (existing == null) {
+        byKey[key] = map;
+        order.add(key);
+        return;
+      }
+      byKey[key] = fromServer
+          ? _overlayQuotation(preferred: map, fallback: existing)
+          : _overlayQuotation(preferred: existing, fallback: map);
+    }
+
+    for (final q in primary) {
+      add(q, fromServer: true);
+    }
+    for (final q in extra) {
+      add(q, fromServer: false);
+    }
+    return [for (final k in order) byKey[k]!];
+  }
+
+  Map<String, dynamic> _overlayQuotation({
+    required Map<String, dynamic> preferred,
+    required Map<String, dynamic> fallback,
+  }) {
+    final out = Map<String, dynamic>.from(fallback)..addAll(preferred);
+    final prefItems = preferred['QuotationItem'];
+    final fallItems = fallback['QuotationItem'];
+    if (!_quotationItemsHaveIds(prefItems) && _quotationItemsHaveIds(fallItems)) {
+      out['QuotationItem'] = fallItems;
+    } else if ((prefItems is! List || prefItems.isEmpty) &&
+        fallItems is List &&
+        fallItems.isNotEmpty) {
+      out['QuotationItem'] = fallItems;
+    }
+    if (_quotationDisplayName(out).isEmpty) {
+      for (final k in ['Customer', 'CustomerName', 'FirstName', 'LastName', 'CustomerId']) {
+        if (_isBlank(out[k]) && !_isBlank(fallback[k])) out[k] = fallback[k];
+      }
+    }
+    for (final k in ['QuotationDate', 'Date', 'CreatedOn', 'Remark', 'TotalAmount']) {
+      if (_isBlank(out[k]) && !_isBlank(fallback[k])) out[k] = fallback[k];
+    }
+    return out;
+  }
+
+  static bool _isBlank(dynamic v) {
+    if (v == null) return true;
+    if (v is String) return v.trim().isEmpty;
+    if (v is Map) return v.isEmpty;
+    if (v is List) return v.isEmpty;
+    return false;
+  }
+
+  static bool _quotationItemsHaveIds(dynamic items) {
+    if (items is! List || items.isEmpty) return false;
+    return items.any((it) {
+      if (it is! Map) return false;
+      return _parsePositiveId(it['Id'] ?? it['QuotationItemId']) > 0;
+    });
+  }
+
+  List<Map<String, dynamic>> _mergeReturnedQuotationItems(
+    List<Map<String, dynamic>> local,
+    dynamic returned,
+  ) {
+    if (returned is! List || returned.isEmpty) return local;
+    final byCode = <String, Map>{};
+    for (final it in returned) {
+      if (it is! Map) continue;
+      final code = it['ItemCode']?.toString().trim().toUpperCase() ?? '';
+      if (code.isEmpty) continue;
+      byCode[code] = it;
+    }
+    return local.map((item) {
+      final code = item['ItemCode']?.toString().trim().toUpperCase() ?? '';
+      final match = byCode[code];
+      if (match == null) return item;
+      final id = _parsePositiveId(match['Id'] ?? match['QuotationItemId']);
+      if (id <= 0) return item;
+      return {...item, 'Id': id};
+    }).toList();
+  }
 
   Future<void> _upsertQuotationInHistory(
     Map<String, dynamic> entry,
@@ -557,7 +700,13 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
       entry,
       ..._quotationsHistory.where((q) {
         if (q is! Map) return true;
-        if (entryId != null && q['Id'] == entryId) return false;
+        if (entryId != null &&
+            entryId != 0 &&
+            q['Id'] != null &&
+            q['Id'] != 0 &&
+            q['Id'] == entryId) {
+          return false;
+        }
         if (entryNo != null &&
             entryNo.isNotEmpty &&
             q['QuotationNo']?.toString() == entryNo) {
@@ -566,8 +715,7 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
         return true;
       }),
     ];
-    _lastQuotationsFetchAt = null;
-    ListJsonCache.instance.clearMemory(key);
+    _lastQuotationsFetchAt = DateTime.now();
     await ListJsonCache.instance.save(key, _quotationsHistory);
   }
 
@@ -584,7 +732,12 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
         _quotationsHistory = List<dynamic>.from(mem);
         notifyListeners();
       } else {
-        final cached = await ListJsonCache.instance.load(cacheKey);
+        var cached = await ListJsonCache.instance.load(cacheKey);
+        if (cached.isEmpty) {
+          cached = await ListJsonCache.instance.load(
+            'quotation_${clientCode}_$resolvedBranchId',
+          );
+        }
         if (cached.isNotEmpty) {
           _quotationsHistory = cached;
           notifyListeners();
@@ -610,11 +763,23 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
     _errorMessage = null;
 
     try {
-      final raw = await _apiService.getAllQuotations(clientCode, resolvedBranchId);
+      var raw = await _apiService.getAllQuotations(clientCode, resolvedBranchId);
+      final listBranchId = employee?.branchNo ?? 0;
+      if (listBranchId != resolvedBranchId) {
+        final extra = await _apiService.getAllQuotations(clientCode, listBranchId);
+        raw = _mergeQuotationLists(raw, extra);
+      }
       await _enrichQuotationsCustomerNames(raw);
-      _quotationsHistory = raw;
+      final previous = List<dynamic>.from(_quotationsHistory);
+      if (raw.isEmpty && previous.isNotEmpty) {
+        _quotationsHistory = previous;
+      } else {
+        _quotationsHistory = _mergeQuotationLists(raw, previous);
+      }
       _lastQuotationsFetchAt = DateTime.now();
-      await ListJsonCache.instance.save(cacheKey, raw);
+      if (_quotationsHistory.isNotEmpty) {
+        await ListJsonCache.instance.save(cacheKey, _quotationsHistory);
+      }
     } catch (e) {
       if (!hasCached) {
         _errorMessage = e.toString();
@@ -708,7 +873,7 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
 
   void setQuotationForEditing(Map<String, dynamic> quotation) {
     _isEditMode = true;
-    _editingQuotationId = quotation['Id'] as int? ?? 0;
+    _editingQuotationId = _parsePositiveId(quotation['Id'] ?? quotation['id']);
     _editingQuotationNo = quotation['QuotationNo']?.toString() ?? '';
     final rawDate = (quotation['QuotationDate'] ?? quotation['Date'] ?? quotation['CreatedOn'])
         ?.toString()
@@ -720,9 +885,9 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
       _editingQuotationDate = rawDate;
     }
 
-    final custJson = quotation['Customer'] as Map<String, dynamic>?;
-    if (custJson != null) {
-      _selectedCustomer = CustomerModel.fromJson(custJson);
+    final custRaw = quotation['Customer'];
+    if (custRaw is Map) {
+      _selectedCustomer = CustomerModel.fromJson(Map<String, dynamic>.from(custRaw));
     } else {
       _selectedCustomer = CustomerModel(
         id: _parsePositiveId(quotation['CustomerId']),
@@ -738,9 +903,102 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
     _productList.clear();
     final itemsList = quotation['QuotationItem'] as List? ?? [];
     for (final itemJson in itemsList) {
-      _productList.add(OrderItem.fromJson(itemJson as Map<String, dynamic>));
+      if (itemJson is! Map) continue;
+      var map = Map<String, dynamic>.from(itemJson);
+      if (_parsePositiveId(map['Id'] ?? map['QuotationItemId']) <= 0) {
+        map = _stampItemIdFromHistory(map, quotation);
+      }
+      _productList.add(OrderItem.fromJson(map));
     }
     notifyListeners();
+  }
+
+  Map<String, dynamic> _stampItemIdFromHistory(
+    Map<String, dynamic> item,
+    Map<String, dynamic> quotation,
+  ) {
+    final code = item['ItemCode']?.toString().trim().toUpperCase() ?? '';
+    if (code.isEmpty) return item;
+    final qNo = quotation['QuotationNo']?.toString() ?? _editingQuotationNo;
+    for (final q in _quotationsHistory) {
+      if (q is! Map) continue;
+      if ((q['QuotationNo']?.toString() ?? '') != qNo) continue;
+      final rows = q['QuotationItem'];
+      if (rows is! List) continue;
+      for (final row in rows) {
+        if (row is! Map) continue;
+        if ((row['ItemCode']?.toString().trim().toUpperCase() ?? '') != code) {
+          continue;
+        }
+        final id = _parsePositiveId(row['Id'] ?? row['QuotationItemId']);
+        if (id > 0) return {...item, 'Id': id};
+      }
+    }
+    return item;
+  }
+
+  Future<void> _ensureEditingQuotationId(String clientCode, int branchId) async {
+    int idFrom(dynamic q) {
+      if (q is! Map) return 0;
+      if ((q['QuotationNo']?.toString() ?? '') != _editingQuotationNo) return 0;
+      return _parsePositiveId(q['Id'] ?? q['id']);
+    }
+
+    for (final q in _quotationsHistory) {
+      final id = idFrom(q);
+      if (id > 0) {
+        _editingQuotationId = id;
+        return;
+      }
+    }
+
+    try {
+      final raw = await _apiService.getAllQuotations(clientCode, branchId);
+      for (final q in raw) {
+        final id = idFrom(q);
+        if (id > 0) {
+          _editingQuotationId = id;
+          _applyItemIdsFromQuotation(q);
+          return;
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _ensureEditingItemIds(String clientCode, int branchId) async {
+    for (final q in _quotationsHistory) {
+      if (_applyItemIdsFromQuotation(q)) return;
+    }
+    try {
+      final raw = await _apiService.getAllQuotations(clientCode, branchId);
+      for (final q in raw) {
+        if (_applyItemIdsFromQuotation(q)) return;
+      }
+    } catch (_) {}
+  }
+
+  bool _applyItemIdsFromQuotation(dynamic q) {
+    if (q is! Map) return false;
+    if ((q['QuotationNo']?.toString() ?? '') != _editingQuotationNo) return false;
+    final rows = q['QuotationItem'];
+    if (rows is! List) return false;
+    final byCode = <String, int>{};
+    for (final row in rows) {
+      if (row is! Map) continue;
+      final code = row['ItemCode']?.toString().trim().toUpperCase() ?? '';
+      final id = _parsePositiveId(row['Id'] ?? row['QuotationItemId']);
+      if (code.isNotEmpty && id > 0) byCode[code] = id;
+    }
+    if (byCode.isEmpty) return false;
+    var applied = false;
+    for (int i = 0; i < _productList.length; i++) {
+      if (_productList[i].id > 0) continue;
+      final id = byCode[_productList[i].itemCode.trim().toUpperCase()];
+      if (id == null || id <= 0) continue;
+      _productList[i] = _productList[i].copyWith(id: id);
+      applied = true;
+    }
+    return applied;
   }
 
   void clearEditMode() {

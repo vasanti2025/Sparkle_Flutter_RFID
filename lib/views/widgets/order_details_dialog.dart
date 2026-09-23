@@ -97,7 +97,9 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
     _sizeCtrl = TextEditingController(text: item.size);
     _lengthCtrl = TextEditingController(text: item.length);
     _finePerCtrl = TextEditingController(text: item.finePer);
-    _wastageCtrl = TextEditingController(text: item.makingPercentage.isNotEmpty ? item.makingPercentage : item.wastage);
+    _wastageCtrl = TextEditingController(
+      text: _asPercent2(item.makingPercentage.isNotEmpty ? item.makingPercentage : item.wastage),
+    );
     _qtyCtrl = TextEditingController(text: item.qty.isEmpty || item.qty == '0' ? '1' : item.qty);
     _hallmarkAmtCtrl = TextEditingController(text: item.hallmarkAmt);
     _mrpCtrl = TextEditingController(text: item.mrp);
@@ -506,9 +508,9 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                             typeOfColor: _typeOfColor,
                             screwType: _screwType,
                             polishType: _polishType,
-                            finePer: _finePerCtrl.text.trim(),
-                            wastage: _wastageCtrl.text.trim(),
-                            makingPercentage: _wastageCtrl.text.trim(),
+                            finePer: _asPercent2(_finePerCtrl.text.trim()),
+                            wastage: _asPercent2(_wastageCtrl.text.trim()),
+                            makingPercentage: _asPercent2(_wastageCtrl.text.trim()),
                             orderDate: _orderDate,
                             deliverDate: _deliverDate,
                             totalWt: _totalWtCtrl.text.trim(),
@@ -556,6 +558,12 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
         ),
       ),
     );
+  }
+
+  static String _asPercent2(String raw) {
+    final v = double.tryParse(raw.trim());
+    if (v == null) return raw.trim();
+    return v.toStringAsFixed(2);
   }
 
   Widget _buildFieldRow(String label, TextEditingController controller, {bool enabled = true, FocusNode? focusNode, TextInputType keyboardType = const TextInputType.numberWithOptions(decimal: true)}) {

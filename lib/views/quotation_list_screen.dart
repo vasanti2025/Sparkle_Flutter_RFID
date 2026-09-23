@@ -27,9 +27,7 @@ class _QuotationListScreenState extends State<QuotationListScreen> {
       if (!mounted) return;
       runAfterRouteSettled(context, () {
         if (!mounted) return;
-        context.read<QuotationViewModel>().fetchQuotationsHistory(
-              forceNetwork: true,
-            );
+        context.read<QuotationViewModel>().fetchQuotationsHistory();
       });
     });
   }
@@ -76,6 +74,14 @@ class _QuotationListScreenState extends State<QuotationListScreen> {
     return _formatDate(q['QuotationDate'] ?? q['Date'] ?? q['CreatedOn']);
   }
 
+  static int _listId(dynamic q) {
+    if (q is! Map) return 0;
+    final v = q['Id'];
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return int.tryParse(v?.toString() ?? '') ?? 0;
+  }
+
   /// Description column: item remarks / Description (Sparkle header_description).
   String _description(Map<String, dynamic> q) {
     final top = (q['Remark'] ?? q['Remarks'] ?? q['Description'])?.toString().trim() ?? '';
@@ -115,7 +121,14 @@ class _QuotationListScreenState extends State<QuotationListScreen> {
       final custName = _customerName(map).toLowerCase();
       return qNo.contains(query) || custName.contains(query);
     }).toList()
-      ..sort((a, b) => ((b['Id'] as int?) ?? 0).compareTo((a['Id'] as int?) ?? 0));
+      ..sort((a, b) {
+        final bId = _listId(b);
+        final aId = _listId(a);
+        final byId = bId.compareTo(aId);
+        if (byId != 0) return byId;
+        return (b['QuotationNo']?.toString() ?? '')
+            .compareTo(a['QuotationNo']?.toString() ?? '');
+      });
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),

@@ -52,8 +52,10 @@ Future<void> printQuotationPdf({
       final pcs = _toInt(m['Pcs'] ?? m['Quantity']) ?? 1;
       final amt = _toDouble(m['Amount'] ?? m['TotalAmount']);
       final wastage = _printWastagePercent(
+        makingPercentage: m['MakingPercentage']?.toString() ??
+            m['Wastage']?.toString() ??
+            m['MakingPercent']?.toString(),
         fineWastageWt: m['FineWastageWt']?.toString(),
-        fixWastage: m['Wastage']?.toString() ?? m['MakingPercent']?.toString(),
         makingFixedWastage: m['MakingFixedWastage']?.toString(),
       );
       totalGross += gwt;
@@ -313,27 +315,27 @@ int? _toInt(dynamic v) {
 String _fmtWt(double v) => v == 0 ? '-' : v.toStringAsFixed(3);
 String _fmtAmt(double v) => v == 0 ? '-' : v.toStringAsFixed(2);
 
-/// Same as Sparkle resolveQuotationPrintWastagePercent: FineWastageWt * 10.
+/// Prefer MakingPercentage (e.g. 5.00). FineWastageWt * 10 is Sparkle fallback only.
 String _printWastagePercent({
+  String? makingPercentage,
   String? fineWastageWt,
-  String? fixWastage,
   String? makingFixedWastage,
 }) {
+  for (final raw in [makingPercentage, makingFixedWastage]) {
+    final t = raw?.trim() ?? '';
+    if (t.isEmpty) continue;
+    final cleaned = t.replaceAll('%', '').replaceAll(',', '');
+    final v = double.tryParse(cleaned);
+    if (v != null) {
+      final pct = (v > 0 && v < 1) ? v * 100 : v;
+      return '${pct.toStringAsFixed(2)}%';
+    }
+    if (t.endsWith('%')) return t;
+  }
   final fine = fineWastageWt?.trim() ?? '';
   if (fine.isNotEmpty && fine.toLowerCase() != 'null') {
     final wt = double.tryParse(fine.replaceAll(',', ''));
     if (wt != null) return '${(wt * 10).toStringAsFixed(2)}%';
-  }
-  for (final raw in [fixWastage, makingFixedWastage]) {
-    final t = raw?.trim() ?? '';
-    if (t.isEmpty) continue;
-    if (t.endsWith('%')) return t;
-    final v = double.tryParse(t.replaceAll(',', ''));
-    if (v != null) {
-      final pct = (v > 0 && v < 1) ? v * 10 : v;
-      return '${pct.toStringAsFixed(2)}%';
-    }
-    return t;
   }
   return '-';
 }
