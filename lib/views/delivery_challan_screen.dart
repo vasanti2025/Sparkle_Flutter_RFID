@@ -655,7 +655,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
 
     const double leftW = 45;
     const double actionW = 75;
-    final baseWidths = <double>[100, 80, 70, 70, 80, 85, 80, 85, 90, 70, 95];
+    final baseWidths = <double>[100, 80, 70, 70, 90, 90, 80, 85, 95, 70, 95];
 
     // Totals calculations
     double sum(double Function(ChallanDetailsModel) sel) =>
@@ -665,8 +665,11 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
     final totalNet = sum((it) => double.tryParse(it.netWt) ?? 0.0);
     final totalStone = sum((it) => double.tryParse(it.stoneAmount) ?? 0.0);
     final totalDiamond = sum((it) => double.tryParse(it.totalDiamondAmount) ?? 0.0);
-    final totalAmt = sum((it) => double.tryParse(it.amount) ?? 0.0);
+    final totalRate = vm.totalRate;
+    final totalMaking = vm.totalMaking;
+    final totalAmt = vm.getBaseTotal();
     final totalFine = sum((it) => double.tryParse(it.fineWastageWt) ?? 0.0);
+    final totalPcs = vm.totalPcs;
 
     return Container(
       color: Colors.white,
@@ -807,11 +810,11 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
                                         _tableCell(item.itemCode, width: colItemcode),
                                         _tableCell(item.grossWt, width: colGwt),
                                         _tableCell(item.netWt, width: colNwt),
-                                        _tableCell('₹${item.metalRate}', width: colRate),
-                                        _tableCell('₹${item.makingCharg}', width: colMaking),
+                                        _tableCell('₹${vm.lineRate(item).toStringAsFixed(2)}', width: colRate),
+                                        _tableCell('₹${vm.lineMaking(item).toStringAsFixed(2)}', width: colMaking),
                                         _tableCell('₹${item.stoneAmount}', width: colStone),
                                         _tableCell('₹${item.totalDiamondAmount}', width: colDiamond),
-                                        _tableCell('₹${item.amount}', width: colAmount, color: const Color(0xFF1565C0), weight: FontWeight.bold),
+                                        _tableCell('₹${vm.lineAmount(item).toStringAsFixed(2)}', width: colAmount, color: const Color(0xFF1565C0), weight: FontWeight.bold),
                                         _tableCell(item.fineWastageWt, width: colFine),
                                         _tableCell(item.rfidCode, width: colRfid),
                                       ],
@@ -829,11 +832,11 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
                       child: Row(
                         children: [
                           _tableCell('', width: colName),
-                          _tableCell('${items.length} ${s.headerPcs}', color: Colors.white, weight: FontWeight.bold, width: colItemcode),
+                          _tableCell('$totalPcs', color: Colors.white, weight: FontWeight.bold, width: colItemcode),
                           _tableCell(totalGross.toStringAsFixed(3), color: Colors.white, weight: FontWeight.bold, width: colGwt),
                           _tableCell(totalNet.toStringAsFixed(3), color: Colors.white, weight: FontWeight.bold, width: colNwt),
-                          _tableCell('', width: colRate),
-                          _tableCell('', width: colMaking),
+                          _tableCell('₹${totalRate.toStringAsFixed(2)}', color: Colors.white, weight: FontWeight.bold, width: colRate),
+                          _tableCell('₹${totalMaking.toStringAsFixed(2)}', color: Colors.white, weight: FontWeight.bold, width: colMaking),
                           _tableCell('₹${totalStone.toStringAsFixed(2)}', color: Colors.white, weight: FontWeight.bold, width: colStone),
                           _tableCell('₹${totalDiamond.toStringAsFixed(2)}', color: Colors.white, weight: FontWeight.bold, width: colDiamond),
                           _tableCell('₹${totalAmt.toStringAsFixed(2)}', color: Colors.white, weight: FontWeight.bold, width: colAmount),

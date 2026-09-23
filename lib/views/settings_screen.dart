@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:rfid_flutter/utils/app_fonts.dart';
@@ -8,7 +7,6 @@ import '../l10n/app_strings.dart';
 import '../l10n/l10n_extension.dart';
 import '../services/locale_service.dart';
 import '../services/pref_service.dart';
-import '../utils/bluetooth_permission_util.dart';
 import '../utils/app_dropdown.dart';
 import '../viewmodels/settings_view_model.dart';
 import 'widgets/product_form_widgets.dart';
@@ -31,7 +29,7 @@ class SettingsScreen extends StatelessWidget {
       final label = [
         if (first.branchName.isNotEmpty) first.branchName,
         if (first.counterName.isNotEmpty) first.counterName,
-      ].join(' · ');
+      ].join(' Â· ');
       if (assignments.length == 1) {
         return label.isEmpty ? s.configureWholesaleOption : label;
       }
@@ -126,8 +124,6 @@ class SettingsScreen extends StatelessWidget {
                 onTap: () => Navigator.pushNamed(context, '/add_face'),
               ),
               _WifiModeRow(vm: vm, s: s),
-              _TrayModeRow(vm: vm, s: s),
-              _R6ModeRow(vm: vm, s: s),
               _ReusableTagsRow(vm: vm, s: s),
               _ActionRow(
                 title: s.clearData,
@@ -186,7 +182,7 @@ class SettingsScreen extends StatelessWidget {
           children: [
             Text('${s.usernameLabel}: ${pref.getSavedUsername()}', style: AppFonts.poppins()),
             const SizedBox(height: 8),
-            Text('${s.password}: ${pref.getSavedPassword().isEmpty ? '—' : '••••••••'}', style: AppFonts.poppins()),
+            Text('${s.password}: ${pref.getSavedPassword().isEmpty ? 'â€”' : 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢'}', style: AppFonts.poppins()),
           ],
         ),
         actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s.ok))],
@@ -652,7 +648,7 @@ class _LocationRow extends StatelessWidget {
           if (!context.mounted) return;
           if (value) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Location sync enabled — saving every 15 minutes')),
+              const SnackBar(content: Text('Location sync enabled â€” saving every 15 minutes')),
             );
           }
         },
@@ -939,337 +935,6 @@ class _ReusableTagsRow extends StatelessWidget {
           }
         },
       ),
-    );
-  }
-}
-
-class _TrayModeRow extends StatefulWidget {
-  final SettingsViewModel vm;
-  final AppStrings s;
-
-  const _TrayModeRow({required this.vm, required this.s});
-
-  @override
-  State<_TrayModeRow> createState() => _TrayModeRowState();
-}
-
-class _TrayModeRowState extends State<_TrayModeRow> {
-  bool _busy = false;
-  Timer? _statusPoll;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) widget.vm.refreshTrayStatus();
-    });
-    _statusPoll = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-      if (widget.vm.trayModeEnabled && !widget.vm.trayConnected) {
-        widget.vm.refreshTrayStatus();
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _statusPoll?.cancel();
-    super.dispose();
-  }
-
-  String _trailingText() {
-    if (!widget.vm.trayModeEnabled) return widget.s.trayModeDisabled;
-    final name = widget.vm.trayDeviceName.trim();
-    if (name.isEmpty) return widget.s.selectTrayDevice;
-    if (widget.vm.trayConnected) return '$name (${widget.s.trayConnected})';
-    if (widget.vm.trayConnecting) return '$name (${widget.s.connectingBluetooth})';
-    return '$name (${widget.s.trayNotConnected})';
-  }
-
-  Future<void> _pickTrayDevice() async {
-    if (!await hasBluetoothPermissions()) {
-      final granted = await requestBluetoothPermissions();
-      if (!granted && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(widget.s.bluetoothPermissionRequired), backgroundColor: Colors.orange),
-        );
-        return;
-      }
-    }
-
-    final devices = await widget.vm.listBondedTrayDevices();
-    if (!mounted) return;
-    if (devices.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(widget.s.noBondedBluetoothDevices), backgroundColor: Colors.orange),
-      );
-      return;
-    }
-
-    final selected = await showModalBottomSheet<Map<String, String>>(
-      context: context,
-      builder: (ctx) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(widget.s.selectTrayDevice, style: AppFonts.poppins(fontWeight: FontWeight.w600)),
-              ),
-              Flexible(
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: devices.length,
-                  itemBuilder: (_, index) {
-                    final device = devices[index];
-                    return ListTile(
-                      title: Text(device['name'] ?? ''),
-                      subtitle: Text(device['address'] ?? ''),
-                      onTap: () => Navigator.pop(ctx, device),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    if (selected == null) return;
-    final name = selected['name'] ?? 'Bluetooth Device';
-    final address = selected['address'] ?? '';
-    if (address.isEmpty) return;
-
-    setState(() => _busy = true);
-    await widget.vm.selectTrayDevice(name: name, address: address);
-    if (mounted) {
-      setState(() => _busy = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${widget.s.trayDeviceSelected}: $name'), backgroundColor: Colors.green),
-      );
-    }
-  }
-
-  Future<void> _setTrayMode(bool enabled) async {
-    if (_busy) return;
-
-    if (enabled) {
-      if (!await hasBluetoothPermissions()) {
-        final granted = await requestBluetoothPermissions();
-        if (!granted && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(widget.s.bluetoothPermissionRequired), backgroundColor: Colors.orange),
-          );
-          return;
-        }
-      }
-
-      var address = widget.vm.trayDeviceAddress.trim();
-      if (address.isEmpty) {
-        await _pickTrayDevice();
-        address = widget.vm.trayDeviceAddress.trim();
-        if (address.isEmpty) return;
-      }
-    }
-
-    setState(() => _busy = true);
-    await widget.vm.setTrayModeEnabled(enabled);
-    await widget.vm.refreshTrayStatus();
-    if (mounted) {
-      setState(() => _busy = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            enabled ? widget.s.trayModeEnabledMsg : widget.s.trayModeDisabledMsg,
-          ),
-          backgroundColor: Colors.green,
-        ),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = widget.vm.trayModeEnabled;
-    return _SettingsTile(
-      title: widget.s.trayMode,
-      trailingText: _trailingText(),
-      onTap: enabled ? _pickTrayDevice : null,
-      trailing: _busy
-          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
-          : Switch(
-              value: enabled,
-              onChanged: _setTrayMode,
-            ),
-    );
-  }
-}
-
-class _R6ModeRow extends StatefulWidget {
-  final SettingsViewModel vm;
-  final AppStrings s;
-
-  const _R6ModeRow({required this.vm, required this.s});
-
-  @override
-  State<_R6ModeRow> createState() => _R6ModeRowState();
-}
-
-class _R6ModeRowState extends State<_R6ModeRow> {
-  bool _busy = false;
-  Timer? _statusPoll;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) widget.vm.refreshR6Status();
-    });
-    _statusPoll = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-      if (widget.vm.r6ModeEnabled && !widget.vm.r6Connected) {
-        widget.vm.refreshR6Status();
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _statusPoll?.cancel();
-    super.dispose();
-  }
-
-  String _trailingText() {
-    if (!widget.vm.r6ModeEnabled) return widget.s.r6ModeDisabled;
-    final name = widget.vm.r6DeviceName.trim();
-    if (name.isEmpty) return widget.s.selectR6Device;
-    if (widget.vm.r6Connected) return '$name (${widget.s.trayConnected})';
-    if (widget.vm.r6Connecting) return '$name (${widget.s.connectingBluetooth})';
-    return '$name (${widget.s.trayNotConnected})';
-  }
-
-  Future<void> _pickR6Device() async {
-    if (!await hasBluetoothPermissions()) {
-      final granted = await requestBluetoothPermissions();
-      if (!granted && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(widget.s.bluetoothPermissionRequired), backgroundColor: Colors.orange),
-        );
-        return;
-      }
-    }
-
-    final devices = await widget.vm.listBondedTrayDevices();
-    if (!mounted) return;
-    if (devices.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(widget.s.noBondedBluetoothDevices), backgroundColor: Colors.orange),
-      );
-      return;
-    }
-
-    final selected = await showModalBottomSheet<Map<String, String>>(
-      context: context,
-      builder: (ctx) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(widget.s.selectR6Device, style: AppFonts.poppins(fontWeight: FontWeight.w600)),
-              ),
-              Flexible(
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: devices.length,
-                  itemBuilder: (_, index) {
-                    final device = devices[index];
-                    return ListTile(
-                      title: Text(device['name'] ?? ''),
-                      subtitle: Text(device['address'] ?? ''),
-                      onTap: () => Navigator.pop(ctx, device),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    if (selected == null) return;
-    final name = selected['name'] ?? 'Bluetooth Device';
-    final address = selected['address'] ?? '';
-    if (address.isEmpty) return;
-
-    setState(() => _busy = true);
-    await widget.vm.selectR6Device(name: name, address: address);
-    if (mounted) {
-      setState(() => _busy = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${widget.s.r6DeviceSelected}: $name'), backgroundColor: Colors.green),
-      );
-    }
-  }
-
-  Future<void> _setR6Mode(bool enabled) async {
-    if (_busy) return;
-
-    if (enabled) {
-      if (!await hasBluetoothPermissions()) {
-        final granted = await requestBluetoothPermissions();
-        if (!granted && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(widget.s.bluetoothPermissionRequired), backgroundColor: Colors.orange),
-          );
-          return;
-        }
-      }
-
-      var address = widget.vm.r6DeviceAddress.trim();
-      if (address.isEmpty) {
-        await _pickR6Device();
-        address = widget.vm.r6DeviceAddress.trim();
-        if (address.isEmpty) return;
-      }
-    }
-
-    setState(() => _busy = true);
-    final connected = await widget.vm.setR6ModeEnabled(enabled);
-    await widget.vm.refreshR6Status();
-    if (mounted) {
-      setState(() => _busy = false);
-      final msg = !enabled
-          ? widget.s.r6ModeDisabledMsg
-          : connected
-              ? '${widget.s.r6ModeEnabledMsg} (${widget.s.trayConnected})'
-              : '${widget.s.r6ModeEnabledMsg} (${widget.s.trayNotConnected})';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(msg),
-          backgroundColor: !enabled || connected ? Colors.green : Colors.orange,
-        ),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = widget.vm.r6ModeEnabled;
-    return _SettingsTile(
-      title: widget.s.r6Mode,
-      trailingText: _trailingText(),
-      onTap: enabled ? _pickR6Device : null,
-      trailing: _busy
-          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
-          : Switch(
-              value: enabled,
-              onChanged: _setR6Mode,
-            ),
     );
   }
 }

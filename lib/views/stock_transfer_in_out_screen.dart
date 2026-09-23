@@ -309,6 +309,9 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen>
             'transferTypeName': item.stockTransferTypeName,
             'items': item.labelledStockItems,
             'isSelfApproval': item.isSelfApproval,
+            'destinationId': item.destination,
+            'destinationName': item.destinationName,
+            'transferedToBranch': item.transferedToBranch,
           },
         ).then((_) {
           if (mounted) _loadTransfers(showLoader: false);

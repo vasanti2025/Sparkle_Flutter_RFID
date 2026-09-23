@@ -18,8 +18,13 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
 import java.util.HashMap
 import java.util.HashSet
+import java.util.LinkedHashMap
 import java.util.LinkedHashSet
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -219,6 +224,7 @@ class HardwareControllerImpl(
     private var inventoryMediaPlayer: MediaPlayer? = null
     private val sessionUniqueEpcs = HashSet<String>()
     private var reconnectRunnable: Runnable? = null
+    @Volatile private var bleConnectQueued = false
 
     private var trayModeEnabled = false
     private var trayDeviceAddress = ""
@@ -496,6 +502,9 @@ class HardwareControllerImpl(
                     }
                 }
             }
+            "listSystemConnectedBluetoothDevices" -> {
+                result.success(listSystemConnectedBluetoothDevices())
+            }
             "getTrayStatus" -> result.success(trayStatusMap())
             "getR6Status" -> result.success(r6StatusMap())
             "openBarcode" -> result.success(barcodeManager.openIfNeeded())
@@ -599,27 +608,30 @@ class HardwareControllerImpl(
         }
         cancelBleReconnect()
         if (enabled && address.isNotEmpty()) {
-            if (r6ModeEnabled && !trayManager.isReallyConnected()) {
-                if (trayManager.isConnecting) {
-                    Log.i(TAG, "R6 BLE connect already in progress — skip")
-                } else {
-                    Executors.newSingleThreadExecutor().execute {
-                        trayManager.connectAndWait(address, 28000L)
-                    }
+            if (!::trayManager.isInitialized) {
+                ensureManagers()
+            }
+            if (trayManager.isReallyConnected()) {
+                Log.i(TAG, "BLE already linked — skip reconnect")
+                return
+            }
+            if (trayManager.isConnecting || bleConnectQueued) {
+                Log.i(TAG, "BLE connect already in progress — skip")
+                return
+            }
+            bleConnectQueued = true
+            Executors.newSingleThreadExecutor().execute {
+                try {
+                    trayManager.connectAndWait(address, 28000L)
+                } finally {
+                    bleConnectQueued = false
                 }
-            } else if (trayModeEnabled && !trayManager.isReallyConnected()) {
-                if (trayManager.isConnecting) {
-                    Log.i(TAG, "Tray BLE connect already in progress — skip")
-                } else {
-                    Executors.newSingleThreadExecutor().execute {
-                        trayManager.connectAndWait(address, 28000L)
-                    }
-                }
-            } else if (!trayManager.isReallyConnected()) {
-                trayManager.connect(address)
             }
         } else {
-            trayManager.disconnect()
+            bleConnectQueued = false
+            if (::trayManager.isInitialized) {
+                trayManager.disconnect()
+            }
         }
     }
 
@@ -630,16 +642,22 @@ class HardwareControllerImpl(
             else -> ""
         }
         if (address.isEmpty() || (!trayModeEnabled && !r6ModeEnabled)) return
-        if (trayManager.isConnecting || trayManager.isReallyConnected()) return
+        if (trayManager.isConnecting || bleConnectQueued || trayManager.isReallyConnected()) return
         cancelBleReconnect()
         val runnable = Runnable {
             if ((trayModeEnabled || r6ModeEnabled) &&
                 !trayManager.isReallyConnected() &&
                 !trayManager.isConnecting &&
+                !bleConnectQueued &&
                 address.isNotEmpty()
             ) {
+                bleConnectQueued = true
                 Executors.newSingleThreadExecutor().execute {
-                    trayManager.connectAndWait(address, 28000L)
+                    try {
+                        trayManager.connectAndWait(address, 28000L)
+                    } finally {
+                        bleConnectQueued = false
+                    }
                 }
             }
         }
@@ -658,7 +676,8 @@ class HardwareControllerImpl(
             (trayManager.isReallyConnected() || trayManager.isConnected)
         map["enabled"] = trayModeEnabled
         map["connected"] = trayModeEnabled && linked
-        map["connecting"] = trayModeEnabled && ::trayManager.isInitialized && trayManager.isConnecting
+        map["connecting"] = trayModeEnabled && ::trayManager.isInitialized &&
+            (trayManager.isConnecting || bleConnectQueued)
         map["address"] = trayDeviceAddress
         return map
     }
@@ -668,7 +687,7 @@ class HardwareControllerImpl(
         map["enabled"] = r6ModeEnabled
         map["connected"] = r6ModeEnabled && (trayManager.isReallyConnected() || trayManager.isConnected)
         map["address"] = r6DeviceAddress
-        map["connecting"] = r6ModeEnabled && trayManager.isConnecting
+        map["connecting"] = r6ModeEnabled && (trayManager.isConnecting || bleConnectQueued)
         return map
     }
 
@@ -694,6 +713,78 @@ class HardwareControllerImpl(
                     trayManager.bindKeyCallbackNow()
                 }
             }
+        }
+    }
+
+    /** Devices already linked in Android Bluetooth settings — no in-app scan/pair. */
+    private fun listSystemConnectedBluetoothDevices(): List<Map<String, String>> {
+        if (!hasBluetoothConnectPermission()) return emptyList()
+        val found = LinkedHashMap<String, String>()
+        try {
+            val mgr = activity.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+            if (mgr != null) {
+                try {
+                    for (device in mgr.getConnectedDevices(BluetoothProfile.GATT)) {
+                        addConnectedBtDevice(found, device)
+                    }
+                } catch (e: Throwable) {
+                    Log.w(TAG, "GATT connected list failed", e)
+                }
+                try {
+                    for (device in mgr.getConnectedDevices(BluetoothProfile.GATT_SERVER)) {
+                        addConnectedBtDevice(found, device)
+                    }
+                } catch (_: Throwable) {
+                }
+            }
+            @Suppress("DEPRECATION")
+            val adapter = BluetoothAdapter.getDefaultAdapter()
+            if (adapter != null && adapter.isEnabled) {
+                for (device in adapter.bondedDevices.orEmpty()) {
+                    if (isBluetoothDeviceConnected(device)) {
+                        addConnectedBtDevice(found, device)
+                    }
+                }
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "listSystemConnectedBluetoothDevices", e)
+        }
+        return found.map { (address, name) ->
+            mapOf("name" to name, "address" to address)
+        }
+    }
+
+    private fun addConnectedBtDevice(found: LinkedHashMap<String, String>, device: BluetoothDevice) {
+        val address = device.address?.trim().orEmpty()
+        if (address.isEmpty()) return
+        val name = try {
+            device.name?.trim()?.takeIf { it.isNotEmpty() }
+        } catch (_: SecurityException) {
+            null
+        } ?: "Bluetooth Device"
+        val existing = found[address]
+        if (existing.isNullOrBlank() || existing == "Bluetooth Device") {
+            found[address] = name
+        }
+    }
+
+    private fun isBluetoothDeviceConnected(device: BluetoothDevice): Boolean {
+        return try {
+            val method = device.javaClass.getMethod("isConnected")
+            method.invoke(device) as? Boolean ?: false
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun hasBluetoothConnectPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ContextCompat.checkSelfPermission(activity, Manifest.permission.BLUETOOTH_CONNECT) ==
+                PackageManager.PERMISSION_GRANTED
+        } else {
+            @Suppress("DEPRECATION")
+            ContextCompat.checkSelfPermission(activity, Manifest.permission.BLUETOOTH) ==
+                PackageManager.PERMISSION_GRANTED
         }
     }
 
@@ -753,7 +844,14 @@ class HardwareControllerImpl(
         if (isScanning) {
             // Leftover LED/inventory session would keep an old EPC filter and
             // miss the new Global Search item. Restart Search at the requested power.
-            if (!inventory && !trayModeEnabled && !r6ModeEnabled) {
+            if (trayModeEnabled || r6ModeEnabled) {
+                if (trayManager.isReallyConnected() && pollerActive) {
+                    return true
+                }
+                Log.w(TAG, "Stale BLE isScanning — restart inventory")
+                isScanning = false
+                stopPollingThread()
+            } else if (!inventory) {
                 stopRfidInventory()
             } else {
                 return true
@@ -772,7 +870,7 @@ class HardwareControllerImpl(
                     return false
                 }
                 val linked = trayManager.connectAndWait(address, 28000L)
-                if (!linked) {
+                if (!linked && !trayManager.isOsLinked(address)) {
                     Log.e(TAG, "Tray connectAndWait failed for $address")
                     return false
                 }
@@ -861,7 +959,12 @@ class HardwareControllerImpl(
     private fun startR6InventoryGuarded(power: Int, inventory: Boolean, playStartSound: Boolean = true): Boolean {
         scanningPermitted = true
         if (isScanning) {
-            return true
+            if (trayManager.isReallyConnected() && pollerActive) {
+                return true
+            }
+            Log.w(TAG, "Stale R6 isScanning — restart inventory")
+            isScanning = false
+            stopPollingThread()
         }
         if (!r6ModeEnabled) {
             return false
@@ -872,7 +975,7 @@ class HardwareControllerImpl(
         }
         if (!trayManager.isReallyConnected()) {
             val linked = trayManager.connectAndWait(address, 28000L)
-            if (!linked) {
+            if (!linked && !trayManager.isOsLinked(address)) {
                 Log.e(TAG, "R6 connectAndWait failed for $address")
                 return false
             }
@@ -892,7 +995,7 @@ class HardwareControllerImpl(
             }
             // GATT often needs a brief settle before startInventoryTag succeeds.
             try {
-                Thread.sleep(400L)
+                Thread.sleep(600L)
             } catch (_: InterruptedException) {
             }
             trayManager.drainBuffer()
@@ -909,7 +1012,7 @@ class HardwareControllerImpl(
                     } catch (_: Throwable) {
                     }
                     try {
-                        Thread.sleep(200L * attempt)
+                        Thread.sleep(250L * attempt)
                     } catch (_: InterruptedException) {
                     }
                     trayManager.drainBuffer()
@@ -917,6 +1020,33 @@ class HardwareControllerImpl(
                 started = trayManager.startInventory()
                 Log.i(TAG, "Tray startInventory attempt=${attempt + 1} => $started")
                 if (started) break
+            }
+            if (!started) {
+                val address = trayDeviceAddress.trim()
+                if (address.isNotEmpty()) {
+                    if (trayManager.isOsLinked(address) || trayManager.isReallyConnected()) {
+                        Log.w(TAG, "Tray startInventory failed — retry without cancelOpen")
+                        try {
+                            Thread.sleep(600L)
+                        } catch (_: InterruptedException) {
+                        }
+                        trayManager.drainBuffer()
+                        started = trayManager.startInventory()
+                        Log.i(TAG, "Tray startInventory OS-held retry => $started")
+                    } else {
+                        Log.w(TAG, "Tray startInventory failed — one reconnect retry")
+                        val linked = trayManager.connectAndWait(address, 18000L)
+                        if (linked) {
+                            try {
+                                Thread.sleep(500L)
+                            } catch (_: InterruptedException) {
+                            }
+                            trayManager.drainBuffer()
+                            started = trayManager.startInventory()
+                            Log.i(TAG, "Tray startInventory after reconnect => $started")
+                        }
+                    }
+                }
             }
             if (started) {
                 isScanning = true
@@ -968,9 +1098,41 @@ class HardwareControllerImpl(
                 Log.i(TAG, "R6 startInventory attempt=${attempt + 1} => $started")
                 if (started) break
             }
-            isScanning = true
-            startPollingThread(inventory, useTray = true)
-            true
+            if (!started) {
+                val address = r6DeviceAddress.trim()
+                if (address.isNotEmpty()) {
+                    if (trayManager.isOsLinked(address) || trayManager.isReallyConnected()) {
+                        Log.w(TAG, "R6 startInventory failed — retry without cancelOpen")
+                        try {
+                            Thread.sleep(500L)
+                        } catch (_: InterruptedException) {
+                        }
+                        trayManager.drainBuffer()
+                        started = trayManager.startInventory()
+                        Log.i(TAG, "R6 startInventory OS-held retry => $started")
+                    } else {
+                        Log.w(TAG, "R6 startInventory failed — one reconnect retry")
+                        val linked = trayManager.connectAndWait(address, 18000L)
+                        if (linked) {
+                            try {
+                                Thread.sleep(500L)
+                            } catch (_: InterruptedException) {
+                            }
+                            trayManager.drainBuffer()
+                            started = trayManager.startInventory()
+                            Log.i(TAG, "R6 startInventory after reconnect => $started")
+                        }
+                    }
+                }
+            }
+            if (started) {
+                isScanning = true
+                startPollingThread(inventory, useTray = true)
+            } else {
+                isScanning = false
+                stopInventoryLoopSound()
+            }
+            started
         } catch (e: Throwable) {
             e.printStackTrace()
             isScanning = false

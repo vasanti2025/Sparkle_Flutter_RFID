@@ -256,16 +256,24 @@ class InventoryMultiSelectionDialog extends StatefulWidget {
 class _InventoryMultiSelectionDialogState extends State<InventoryMultiSelectionDialog> {
   bool _expanded = true;
   final Set<String> _selected = {};
+  late final List<String> _items;
+
+  @override
+  void initState() {
+    super.initState();
+    _items = List<String>.from(widget.items)
+      ..sort((a, b) => a.toLowerCase().trim().compareTo(b.toLowerCase().trim()));
+  }
 
   bool get _allSelected =>
-      widget.items.isNotEmpty && _selected.length == widget.items.length;
+      _items.isNotEmpty && _selected.length == _items.length;
 
   void _toggleSelectAll(bool? checked) {
     setState(() {
       if (checked == true) {
         _selected
           ..clear()
-          ..addAll(widget.items);
+          ..addAll(_items);
       } else {
         _selected.clear();
       }
@@ -293,7 +301,7 @@ class _InventoryMultiSelectionDialogState extends State<InventoryMultiSelectionD
       );
       return;
     }
-    final selected = widget.items.where(_selected.contains).toList();
+    final selected = _items.where(_selected.contains).toList();
     Navigator.pop(context);
     widget.onConfirm(selected);
   }
@@ -408,9 +416,9 @@ class _InventoryMultiSelectionDialogState extends State<InventoryMultiSelectionD
                                       child: ListView.builder(
                                         shrinkWrap: true,
                                         padding: EdgeInsets.zero,
-                                        itemCount: widget.items.length,
+                                        itemCount: _items.length,
                                         itemBuilder: (context, index) {
-                                          final item = widget.items[index];
+                                          final item = _items[index];
                                           final checked = _selected.contains(item);
                                           return CheckboxListTile(
                                             dense: true,

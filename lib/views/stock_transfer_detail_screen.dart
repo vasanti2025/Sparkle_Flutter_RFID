@@ -19,6 +19,9 @@ class StockTransferDetailScreen extends StatefulWidget {
   final String transferTypeName;
   final List<LabelledStockItem> items;
   final bool isSelfApproval;
+  final int? destinationId;
+  final String destinationName;
+  final String transferedToBranch;
 
   const StockTransferDetailScreen({
     super.key,
@@ -27,6 +30,9 @@ class StockTransferDetailScreen extends StatefulWidget {
     required this.transferTypeName,
     required this.items,
     this.isSelfApproval = false,
+    this.destinationId,
+    this.destinationName = '',
+    this.transferedToBranch = '',
   });
 
   @override
@@ -166,6 +172,18 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
     if (!mounted) return;
 
     final ok = msg != null && !msg.toLowerCase().contains('fail');
+    if (ok && statusType == 1) {
+      await vm.applyApprovedTransferDestination(
+        items: selectedItems,
+        transferTypeName: widget.transferTypeName,
+        destinationId: widget.destinationId,
+        destinationName: widget.destinationName,
+        transferedToBranch: widget.transferedToBranch,
+      );
+      await vm.loadAllLabelledStock();
+    }
+    if (!mounted) return;
+
     setState(() {
       _busy = false;
       if (ok) {
@@ -216,6 +234,24 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
       prefService: prefs,
       dbService: db,
     );
+    // Server LabelStock can still show the source branch after Approve.
+    // Re-apply dest so Baner (etc.) keeps the transferred rows.
+    if (widget.destinationId != null ||
+        widget.destinationName.trim().isNotEmpty ||
+        widget.transferedToBranch.trim().isNotEmpty) {
+      final destItems = widget.items
+          .where((i) => i.id != null || (i.itemCode ?? '').trim().isNotEmpty)
+          .toList();
+      if (destItems.isNotEmpty) {
+        await stockVm.applyApprovedTransferDestination(
+          items: destItems,
+          transferTypeName: widget.transferTypeName,
+          destinationId: widget.destinationId,
+          destinationName: widget.destinationName,
+          transferedToBranch: widget.transferedToBranch,
+        );
+      }
+    }
     await stockVm.loadAllLabelledStock();
   }
 

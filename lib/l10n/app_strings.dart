@@ -340,6 +340,15 @@ class AppStrings {
   String get pleaseEnterValidEmail => _t('pleaseEnterValidEmail');
   String get failedToSendEmail => _t('failedToSendEmail');
   String get inventoryScanReportSubject => _t('inventoryScanReportSubject');
+  String get unmatchedItemReport => _t('unmatchedItemReport');
+  String get matchedItemReport => _t('matchedItemReport');
+  String get printReport => _t('printReport');
+  String get noItemsToPrint => _t('noItemsToPrint');
+  String reportPartLabel(dynamic current, dynamic total) => _t('reportPartLabel')
+      .replaceAll('{current}', '$current')
+      .replaceAll('{total}', '$total');
+  String reportPartsHint(dynamic count) =>
+      _t('reportPartsHint').replaceAll('{count}', '$count');
   String get searchProductRfidEpc => _t('searchProductRfidEpc');
   String get purity => _t('fieldPurity');
   String get error => _t('error');
@@ -1198,6 +1207,12 @@ class AppStrings {
       'failedToSendEmail': 'Failed to send email',
       'failedWithMessage': 'Failed: {message}',
       'inventoryScanReportSubject': 'Inventory Scan Report',
+      'unmatchedItemReport': 'Unmatched Item Report',
+      'matchedItemReport': 'Matched Item Report',
+      'printReport': 'Print',
+      'noItemsToPrint': 'No items to print',
+      'reportPartLabel': 'Part {current} of {total}',
+      'reportPartsHint': 'Large report saved as {count} printable parts. Open a part to print.',
       'reportEmailBody': '<h2>Here is your scan report</h2><p>Details attached.</p>',
       'searchProductRfidEpc': 'Search product, RFID, EPC...',
       'selectFilterType': 'Select {type}',
@@ -1641,6 +1656,12 @@ class AppStrings {
       'failedToUpdateProduct': 'उत्पाद अपडेट करने में विफल।',
       'productDeletedSuccessfully': 'उत्पाद सफलतापूर्वक हटाया गया!',
       'reportEmailBody': '<h2>यहाँ आपकी स्कैन रिपोर्ट है</h2><p>विवरण संलग्न है।</p>',
+      'unmatchedItemReport': 'असंगत आइटम रिपोर्ट',
+      'matchedItemReport': 'मिलान आइटम रिपोर्ट',
+      'printReport': 'प्रिंट',
+      'noItemsToPrint': 'प्रिंट करने के लिए कोई आइटम नहीं',
+      'reportPartLabel': 'भाग {current} / {total}',
+      'reportPartsHint': 'बड़ी रिपोर्ट {count} प्रिंट भागों में सहेजी गई। प्रिंट करने के लिए भाग खोलें।',
       'noProductsToExport': 'निर्यात करने के लिए कोई उत्पाद नहीं।',
       'noProductsMatchingFilters': 'फ़िल्टर से मेल खाते कोई उत्पाद नहीं मिले।',
       'tryResettingFilters': 'अपने फ़िल्टर या खोज क्वेरी को रीसेट करने का प्रयास करें।',
@@ -2127,6 +2148,12 @@ class AppStrings {
       'exporting': 'جاري التصدير...',
       'exportPdf': 'تصدير PDF',
       'reportEmailBody': '<h2>إليك تقرير المسح الخاص بك</h2><p>التفاصيل مرفقة.</p>',
+      'unmatchedItemReport': 'تقرير العناصر غير المطابقة',
+      'matchedItemReport': 'تقرير العناصر المطابقة',
+      'printReport': 'طباعة',
+      'noItemsToPrint': 'لا توجد عناصر للطباعة',
+      'reportPartLabel': 'الجزء {current} من {total}',
+      'reportPartsHint': 'تم حفظ التقرير الكبير في {count} أجزاء. افتح جزءاً للطباعة.',
       'saveDetails': 'حفظ التفاصيل',
       'addNew': '➕ إضافة جديد',
       'failedToStartRfidScanner': 'فشل في تشغيل ماسح RFID',

@@ -134,12 +134,19 @@ Widget? _buildRoutePage(RouteSettings settings) {
           }
         }
       }
+      final rawDest = args?['destinationId'];
+      final destId = rawDest is int
+          ? rawDest
+          : int.tryParse(rawDest?.toString() ?? '');
       return StockTransferDetailScreen(
         requestType: args?['requestType']?.toString() ?? 'In Request',
         transferId: args?['transferId'] as int? ?? 0,
         transferTypeName: args?['transferTypeName']?.toString() ?? '',
         items: items,
         isSelfApproval: args?['isSelfApproval'] == true,
+        destinationId: destId,
+        destinationName: args?['destinationName']?.toString() ?? '',
+        transferedToBranch: args?['transferedToBranch']?.toString() ?? '',
       );
     case '/stock_verification_report':
       return const StockVerificationReportScreen();

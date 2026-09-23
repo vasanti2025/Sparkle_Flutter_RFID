@@ -8,6 +8,7 @@ import '../models/user_permission.dart';
 import '../models/wholesale_master.dart';
 import '../services/api_service.dart';
 import '../services/db_service.dart';
+import '../services/label_stock_sync_service.dart';
 import '../services/pref_service.dart';
 
 class StockTransferViewModel extends ChangeNotifier {
@@ -585,7 +586,8 @@ class StockTransferViewModel extends ChangeNotifier {
     required String toName,
     required int destId,
   }) async {
-    if (moved.isEmpty || toName.trim().isEmpty) return;
+    if (moved.isEmpty) return;
+    if (toName.trim().isEmpty && destId <= 0) return;
     int? branchId;
     String? branchName;
     int? counterId;
@@ -595,9 +597,16 @@ class StockTransferViewModel extends ChangeNotifier {
     int? packetId;
     String? packetName;
     final type = (toType ?? '').trim().toLowerCase();
-    if (type == 'branch' || isBranchToBranch) {
+    if (type == 'branch') {
       branchId = destId > 0 ? destId : null;
       branchName = toName.trim();
+      // Arrives at dest branch — drop source counter/box so Baner filter sees it.
+      counterId = 0;
+      counterName = '';
+      boxId = 0;
+      boxName = '';
+      packetId = 0;
+      packetName = '';
     } else if (type == 'counter') {
       counterId = destId > 0 ? destId : null;
       counterName = toName.trim();
@@ -787,13 +796,7 @@ class StockTransferViewModel extends ChangeNotifier {
       final ok = await _apiService.addStockTransfer(request);
       transferStatusMessage = ok ? 'Transfer successful' : 'Transfer failed';
       if (ok) {
-        final moved = List<BulkItem>.from(previewItems);
-        await _applyLocalTransferMove(
-          moved: moved,
-          toType: isBranchToBranch ? 'branch' : toType,
-          toName: toName,
-          destId: destinationId,
-        );
+        // Stock stays at From until In/Out approve (B2B: Pune until Baner accepts).
         resetTransferForm(notify: false);
       }
       return ok;
@@ -988,6 +991,81 @@ class StockTransferViewModel extends ChangeNotifier {
         userId: employee.id.toString(),
         requestTyp: requestTyp,
       ),
+    );
+  }
+
+  BulkItem _bulkFromLabelled(LabelledStockItem e) {
+    return BulkItem.fromMap({
+      'bulkItemId': e.id ?? 0,
+      'itemCode': e.itemCode ?? '',
+      'rfid': e.rfidCode ?? '',
+      'epc': e.rfidCode ?? '',
+      'productName': e.productName ?? '',
+      'branchId': e.branchId ?? 0,
+      'branchName': e.branchName ?? '',
+    });
+  }
+
+  /// After Approve succeeds, move those labelled rows onto the destination
+  /// (Baner after Pune→Baner). Server LabelStock can lag; keep this local.
+  Future<void> applyApprovedTransferDestination({
+    required List<LabelledStockItem> items,
+    required String transferTypeName,
+    int? destinationId,
+    String destinationName = '',
+    String transferedToBranch = '',
+  }) async {
+    if (items.isEmpty) return;
+    final (_, toType) = parseTransferEndpointTypes(transferTypeName);
+    var toName = cleanTransferLocationName(destinationName) ??
+        cleanTransferLocationName(transferedToBranch) ??
+        '';
+    var destId = destinationId ?? 0;
+    final locType = (toType == null || toType.isEmpty) ? 'branch' : toType;
+    if (destId <= 0 && toName.isNotEmpty) {
+      if (locType == 'branch') {
+        destId = await _resolveBranchId(toName) ?? 0;
+      } else {
+        destId = await resolveEntityId(locType, toName);
+      }
+    }
+    if (toName.isEmpty && destId > 0) {
+      final names = await _dbService.getEntityNamesByIds(locType, [destId]);
+      toName = names[destId]?.trim() ?? '';
+    }
+    if (toName.isEmpty && destId > 0 && locType == 'branch') {
+      await ensureMasterLocationsLoaded();
+      for (final branch in _branchMasters) {
+        if (branch.id == destId && branch.name.trim().isNotEmpty) {
+          toName = branch.name.trim();
+          break;
+        }
+      }
+    }
+    if (toName.isEmpty && destId <= 0) {
+      debugPrint('applyApprovedTransferDestination skipped — no dest');
+      return;
+    }
+
+    final moved = items
+        .map(_bulkFromLabelled)
+        .where(
+          (b) =>
+              b.bulkItemId > 0 ||
+              b.itemCode.trim().isNotEmpty ||
+              b.rfid.trim().isNotEmpty,
+        )
+        .toList();
+    await _applyLocalTransferMove(
+      moved: moved,
+      toType: locType,
+      toName: toName,
+      destId: destId,
+    );
+    LabelStockSyncService.onLocalStockChanged?.call();
+    debugPrint(
+      'applyApprovedTransferDestination type=$locType dest=$destId '
+      'name=$toName items=${moved.length}',
     );
   }
 

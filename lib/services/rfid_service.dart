@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import '../utils/bluetooth_permission_util.dart';
 import 'db_service.dart';
 import 'pref_service.dart';
 
@@ -228,7 +229,8 @@ class RfidService {
     await ensureReady();
     if (!_isSupported || !enabled || address.isEmpty) return;
     await applyTrayMode(enabled: true, address: address);
-    await waitForBleConnection(isR6: false, timeout: const Duration(seconds: 12));
+    // Native connect is async; startScanning finishes GATT. Don't block 12s here.
+    await waitForBleConnection(isR6: false, timeout: const Duration(seconds: 2));
   }
 
   Future<void> restoreR6ModeFromPrefs({
@@ -239,47 +241,239 @@ class RfidService {
     await ensureReady();
     if (!_isSupported || !enabled || address.isEmpty) return;
     await applyR6Mode(enabled: true, address: address);
-    await waitForBleConnection(isR6: true, timeout: const Duration(seconds: 12));
+    await waitForBleConnection(isR6: true, timeout: const Duration(seconds: 2));
+  }
+
+  Future<List<Map<String, String>>> listSystemConnectedBluetoothDevices() async {
+    await ensureReady();
+    if (!_isSupported) return const [];
+    if (defaultTargetPlatform != TargetPlatform.android) return const [];
+    try {
+      final list = await _methodChannel.invokeMethod<List<dynamic>>(
+        'listSystemConnectedBluetoothDevices',
+      );
+      if (list == null) return const [];
+      return list.map((item) {
+        final map = Map<String, dynamic>.from(item as Map);
+        return {
+          'name': map['name']?.toString() ?? 'Bluetooth Device',
+          'address': map['address']?.toString() ?? '',
+        };
+      }).where((d) => d['address']!.isNotEmpty).toList();
+    } catch (e) {
+      debugPrint('Error listing system-connected Bluetooth devices: $e');
+      return const [];
+    }
+  }
+
+  bool _looksLikeAccessory(String name) {
+    final n = name.toUpperCase().replaceAll(' ', '');
+    return n.contains('HEADSET') ||
+        n.contains('HEADPHONE') ||
+        n.contains('AIRPOD') ||
+        n.contains('WATCH') ||
+        n.contains('SPEAKER') ||
+        n.contains('PRINTER') ||
+        n.contains('MOUSE') ||
+        n.contains('KEYBOARD') ||
+        n.contains('BUDS') ||
+        n.contains('EARPHONE');
+  }
+
+  bool _looksLikeR6(String name) {
+    final n = name.toUpperCase().replaceAll(' ', '');
+    if (_looksLikeAccessory(name)) return false;
+    return n.contains('R6');
+  }
+
+  bool _looksLikeTray(String name) {
+    final n = name.toUpperCase().replaceAll(' ', '');
+    if (_looksLikeAccessory(name) || _looksLikeR6(name)) return false;
+    return n.contains('TRAY') ||
+        n.contains('UHF') ||
+        n.contains('RFID') ||
+        n.contains('R2000') ||
+        n.contains('CHAINWAY') ||
+        n.contains('IMINI') ||
+        n.contains('RPAN') ||
+        n.contains('R-PAN') ||
+        n.contains('BLE') ||
+        n.contains('READER');
+  }
+
+  Future<bool> _tryAttachTrayDevice(Map<String, String> device, PrefService prefs) async {
+    final address = device['address'] ?? '';
+    final name = device['name'] ?? 'Bluetooth Device';
+    if (address.isEmpty) return false;
+    await prefs.saveTrayDevice(name: name, address: address);
+    await prefs.setTrayModeEnabled(true);
+    await applyTrayMode(enabled: true, address: address);
+    final ok = await waitForBleConnection(isR6: false, timeout: const Duration(seconds: 14));
+    debugPrint('Tray attach $name ($address) connected=$ok');
+    if (ok) {
+      _trayConnected = true;
+      _trayModeEnabled = true;
+      _notifyConnectionListeners();
+    }
+    return ok;
+  }
+
+  Future<bool>? _autoAttachFuture;
+
+  /// Use a Chainway tray/R6 that is already connected in Android Bluetooth
+  /// settings. Does not open an in-app pair dialog and does not probe
+  /// headphones or other bonded accessories.
+  Future<bool> autoAttachSystemBluetoothReader() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return false;
+    if (_trayConnected || _r6Connected) return true;
+    _autoAttachFuture ??= _autoAttachSystemBluetoothReader();
+    try {
+      return await _autoAttachFuture!;
+    } finally {
+      // Keep the in-flight attach if tray/R6 mode was applied — re-running
+      // probe used to call applyTrayMode(false) and drop GATT.
+      if (!_trayConnected &&
+          !_r6Connected &&
+          !_trayModeEnabled &&
+          !_r6ModeEnabled) {
+        _autoAttachFuture = null;
+      }
+    }
+  }
+
+  Future<bool> _autoAttachSystemBluetoothReader() async {
+    await ensureReady();
+    if (!_isSupported) return false;
+
+    final prefs = PrefService.instanceOrNull ?? await PrefService.init();
+    if (_trayConnected || _r6Connected) return true;
+
+    if (!await hasBluetoothPermissions()) {
+      await requestBluetoothPermissions();
+    }
+
+    var connected = await listSystemConnectedBluetoothDevices();
+    if (connected.isEmpty) {
+      await requestBluetoothPermissions();
+      connected = await listSystemConnectedBluetoothDevices();
+    }
+
+    bool osConnected(String mac) {
+      final target = mac.trim().toUpperCase();
+      if (target.isEmpty) return false;
+      return connected.any((d) => (d['address'] ?? '').toUpperCase() == target);
+    }
+
+    if (prefs.isR6ModeEnabled()) {
+      final address = prefs.getR6DeviceAddress().trim();
+      if (address.isNotEmpty && osConnected(address)) {
+        await restoreR6ModeFromPrefs(enabled: true, address: address);
+        // Native startScanning completes GATT. Do not probe other devices.
+        return _r6Connected || _r6ModeEnabled;
+      }
+    }
+
+    final savedTray = prefs.getTrayDeviceAddress().trim();
+    if (savedTray.isNotEmpty && osConnected(savedTray)) {
+      await restoreTrayModeFromPrefs(enabled: true, address: savedTray);
+      // Never applyTrayMode(false) after a saved address — that race made
+      // inventory start only on some taps after Android Bluetooth connect.
+      return _trayConnected || _trayModeEnabled;
+    }
+
+    Map<String, String>? chosen;
+    var asR6 = false;
+    for (final device in connected) {
+      if (_looksLikeR6(device['name'] ?? '')) {
+        chosen = device;
+        asR6 = true;
+        break;
+      }
+    }
+    if (chosen == null) {
+      for (final device in connected) {
+        if (_looksLikeTray(device['name'] ?? '')) {
+          chosen = device;
+          break;
+        }
+      }
+    }
+    if (chosen == null) {
+      final savedR6 = prefs.getR6DeviceAddress().trim().toUpperCase();
+      for (final device in connected) {
+        final address = (device['address'] ?? '').toUpperCase();
+        if (address.isEmpty) continue;
+        if (address == savedR6) {
+          chosen = device;
+          asR6 = true;
+          break;
+        }
+        if (address == savedTray.toUpperCase() && savedTray.isNotEmpty) {
+          chosen = device;
+          break;
+        }
+      }
+    }
+
+    if (asR6 && chosen != null) {
+      final address = chosen['address'] ?? '';
+      final name = chosen['name'] ?? 'Bluetooth Device';
+      if (address.isEmpty) return false;
+      await prefs.saveR6Device(name: name, address: address);
+      await prefs.setR6ModeEnabled(true);
+      await applyR6Mode(enabled: true, address: address);
+      final ok = await waitForBleConnection(isR6: true, timeout: const Duration(seconds: 12));
+      debugPrint('R6 auto-attached from Android Bluetooth: $name ($address) connected=$ok');
+      return ok;
+    }
+
+    if (chosen != null) {
+      final ok = await _tryAttachTrayDevice(chosen, prefs);
+      if (ok || _trayModeEnabled) return _trayConnected || _trayModeEnabled;
+    }
+
+    // Android Settings can show the tray as connected even when the name is
+    // generic. Probe only currently linked non-accessory devices as tray.
+    final candidates = connected
+        .where((d) => !_looksLikeAccessory(d['name'] ?? ''))
+        .where((d) => (d['address'] ?? '').isNotEmpty)
+        .toList();
+    for (final device in candidates.take(3)) {
+      if (_looksLikeR6(device['name'] ?? '')) continue;
+      final ok = await _tryAttachTrayDevice(device, prefs);
+      if (ok) return true;
+      final status = await getTrayStatus();
+      if (status['connected'] == true || status['connecting'] == true) {
+        return true;
+      }
+      await applyTrayMode(enabled: false);
+    }
+    return _trayConnected || _trayModeEnabled;
   }
 
   /// Auto-detect a Chainway tray reader that is already paired/connected at
   /// the Android system Bluetooth level, without requiring the user to first
   /// open in-app Settings and pick a device manually.
-  ///
-  /// There is no reliable name pattern to identify "this is the tray reader"
-  /// among arbitrary bonded devices (headphones, printer, etc.), so this
-  /// probes bonded candidates with the real Chainway BLE SDK handshake —
-  /// only a genuine UHF tray reader will complete [waitForBleConnection]
-  /// within the timeout, which naturally filters out unrelated accessories.
-  /// Returns the matched {name, address} map, or null if nothing matched.
   Future<Map<String, String>?> tryAutoDiscoverTrayDevice({
     Duration perDeviceTimeout = const Duration(seconds: 6),
     int maxCandidates = 3,
   }) async {
-    await ensureReady();
-    if (!_isSupported) return null;
-    final candidates = await listBondedBluetoothDevices();
-    if (candidates.isEmpty) return null;
-
-    for (final candidate in candidates.take(maxCandidates)) {
-      final address = candidate['address'] ?? '';
-      if (address.isEmpty) continue;
-      debugPrint('Tray auto-discover: probing $address (${candidate['name']})');
-      final applied = await applyTrayMode(enabled: true, address: address);
-      if (!applied) continue;
-      final connected = await waitForBleConnection(
-        isR6: false,
-        timeout: perDeviceTimeout,
-      );
-      if (connected) {
-        debugPrint('Tray auto-discover: matched $address');
-        return candidate;
-      }
-      // Not a compatible reader (or not currently reachable) — reset before
-      // trying the next candidate so probes never overlap.
-      await applyTrayMode(enabled: false);
+    final attached = await autoAttachSystemBluetoothReader();
+    if (!attached) return null;
+    if (_r6Connected) {
+      final prefs = PrefService.instanceOrNull ?? await PrefService.init();
+      return {
+        'name': prefs.getR6DeviceName(),
+        'address': prefs.getR6DeviceAddress(),
+      };
     }
-    return null;
+    final prefs = PrefService.instanceOrNull ?? await PrefService.init();
+    final address = prefs.getTrayDeviceAddress();
+    if (address.isEmpty) return null;
+    return {
+      'name': prefs.getTrayDeviceName(),
+      'address': address,
+    };
   }
 
   Future<bool> applyTrayMode({
@@ -287,6 +481,25 @@ class RfidService {
     String address = '',
   }) async {
     await ensureReady();
+    if (enabled && address.isNotEmpty && _isSupported) {
+      try {
+        final current = await getTrayStatus();
+        final nativeAddr = current['address']?.toString().trim() ?? '';
+        if (current['enabled'] == true &&
+            nativeAddr.toLowerCase() == address.toLowerCase() &&
+            (current['connected'] == true || current['connecting'] == true)) {
+          _trayModeEnabled = true;
+          _r6ModeEnabled = false;
+          _r6Connected = false;
+          _trayConnected = current['connected'] == true;
+          _trayConnecting = current['connecting'] == true;
+          if (_trayConnected) {
+            _notifyConnectionListeners();
+          }
+          return true;
+        }
+      } catch (_) {}
+    }
     _trayModeEnabled = enabled;
     if (enabled) {
       _r6ModeEnabled = false;
@@ -317,6 +530,26 @@ class RfidService {
     String address = '',
   }) async {
     await ensureReady();
+    if (enabled && address.isNotEmpty && _isSupported) {
+      try {
+        final current = await getR6Status();
+        final nativeAddr = current['address']?.toString().trim() ?? '';
+        if (current['enabled'] == true &&
+            nativeAddr.toLowerCase() == address.toLowerCase() &&
+            (current['connected'] == true || current['connecting'] == true)) {
+          _r6ModeEnabled = true;
+          _trayModeEnabled = false;
+          _trayConnected = false;
+          _r6Connected = current['connected'] == true;
+          _r6Connecting = current['connecting'] == true;
+          if (_r6Connected) {
+            _r6Connecting = false;
+          }
+          _notifyConnectionListeners();
+          return true;
+        }
+      } catch (_) {}
+    }
     _r6ModeEnabled = enabled;
     if (enabled) {
       _trayModeEnabled = false;
@@ -490,13 +723,12 @@ class RfidService {
     // Kick native connect once if idle. Native startScanning does the real
     // connectAndWait (with pre-scan retry).
     final alreadyEnabled = status['enabled'] == true;
-    final connecting = status['connecting'] == true;
     final nativeAddr = status['address']?.toString().trim() ?? '';
     final sameDevice = nativeAddr.toLowerCase() == address.toLowerCase();
-    if (!alreadyEnabled || !sameDevice || (!connecting && status['connected'] != true)) {
-      if (!connecting || !sameDevice) {
-        await applyR6Mode(enabled: true, address: address);
-      }
+    // Kick native connect only if mode is off or the MAC changed. A second
+    // apply while GATT is opening drops the first link (intermittent scan).
+    if (!alreadyEnabled || !sameDevice) {
+      await applyR6Mode(enabled: true, address: address);
     }
 
     final ok = await waitForBleConnection(
@@ -517,8 +749,11 @@ class RfidService {
   /// Does not change R6 sled or UART handheld behavior.
   Future<void> _ensureTrayReadyForInventoryScan() async {
     final prefs = PrefService.instanceOrNull ?? await PrefService.init();
-    // Never steal the R6 sled path.
-    if (prefs.isR6ModeEnabled()) return;
+    if (prefs.isR6ModeEnabled() || _r6ModeEnabled) return;
+    if (!prefs.isTrayModeEnabled() && !_trayModeEnabled) {
+      await autoAttachSystemBluetoothReader();
+    }
+    if (prefs.isR6ModeEnabled() || _r6ModeEnabled) return;
     if (!prefs.isTrayModeEnabled() && !_trayModeEnabled) return;
 
     _trayModeEnabled = true;
@@ -539,13 +774,10 @@ class RfidService {
     }
 
     final alreadyEnabled = status['enabled'] == true;
-    final connecting = status['connecting'] == true;
     final nativeAddr = status['address']?.toString().trim() ?? '';
     final sameDevice = nativeAddr.toLowerCase() == address.toLowerCase();
-    if (!alreadyEnabled || !sameDevice || (!connecting && status['connected'] != true)) {
-      if (!connecting || !sameDevice) {
-        await applyTrayMode(enabled: true, address: address);
-      }
+    if (!alreadyEnabled || !sameDevice) {
+      await applyTrayMode(enabled: true, address: address);
     }
 
     final ok = await waitForBleConnection(
@@ -587,20 +819,14 @@ class RfidService {
         await Future<void>.delayed(const Duration(milliseconds: 120));
       }
 
-      // BLE tray require an active Bluetooth connection before scan.
+      await autoAttachSystemBluetoothReader();
+
+      // BLE tray: native startScanning runs connectAndWait. Re-applying tray
+      // mode here starts a second GATT open and makes scan start only sometimes.
       if (_trayModeEnabled) {
-        var status = await getTrayStatus();
-        if (status['connected'] != true) {
-          final address = status['address']?.toString() ?? '';
-          if (address.isNotEmpty) {
-            await applyTrayMode(enabled: true, address: address);
-            await waitForBleConnection(isR6: false, timeout: const Duration(seconds: 8));
-            status = await getTrayStatus();
-          }
-        }
-        if (status['connected'] != true) {
-          debugPrint('Tray mode on but tray not connected — cannot start scan');
-          return false;
+        final status = await getTrayStatus();
+        if (status['connected'] != true && status['connecting'] == true) {
+          await waitForBleConnection(isR6: false, timeout: const Duration(seconds: 8));
         }
       }
 
@@ -675,6 +901,7 @@ class RfidService {
         await stopScanning();
         await Future<void>.delayed(const Duration(milliseconds: 80));
       }
+      await autoAttachSystemBluetoothReader();
       if (searchTags != null &&
           searchTags.isNotEmpty &&
           searchTags.length <= 2000) {
@@ -730,8 +957,9 @@ class RfidService {
         await Future<void>.delayed(const Duration(milliseconds: 120));
       }
 
-      // Permit scan only — native startScanning does init + prepareScan(power).
-      // Apply BLE mode from prefs so Scan Display does not fall through to UART.
+      // Apply BLE mode from Android Bluetooth / saved prefs so Scan Display
+      // uses tray or R6 when that reader is already connected at OS level.
+      await autoAttachSystemBluetoothReader();
       final prefs = PrefService.instanceOrNull ?? await PrefService.init();
       if (prefs.isR6ModeEnabled() || _r6ModeEnabled) {
         await _ensureR6ReadyForScan();

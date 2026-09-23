@@ -1252,12 +1252,15 @@ class _SearchScreenState extends State<SearchScreen> {
           else
             ScanBottomBar(
               onSave: () {},
-              onList: () {},
+              onList: () {
+                Navigator.pushNamed(context, '/product_list');
+              },
               onScan: _toggleScanning,
               onGscan: () {},
               onReset: _resetSearch,
               isScanning: _isScanning,
-              isScreen: true,
+              saveEnabled: false,
+              gscanEnabled: false,
             ),
         ],
       ),

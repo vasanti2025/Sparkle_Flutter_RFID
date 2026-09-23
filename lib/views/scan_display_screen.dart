@@ -21,9 +21,21 @@ import 'search_screen.dart';
 import 'widgets/scan_bottom_bar.dart';
 import 'widgets/scan_display_list_menu.dart';
 import 'widgets/scan_branch_counter_dialog.dart';
+import 'widgets/inventory_scan_report_pdf.dart';
 import '../models/wholesale_master.dart';
 
 String _normalizeInventoryScanKey(String raw) => normalizeScanKey(raw);
+
+int _alphaCompare(String a, String b) =>
+    a.toLowerCase().trim().compareTo(b.toLowerCase().trim());
+
+int _compareInventoryItems(ScannedBulkItem a, ScannedBulkItem b) {
+  final byName = _alphaCompare(a.productName, b.productName);
+  if (byName != 0) return byName;
+  final byCode = _alphaCompare(a.itemCode, b.itemCode);
+  if (byCode != 0) return byCode;
+  return _alphaCompare(a.rfid, b.rfid);
+}
 
 class _GroupBucket {
   _GroupBucket(this.label);
@@ -161,6 +173,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   bool _isInit = false;
   bool _isLoadingItems = false;
   bool _isSaving = false;
+  bool _isPrinting = false;
 
   List<ScannedBulkItem> _scannedItems = [];
   
@@ -505,7 +518,10 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
     if (needListRefresh) {
       _lastListRefreshMs = now;
-      final filteredItems = _getFilteredScopeItems();
+      // Copy + sort for display only. Never sort `_scannedItems` in place —
+      // RFID match lookup maps are built from those indices.
+      final filteredItems = List<ScannedBulkItem>.from(_getFilteredScopeItems());
+      filteredItems.sort(_compareInventoryItems);
       _cachedFilteredItems = filteredItems;
       _cachedGroupedBuckets = _getGroupedBuckets(filteredItems);
       _cachedViewHash = _viewStateHash();
@@ -1204,6 +1220,63 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     );
   }
 
+  bool get _canPrintInventoryReport =>
+      _selectedMenu == 'MATCHED' || _selectedMenu == 'UNMATCHED';
+
+  Future<void> _printInventoryReport() async {
+    if (_isPrinting) return;
+    final s = context.sRead;
+    final unmatched = _selectedMenu == 'UNMATCHED';
+
+    setState(() => _isPrinting = true);
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+    try {
+      final scopeLabel = _filterType == 'Scan Display'
+          ? s.scanDisplay
+          : (_filterValue.isNotEmpty
+              ? _filterValue.replaceAll('\u001F', ', ')
+              : s.inventory);
+      await printInventoryScanItemReport(
+        context: context,
+        unmatched: unmatched,
+        scopeLabel: scopeLabel,
+        writeRows: (emit) async {
+          var n = 0;
+          for (final item in _getNavScopeItems()) {
+            final isUnmatched = item.currentScannedStatus == 'Unmatched';
+            if (unmatched ? !isUnmatched : isUnmatched) continue;
+            await emit([
+              item.counterName,
+              item.category,
+              item.productName,
+              item.purity,
+              item.rfid.isNotEmpty ? item.rfid : item.epc,
+              item.itemCode,
+              '${item.originalBulkItem.pcs <= 0 ? 1 : item.originalBulkItem.pcs}',
+              item.grossWeight,
+              item.originalBulkItem.stoneWeight,
+              item.netWeight,
+              item.originalBulkItem.mrp.toString(),
+              unmatched ? 'Not Found' : 'Found',
+            ]);
+            n++;
+            if (n % 400 == 0) {
+              await Future<void>.delayed(Duration.zero);
+              if (!mounted) return;
+            }
+          }
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        _showToast(s.errorGeneratingPdf(e.toString()));
+      }
+    } finally {
+      if (mounted) setState(() => _isPrinting = false);
+    }
+  }
+
   Future<void> _openSearchUnmatched() async {
     setState(() => _showMenu = false);
     final navigator = Navigator.of(context);
@@ -1334,7 +1407,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         bucket.matchedWt += gw;
       }
     }
-    return grouped.values.toList(growable: false);
+    final buckets = grouped.values.toList();
+    buckets.sort((a, b) => _alphaCompare(a.label, b.label));
+    return buckets;
   }
 
 
@@ -1801,6 +1876,21 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                     },
                   )
                 else ...[
+                  if (_canPrintInventoryReport)
+                    IconButton(
+                      tooltip: s.printReport,
+                      icon: _isPrinting
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.print, color: Colors.white),
+                      onPressed: _isPrinting ? null : _printInventoryReport,
+                    ),
                   // White counter box showing selected power (1-30), same as Delivery Challan.
                   PopupMenuButton<int>(
                     tooltip: s.rfidPower,
@@ -2068,6 +2158,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       items = allDesigns;
       selected = List.from(_selectedDesigns);
     }
+    items.sort(_alphaCompare);
 
     final filterTypeLocal = filterType == 'Category'
         ? s.fieldCategory

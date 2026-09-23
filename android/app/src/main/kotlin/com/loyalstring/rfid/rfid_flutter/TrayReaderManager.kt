@@ -210,6 +210,19 @@ class TrayReaderManager(
         }
     }
 
+    private fun connectElapsedMs(): Long {
+        val start = connectStartedAtMs
+        if (start <= 0L) return 0L
+        return (SystemClock.elapsedRealtime() - start).coerceAtLeast(0L)
+    }
+
+    private fun markConnecting() {
+        isConnecting = true
+        if (connectStartedAtMs <= 0L) {
+            connectStartedAtMs = SystemClock.elapsedRealtime()
+        }
+    }
+
     private fun clearStuckConnecting(reason: String) {
         if (!isConnecting) return
         Log.w(TAG, "Clearing stuck connecting: $reason")
@@ -221,6 +234,8 @@ class TrayReaderManager(
 
     /**
      * Soft reset half-open GATT without notifying Flutter reconnect (avoids cancelOpen loops).
+     * Never use this while Android already holds the device — cancelOpen drops that link
+     * and makes inventory start only on some taps.
      */
     private fun softDisconnectForRetry() {
         suppressDisconnectNotify = true
@@ -236,6 +251,38 @@ class TrayReaderManager(
         }
         SystemClock.sleep(350)
         suppressDisconnectNotify = false
+    }
+
+    private fun waitForHandshake(address: String, timeoutMs: Long): Boolean {
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs.coerceAtLeast(1000L)
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (isReallyConnected() && currentAddress.equals(address, ignoreCase = true)) {
+                return true
+            }
+            val remaining = deadline - SystemClock.elapsedRealtime()
+            if (remaining <= 0L) break
+            val latch = connectLatch.get()
+            if (latch != null) {
+                try {
+                    latch.await(remaining.coerceAtMost(400L), TimeUnit.MILLISECONDS)
+                } catch (_: InterruptedException) {
+                    break
+                }
+            } else {
+                SystemClock.sleep(200L)
+            }
+        }
+        return isReallyConnected() && currentAddress.equals(address, ignoreCase = true)
+    }
+
+    private fun acceptOsHeldLink(address: String) {
+        currentAddress = address
+        isConnected = true
+        isConnecting = false
+        connectStartedAtMs = 0L
+        connectLatch.get()?.countDown()
+        Log.i(TAG, "Using Android-held GATT for $address (sdk=${sdkStatus()})")
+        onConnectionChange(true, "OS_CONNECTED")
     }
 
     /**
@@ -284,20 +331,22 @@ class TrayReaderManager(
                 return
             }
 
-            // Allow a fresh attempt if previous handshake is stuck.
             val status = sdkStatus()
-            val elapsed = if (connectStartedAtMs > 0L) {
-                SystemClock.elapsedRealtime() - connectStartedAtMs
-            } else {
-                Long.MAX_VALUE
-            }
-            if (isConnecting && currentAddress.equals(address, ignoreCase = true)) {
-                if (status == ConnectionStatus.CONNECTING && elapsed < CONNECT_GUARD_MS) {
-                    Log.i(TAG, "Connect already in progress for $address — skip")
+            val elapsed = connectElapsedMs()
+            val sameTarget = currentAddress.equals(address, ignoreCase = true)
+            val osHeld = isOsBluetoothConnected(address)
+            if (sameTarget && (isConnecting || status == ConnectionStatus.CONNECTING)) {
+                // Missing timestamp used to look like Long.MAX_VALUE elapsed and
+                // cancelOpen() killed a live Android Bluetooth link.
+                if (osHeld || connectStartedAtMs <= 0L || elapsed < CONNECT_GUARD_MS) {
+                    markConnecting()
+                    Log.i(TAG, "Connect already in progress for $address — skip cancelOpen")
                     return
                 }
                 clearStuckConnecting("stale in-progress connect (status=$status elapsed=${elapsed}ms)")
-                softDisconnectForRetry()
+                if (!osHeld) {
+                    softDisconnectForRetry()
+                }
             }
 
             stopBtDiscoveryQuietly()
@@ -305,15 +354,14 @@ class TrayReaderManager(
 
             val switching =
                 currentAddress.isNotEmpty() && !currentAddress.equals(address, ignoreCase = true)
-            if (switching) {
+            if (switching && !osHeld) {
                 Log.i(TAG, "Switching BLE target $currentAddress -> $address")
                 softDisconnectForRetry()
             }
 
             currentAddress = address
-            isConnecting = true
+            markConnecting()
             isConnected = false
-            connectStartedAtMs = SystemClock.elapsedRealtime()
             Log.i(TAG, "Connecting to $address")
             reader?.connect(address, btStatus)
         } catch (e: Throwable) {
@@ -327,42 +375,108 @@ class TrayReaderManager(
 
     private val connectLock = Any()
 
+    private fun isOsBluetoothConnected(address: String): Boolean {
+        val target = address.trim()
+        if (target.isEmpty()) return false
+        return try {
+            @Suppress("DEPRECATION")
+            val adapter = BluetoothAdapter.getDefaultAdapter() ?: return false
+            for (device in adapter.bondedDevices.orEmpty()) {
+                if (!device.address.equals(target, ignoreCase = true)) continue
+                val method = device.javaClass.getMethod("isConnected")
+                return method.invoke(device) as? Boolean ?: false
+            }
+            false
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     /**
-     * Blocking connect for R6 (background thread only).
-     * Forces a real GATT open — does not join a zombie "connecting" forever.
+     * Blocking connect (background thread only).
+     * If Android already holds the tray/R6, wait for GATT — never cancelOpen.
      */
     fun connectAndWait(address: String, timeoutMs: Long = 20000L): Boolean {
         if (address.isBlank()) return false
+        if (isReallyConnected() && currentAddress.equals(address, ignoreCase = true)) {
+            return true
+        }
         synchronized(connectLock) {
             if (isReallyConnected() && currentAddress.equals(address, ignoreCase = true)) {
                 return true
             }
 
-            // Up to 2 attempts: pre-scan+connect, then soft-reset+connect.
+            val osConnected = isOsBluetoothConnected(address)
+            val osWaitMs = if (osConnected) timeoutMs.coerceAtMost(8_000L) else timeoutMs
+            val status = sdkStatus()
+            val sameTarget = currentAddress.equals(address, ignoreCase = true) ||
+                currentAddress.isEmpty()
+            val inFlight = (isConnecting || status == ConnectionStatus.CONNECTING) &&
+                (sameTarget || currentAddress.isEmpty())
+
+            if (inFlight || (osConnected && status == ConnectionStatus.CONNECTING)) {
+                stopBtDiscoveryQuietly()
+                init()
+                if (currentAddress.isEmpty()) currentAddress = address
+                markConnecting()
+                Log.i(
+                    TAG,
+                    "connectAndWait waiting for in-flight GATT $address os=$osConnected status=$status",
+                )
+                if (waitForHandshake(address, osWaitMs)) return true
+                if (osConnected || isOsBluetoothConnected(address)) {
+                    acceptOsHeldLink(address)
+                    return true
+                }
+            }
+
+            if (status == ConnectionStatus.CONNECTED) {
+                currentAddress = address
+                isConnected = true
+                isConnecting = false
+                return true
+            }
+
+            if (osConnected) {
+                stopBtDiscoveryQuietly()
+                init()
+                currentAddress = address
+                if (sdkStatus() != ConnectionStatus.CONNECTING && !isReallyConnected()) {
+                    val latch = CountDownLatch(1)
+                    connectLatch.set(latch)
+                    markConnecting()
+                    Log.i(TAG, "Connecting to OS-held $address")
+                    try {
+                        reader?.connect(address, btStatus)
+                    } catch (e: Throwable) {
+                        Log.e(TAG, "connect failed", e)
+                    }
+                } else {
+                    markConnecting()
+                }
+                if (waitForHandshake(address, osWaitMs)) return true
+                if (isOsBluetoothConnected(address)) {
+                    acceptOsHeldLink(address)
+                    return true
+                }
+                Log.w(TAG, "connectAndWait OS-held $address failed status=${sdkStatus()}")
+                return false
+            }
+
+            if (!isReallyConnected()) {
+                preScanForDevice(address, 3500L)
+            }
             for (attempt in 1..2) {
                 if (isReallyConnected() && currentAddress.equals(address, ignoreCase = true)) {
                     return true
                 }
-
-                val status = sdkStatus()
-                if (isConnecting || status == ConnectionStatus.CONNECTING) {
-                    clearStuckConnecting("connectAndWait attempt=$attempt")
-                    softDisconnectForRetry()
-                } else if (status != null && status != ConnectionStatus.DISCONNECTED) {
-                    softDisconnectForRetry()
-                }
-
-                // R6 BLE: discover MAC first (Chainway sample pattern), then connect.
-                if (attempt == 1) {
-                    preScanForDevice(address, 4500L)
-                } else {
-                    stopBtDiscoveryQuietly()
-                    SystemClock.sleep(200)
+                if (isOsBluetoothConnected(address)) {
+                    acceptOsHeldLink(address)
+                    return true
                 }
 
                 val latch = CountDownLatch(1)
                 connectLatch.set(latch)
-
                 connect(address)
 
                 val slice = if (attempt == 1) {
@@ -370,26 +484,29 @@ class TrayReaderManager(
                 } else {
                     (timeoutMs / 3).coerceAtLeast(8_000L)
                 }
-
                 val ok = try {
                     latch.await(slice, TimeUnit.MILLISECONDS) && isReallyConnected()
                 } catch (_: InterruptedException) {
                     false
                 }
-
                 Log.i(TAG, "connectAndWait($address) attempt=$attempt => $ok status=${sdkStatus()}")
                 connectLatch.compareAndSet(latch, null)
-
-                if (ok) {
+                if (ok || isReallyConnected()) return true
+                if (isOsBluetoothConnected(address)) {
+                    acceptOsHeldLink(address)
                     return true
                 }
 
-                clearStuckConnecting("attempt $attempt timed out")
-                softDisconnectForRetry()
+                if (attempt < 2) {
+                    clearStuckConnecting("attempt $attempt timed out")
+                    softDisconnectForRetry()
+                }
             }
-            return false
+            return isReallyConnected()
         }
     }
+
+    fun isOsLinked(address: String): Boolean = isOsBluetoothConnected(address)
 
     fun disconnect() {
         stopBtDiscoveryQuietly()
@@ -507,11 +624,15 @@ class TrayReaderManager(
                 ConnectionStatus.CONNECTED -> {
                     isConnected = true
                     isConnecting = false
+                    connectStartedAtMs = 0L
                     true
                 }
                 ConnectionStatus.CONNECTING -> {
-                    isConnecting = true
-                    false
+                    markConnecting()
+                    // Chainway often stays CONNECTING while Android already holds GATT.
+                    isConnected &&
+                        currentAddress.isNotEmpty() &&
+                        isOsBluetoothConnected(currentAddress)
                 }
                 ConnectionStatus.DISCONNECTED -> {
                     isConnected = false

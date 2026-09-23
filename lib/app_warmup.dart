@@ -45,36 +45,11 @@ Future<void> warmAfterFirstFrame(
     }
   });
 
-  Future<void>.delayed(const Duration(seconds: 20), () async {
+  Future<void>.delayed(const Duration(seconds: 2), () async {
     try {
-      if (prefService.isTrayModeEnabled()) {
-        await RfidService().restoreTrayModeFromPrefs(
-          enabled: true,
-          address: prefService.getTrayDeviceAddress(),
-        );
-      } else if (prefService.isR6ModeEnabled()) {
-        await RfidService().restoreR6ModeFromPrefs(
-          enabled: true,
-          address: prefService.getR6DeviceAddress(),
-        );
-      } else {
-        // Neither mode was ever configured in-app. If the tray reader is
-        // already paired at the Android system Bluetooth level, connect to
-        // it automatically instead of requiring the user to open Settings
-        // and pick it manually first.
-        final match = await RfidService().tryAutoDiscoverTrayDevice();
-        if (match != null) {
-          final address = match['address'] ?? '';
-          final name = match['name'] ?? 'Bluetooth Device';
-          if (address.isNotEmpty) {
-            await prefService.saveTrayDevice(name: name, address: address);
-            await prefService.setTrayModeEnabled(true);
-            debugPrint('Tray auto-connected and saved: $name ($address)');
-          }
-        }
-      }
+      await RfidService().autoAttachSystemBluetoothReader();
     } catch (e, st) {
-      debugPrint('Tray/R6 mode init skipped: $e\n$st');
+      debugPrint('Tray/R6 auto-attach skipped: $e\n$st');
     }
   });
 }

@@ -979,7 +979,7 @@ ORDER BY b.bulkItemId ASC, b.id ASC
     }
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.rawQuery(
-      'SELECT DISTINCT $column FROM bulk_items WHERE $column IS NOT NULL AND $column != "" ORDER BY $column ASC'
+      'SELECT DISTINCT $column FROM bulk_items WHERE $column IS NOT NULL AND $column != "" ORDER BY $column COLLATE NOCASE ASC'
     );
     final values = maps.map((row) => row[column] as String? ?? '').where((val) => val.isNotEmpty).toList();
     _distinctValuesCache![column] = values;
@@ -990,7 +990,7 @@ ORDER BY b.bulkItemId ASC, b.id ASC
   Future<List<String>> getDistinctExhibitions() async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.rawQuery(
-      "SELECT DISTINCT branchName FROM bulk_items WHERE branchName IS NOT NULL AND branchName != '' AND LOWER(branchType) = 'exhibition' ORDER BY branchName ASC"
+      "SELECT DISTINCT branchName FROM bulk_items WHERE branchName IS NOT NULL AND branchName != '' AND LOWER(branchType) = 'exhibition' ORDER BY branchName COLLATE NOCASE ASC"
     );
     return maps.map((row) => row['branchName'] as String? ?? '').where((val) => val.isNotEmpty).toList();
   }
@@ -1195,16 +1195,10 @@ ORDER BY b.bulkItemId ASC, b.id ASC
     await db.transaction((txn) async {
       for (final item in items) {
         var updated = 0;
-        final code = item.itemCode.trim();
-        if (code.isNotEmpty) {
-          updated = await txn.update(
-            'bulk_items',
-            values,
-            where: 'LOWER(TRIM(itemCode)) = LOWER(?)',
-            whereArgs: [code],
-          );
-        }
-        if (updated == 0 && item.bulkItemId > 0) {
+        // Prefer the labelled-stock row, then RFID/EPC. ItemCode last — the
+        // same SKU can exist at both source and dest; a code-wide update
+        // would move the wrong pieces (or none of the unique tags).
+        if (item.bulkItemId > 0) {
           updated = await txn.update(
             'bulk_items',
             values,
@@ -1226,11 +1220,22 @@ ORDER BY b.bulkItemId ASC, b.id ASC
         if (updated == 0) {
           final epc = item.epc.trim();
           if (epc.isNotEmpty) {
-            await txn.update(
+            updated = await txn.update(
               'bulk_items',
               values,
               where: 'LOWER(TRIM(epc)) = LOWER(?)',
               whereArgs: [epc],
+            );
+          }
+        }
+        if (updated == 0) {
+          final code = item.itemCode.trim();
+          if (code.isNotEmpty) {
+            await txn.update(
+              'bulk_items',
+              values,
+              where: 'LOWER(TRIM(itemCode)) = LOWER(?)',
+              whereArgs: [code],
             );
           }
         }

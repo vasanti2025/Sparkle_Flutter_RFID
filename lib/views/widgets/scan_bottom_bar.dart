@@ -18,14 +18,17 @@ Widget _buildBarButton({
   bool isGscan = false,
   bool isScanning = false,
   bool isScreen = false,
+  bool enabled = true,
 }) {
   final iconColor = Colors.grey[700]!;
   final bool showStop = isGscan && isScanning && !isScreen;
 
-  return Material(
+  return Opacity(
+    opacity: enabled ? 1 : 0.35,
+    child: Material(
     color: Colors.transparent,
     child: InkWell(
-      onTap: onTap,
+      onTap: enabled ? onTap : null,
       borderRadius: BorderRadius.circular(8),
       child: SizedBox(
         width: 64,
@@ -57,6 +60,7 @@ Widget _buildBarButton({
           ],
         ),
       ),
+    ),
     ),
   );
 }
@@ -184,6 +188,10 @@ class ScanBottomBar extends StatelessWidget {
   final bool isBulkScanning;
   /// When false, Save/List buttons are hidden (Product List).
   final bool showSaveAndList;
+  final bool saveEnabled;
+  final bool listEnabled;
+  final bool gscanEnabled;
+  final bool resetEnabled;
 
   const ScanBottomBar({
     super.key,
@@ -197,6 +205,10 @@ class ScanBottomBar extends StatelessWidget {
     this.isScreen = false,
     this.isBulkScanning = false,
     this.showSaveAndList = true,
+    this.saveEnabled = true,
+    this.listEnabled = true,
+    this.gscanEnabled = true,
+    this.resetEnabled = true,
   });
 
   @override
@@ -218,6 +230,7 @@ class ScanBottomBar extends StatelessWidget {
               icon: saveIcon,
               label: saveText,
               onTap: onSave,
+              enabled: saveEnabled,
             )
           : const SizedBox(width: 64),
       leftButton2: showSaveAndList
@@ -225,6 +238,7 @@ class ScanBottomBar extends StatelessWidget {
               icon: Icons.list,
               label: s.listBtn,
               onTap: onList,
+              enabled: listEnabled,
             )
           : const SizedBox(width: 64),
       centerButton: _buildOverlappingScanButton(
@@ -237,11 +251,13 @@ class ScanBottomBar extends StatelessWidget {
         label: showStopGscan ? s.stop : s.gscan,
         onTap: onGscan,
         isGscan: !showStopGscan,
+        enabled: gscanEnabled,
       ),
       rightButton2: _buildBarButton(
         icon: Icons.refresh,
         label: s.reset,
         onTap: onReset,
+        enabled: resetEnabled,
       ),
     );
   }

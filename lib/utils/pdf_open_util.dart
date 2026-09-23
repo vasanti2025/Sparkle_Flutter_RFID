@@ -26,8 +26,13 @@ class PdfOpenUtil {
     final file = File(p.join(pdfDir.path, name));
     await file.writeAsBytes(bytes, flush: true);
 
+    return openPdfFile(file.path);
+  }
+
+  /// Open an already-written PDF without copying the bytes on the UI isolate.
+  static Future<bool> openPdfFile(String path) async {
     try {
-      final ok = await _channel.invokeMethod<bool>('openPdf', {'path': file.path});
+      final ok = await _channel.invokeMethod<bool>('openPdf', {'path': path});
       return ok ?? false;
     } catch (e) {
       debugPrint('openPdf failed: $e');

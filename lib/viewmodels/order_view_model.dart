@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
+import '../models/bulk_item.dart';
 import '../models/customer.dart';
 import '../models/order_item.dart';
 import '../services/api_service.dart';
@@ -237,32 +238,46 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
     }
   }
 
-  // Manual search by item code or RFID
-  Future<String?> addProductByCodeOrRfid(String codeQuery) async {
-    final query = codeQuery.trim().toUpperCase();
-    if (query.isEmpty) return 'Please enter item code or RFID';
+  bool _sameScanKey(String a, String b) {
+    final x = a.trim().toUpperCase().replaceAll(' ', '');
+    final y = b.trim().toUpperCase().replaceAll(' ', '');
+    return x.isNotEmpty && y.isNotEmpty && x == y;
+  }
 
-    // 1. Fetch matching item in the cached inventory
-    final matchedItem = _dbService.findBulkItemByScanKeySync(codeQuery) ??
-        await _dbService.findBulkItemByScanKey(codeQuery);
+  /// Unique labelled piece only. Empty TID/RFID/item-code must not match —
+  /// that collapsed every later RFID scan into one line and under-counted
+  /// both Qty and Item Amount.
+  bool _isAlreadyInOrder(BulkItem matched, {String scannedKey = ''}) {
+    final scan = scannedKey.trim().toUpperCase().replaceAll(' ', '');
+    final scannedTag = scan.isNotEmpty &&
+        (_sameScanKey(matched.rfid, scan) ||
+            _sameScanKey(matched.epc, scan) ||
+            _sameScanKey(matched.tid, scan));
 
-    if (matchedItem == null) {
-      return 'No item found with code/RFID: $codeQuery';
-    }
+    return _productList.any((x) {
+      if (scan.isNotEmpty &&
+          (_sameScanKey(x.rfidCode, scan) ||
+              _sameScanKey(x.epc, scan) ||
+              _sameScanKey(x.tid, scan))) {
+        return true;
+      }
+      if (_sameScanKey(x.rfidCode, matched.rfid) ||
+          _sameScanKey(x.tid, matched.tid) ||
+          _sameScanKey(x.epc, matched.epc)) {
+        return true;
+      }
+      // Typed item-code add (no unique tag on the scan): one line per code.
+      if (!scannedTag &&
+          scan.isNotEmpty &&
+          _sameScanKey(x.itemCode, scan) &&
+          _sameScanKey(x.itemCode, matched.itemCode)) {
+        return true;
+      }
+      return false;
+    });
+  }
 
-    // Check duplicate in active list
-    final exists = _productList.any(
-      (x) =>
-          x.itemCode.toUpperCase() == matchedItem.itemCode.toUpperCase() ||
-          x.rfidCode.toUpperCase() == matchedItem.rfid.toUpperCase() ||
-          x.tid.toUpperCase() == matchedItem.tid.toUpperCase(),
-    );
-
-    if (exists) {
-      return 'Item already added';
-    }
-
-    // 2. Perform price calculations
+  OrderItem _buildOrderItem(BulkItem matchedItem) {
     final rate = _getRateForPurity(matchedItem.purity);
     final netWt = double.tryParse(matchedItem.netWeight) ?? 0.0;
     final stoneAmt = double.tryParse(matchedItem.stoneAmount) ?? 0.0;
@@ -273,22 +288,20 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
     final makingPercent = double.tryParse(matchedItem.makingPercent) ?? 0.0;
     final makingFixedWastage = double.tryParse(matchedItem.fixWastage) ?? 0.0;
 
-    // Metal = netWeight * today's purity rate
     final metalAmt = netWt * rate;
+    final makingAmt = makingPerGram +
+        makingFixedAmt +
+        ((makingPercent / 100.0) * netWt) +
+        makingFixedWastage;
+    final calculatedAmt = stoneAmt + diamondAmt + metalAmt + makingAmt;
+    // Tagged piece: catalog MRP is the line amount (same as Order Details).
+    final itemAmt = matchedItem.mrp > 0 ? matchedItem.mrp : calculatedAmt;
 
-    // Making amount
-    final makingAmt = makingPerGram + makingFixedAmt + ((makingPercent / 100.0) * netWt) + makingFixedWastage;
-
-    // Final item amount
-    final itemAmt = stoneAmt + diamondAmt + metalAmt + makingAmt;
-
-    // Fine weight
-    final finePercent = double.tryParse(matchedItem.makingPercent) ?? 0.0;
+    final finePercent = makingPercent;
     final fineWt = netWt * finePercent / 100.0;
-
     final employee = _prefService.getEmployee();
 
-    final orderItem = OrderItem(
+    return OrderItem(
       rfidCode: matchedItem.rfid.isNotEmpty ? matchedItem.rfid : matchedItem.itemCode,
       branchId: (matchedItem.branchId != 0 ? matchedItem.branchId : (employee?.defaultBranchId ?? 0)).toString(),
       branchName: matchedItem.branchName,
@@ -342,8 +355,25 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
       makingPerGram: matchedItem.makingPerGram,
       categoryWt: matchedItem.categoryWt,
     );
+  }
 
-    _productList.add(orderItem);
+  // Manual search by item code or RFID
+  Future<String?> addProductByCodeOrRfid(String codeQuery) async {
+    final query = codeQuery.trim().toUpperCase();
+    if (query.isEmpty) return 'Please enter item code or RFID';
+
+    final matchedItem = _dbService.findBulkItemByScanKeySync(codeQuery) ??
+        await _dbService.findBulkItemByScanKey(codeQuery);
+
+    if (matchedItem == null) {
+      return 'No item found with code/RFID: $codeQuery';
+    }
+
+    if (_isAlreadyInOrder(matchedItem, scannedKey: codeQuery)) {
+      return 'Item already added';
+    }
+
+    _productList.add(_buildOrderItem(matchedItem));
     notifyListeners();
     return null;
   }
@@ -364,86 +394,9 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
       if (!acceptLiveScan(fromLiveScan)) break;
       if (matchedItem == null) continue;
 
-      // Duplicate check
-      final exists = _productList.any((x) => x.tid == matchedItem.tid || x.epc == matchedItem.epc);
-      if (exists) continue;
+      if (_isAlreadyInOrder(matchedItem, scannedKey: epcRaw)) continue;
 
-      // Calculate details
-      final rate = _getRateForPurity(matchedItem.purity);
-      final netWt = double.tryParse(matchedItem.netWeight) ?? 0.0;
-      final stoneAmt = double.tryParse(matchedItem.stoneAmount) ?? 0.0;
-      final diamondAmt = double.tryParse(matchedItem.diamondAmount) ?? 0.0;
-
-      final makingPerGram = double.tryParse(matchedItem.makingPerGram) ?? 0.0;
-      final makingFixedAmt = double.tryParse(matchedItem.fixMaking) ?? 0.0;
-      final makingPercent = double.tryParse(matchedItem.makingPercent) ?? 0.0;
-      final makingFixedWastage = double.tryParse(matchedItem.fixWastage) ?? 0.0;
-
-      final metalAmt = netWt * rate;
-      final makingAmt = makingPerGram + makingFixedAmt + ((makingPercent / 100.0) * netWt) + makingFixedWastage;
-      final itemAmt = stoneAmt + diamondAmt + metalAmt + makingAmt;
-
-      final finePercent = double.tryParse(matchedItem.makingPercent) ?? 0.0;
-      final fineWt = netWt * finePercent / 100.0;
-
-      final employee = _prefService.getEmployee();
-
-      final orderItem = OrderItem(
-        rfidCode: matchedItem.rfid.isNotEmpty ? matchedItem.rfid : matchedItem.itemCode,
-        branchId: (matchedItem.branchId != 0 ? matchedItem.branchId : (employee?.defaultBranchId ?? 0)).toString(),
-        branchName: matchedItem.branchName,
-        exhibition: '',
-        remark: '',
-        purity: matchedItem.purity,
-        size: '1',
-        length: '',
-        typeOfColor: '',
-        screwType: '',
-        polishType: '',
-        finePer: finePercent.toString(),
-        wastage: matchedItem.makingPercent,
-        orderDate: DateFormat('yyyy-MM-dd').format(DateTime.now()),
-        deliverDate: DateFormat('yyyy-MM-dd').format(DateTime.now()),
-        productName: matchedItem.productName,
-        itemCode: matchedItem.itemCode,
-        grWt: matchedItem.grossWeight,
-        nWt: matchedItem.netWeight,
-        stoneAmt: matchedItem.stoneAmount,
-        finePlusWt: fineWt.toStringAsFixed(3),
-        itemAmt: itemAmt.toStringAsFixed(2),
-        packingWt: matchedItem.netWeight,
-        totalWt: matchedItem.totalWt.toString(),
-        stoneWt: matchedItem.totalStoneWt.toString(),
-        dimondWt: matchedItem.diamondWeight,
-        sku: matchedItem.sku,
-        qty: '1',
-        hallmarkAmt: '0.0',
-        mrp: matchedItem.mrp.toString(),
-        image: matchedItem.imageUrl,
-        netAmt: itemAmt.toStringAsFixed(2),
-        diamondAmt: matchedItem.diamondAmount,
-        categoryId: matchedItem.categoryId,
-        categoryName: matchedItem.category,
-        productId: matchedItem.productId,
-        productCode: matchedItem.productCode,
-        skuId: matchedItem.skuId,
-        designid: matchedItem.designId,
-        designName: matchedItem.design,
-        purityid: matchedItem.purityId,
-        counterId: matchedItem.counterId,
-        counterName: matchedItem.counterName,
-        companyId: 0,
-        epc: matchedItem.epc,
-        tid: matchedItem.tid,
-        todaysRate: rate.toStringAsFixed(2),
-        makingPercentage: matchedItem.makingPercent,
-        makingFixedAmt: matchedItem.fixMaking,
-        makingFixedWastage: matchedItem.fixWastage,
-        makingPerGram: matchedItem.makingPerGram,
-        categoryWt: matchedItem.categoryWt,
-      );
-
-      _productList.add(orderItem);
+      _productList.add(_buildOrderItem(matchedItem));
       addedCount++;
       if (!acceptLiveScan(fromLiveScan)) break;
       if (!fromLiveScan) {

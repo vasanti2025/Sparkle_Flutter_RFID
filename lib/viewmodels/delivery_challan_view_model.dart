@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
+import '../models/bulk_item.dart';
 import '../models/customer.dart';
 import '../models/delivery_challan.dart';
 import '../models/customer_tunch.dart';
@@ -110,6 +111,11 @@ class DeliveryChallanViewModel extends ChangeNotifier with LiveScanGate {
     try {
       final code = _prefService.getEmployee()?.clientCode ?? '';
 
+      // Daily rates first so RFID add can fill Rate / Making / Amount immediately.
+      _dailyRates = await _apiService.getDailyRates(code);
+      _refreshItemRates();
+      notifyListeners();
+
       // 1. Load customers
       final rawCustomers = await _apiService.getAllCustomers(code);
       _customers = rawCustomers.map((c) => CustomerModel.fromJson(c as Map<String, dynamic>)).toList();
@@ -118,16 +124,13 @@ class DeliveryChallanViewModel extends ChangeNotifier with LiveScanGate {
       final rawTunch = await _apiService.getAllCustomerTunch(code);
       _customerTunchList = rawTunch.map((t) => CustomerTunchModel.fromJson(t as Map<String, dynamic>)).toList();
 
-      // 3. Load daily rates
-      _dailyRates = await _apiService.getDailyRates(code);
-
-      // 4. Load branches
+      // 3. Load branches
       _branches = await _apiService.getAllBranches(code);
 
-      // 5. Load delivery challans
+      // 4. Load delivery challans
       await fetchAllChallans();
 
-      // 6. Fetch last challan number
+      // 5. Fetch last challan number
       await fetchLastChallanNo();
 
       // Initialize challan header defaults
@@ -297,17 +300,146 @@ class DeliveryChallanViewModel extends ChangeNotifier with LiveScanGate {
     }
   }
 
-  // Pricing helper
-  double _getRateForPurity(String purity) {
-    if (_dailyRates.isEmpty) return 0.0;
-    final match = _dailyRates.firstWhere(
-      (r) => r['PurityName'].toString().trim().toUpperCase() == purity.trim().toUpperCase(),
-      orElse: () => null,
-    );
-    if (match != null) {
-      return double.tryParse(match['Rate'].toString()) ?? 0.0;
+  double _parseMoney(String? raw) {
+    if (raw == null || raw.isEmpty) return 0.0;
+    final cleaned = raw.replaceAll('₹', '').replaceAll(',', '').replaceAll(' ', '').trim();
+    return double.tryParse(cleaned) ?? 0.0;
+  }
+
+  bool _sameScanKey(String a, String b) {
+    final x = a.trim().toUpperCase().replaceAll(' ', '');
+    final y = b.trim().toUpperCase().replaceAll(' ', '');
+    return x.isNotEmpty && y.isNotEmpty && x == y;
+  }
+
+  /// Unique labelled piece only. Empty TID/RFID must not match — that
+  /// collapsed later RFID scans that share an item-code and under-counted
+  /// Total Pcs and Total Amount.
+  bool _isAlreadyAdded(BulkItem matched, {String scannedKey = ''}) {
+    final scan = scannedKey.trim().toUpperCase().replaceAll(' ', '');
+    final scannedTag = scan.isNotEmpty &&
+        (_sameScanKey(matched.rfid, scan) ||
+            _sameScanKey(matched.epc, scan) ||
+            _sameScanKey(matched.tid, scan));
+
+    return _productList.any((x) {
+      if (scan.isNotEmpty &&
+          (_sameScanKey(x.rfidCode, scan) ||
+              _sameScanKey(x.tid, scan) ||
+              _sameScanKey(x.tidNumber, scan))) {
+        return true;
+      }
+      if (_sameScanKey(x.rfidCode, matched.rfid) ||
+          _sameScanKey(x.rfidCode, matched.epc) ||
+          _sameScanKey(x.tid, matched.tid) ||
+          _sameScanKey(x.tidNumber, matched.tid)) {
+        return true;
+      }
+      if (!scannedTag &&
+          scan.isNotEmpty &&
+          _sameScanKey(x.itemCode, scan) &&
+          _sameScanKey(x.itemCode, matched.itemCode)) {
+        return true;
+      }
+      return false;
+    });
+  }
+
+  int linePcs(ChallanDetailsModel item) {
+    final fromQty = int.tryParse(item.quantity.trim()) ?? 0;
+    if (fromQty > 0) return fromQty;
+    if (item.pcs > 0) return item.pcs;
+    if (item.qty > 0) return item.qty;
+    return 1;
+  }
+
+  double lineRate(ChallanDetailsModel item) {
+    for (final v in [item.metalRate, item.ratePerGram, item.totayRate]) {
+      final n = _parseMoney(v);
+      if (n > 0) return n;
     }
     return 0.0;
+  }
+
+  double lineMaking(ChallanDetailsModel item) {
+    for (final v in [item.makingCharg, item.makingFixedAmt, item.fixMaking]) {
+      final n = _parseMoney(v);
+      if (n > 0) return n;
+    }
+    return 0.0;
+  }
+
+  double lineAmount(ChallanDetailsModel item) {
+    for (final v in [item.amount, item.itemAmount, item.totalItemAmount, item.mrp]) {
+      final n = _parseMoney(v);
+      if (n > 0) return n;
+    }
+    return 0.0;
+  }
+
+  int get totalPcs => _productList.fold(0, (sum, item) => sum + linePcs(item));
+
+  double get totalRate => _productList.fold(0.0, (sum, item) => sum + lineRate(item));
+
+  double get totalMaking => _productList.fold(0.0, (sum, item) => sum + lineMaking(item));
+
+  // Pricing helper
+  double _getRateForPurity(String purity, {int purityId = 0}) {
+    if (_dailyRates.isEmpty) return 0.0;
+    final want = purity.trim().toUpperCase();
+
+    for (final raw in _dailyRates) {
+      if (raw is! Map) continue;
+      final map = Map<String, dynamic>.from(raw);
+      if (purityId > 0) {
+        final id = int.tryParse(map['PurityId']?.toString() ?? map['purityId']?.toString() ?? '') ?? 0;
+        if (id == purityId) {
+          return double.tryParse(map['Rate']?.toString() ?? map['rate']?.toString() ?? '') ?? 0.0;
+        }
+      }
+    }
+
+    for (final raw in _dailyRates) {
+      if (raw is! Map) continue;
+      final map = Map<String, dynamic>.from(raw);
+      final name = (map['PurityName'] ?? map['purityName'] ?? map['Purity'] ?? '')
+          .toString()
+          .trim()
+          .toUpperCase();
+      if (name.isNotEmpty && name == want) {
+        return double.tryParse(map['Rate']?.toString() ?? map['rate']?.toString() ?? '') ?? 0.0;
+      }
+    }
+    return 0.0;
+  }
+
+  void _refreshItemRates() {
+    if (_dailyRates.isEmpty || _productList.isEmpty) return;
+    for (int i = 0; i < _productList.length; i++) {
+      final item = _productList[i];
+      if (lineRate(item) > 0) continue;
+      final rate = _getRateForPurity(item.purity, purityId: item.purityId);
+      if (rate <= 0) continue;
+      final metalAmt = _parseMoney(item.netWt) * rate;
+      final calculated = _parseMoney(item.stoneAmount) +
+          _parseMoney(item.totalDiamondAmount) +
+          metalAmt +
+          lineMaking(item);
+      final mrp = _parseMoney(item.mrp);
+      final itemAmt = mrp > 0 ? mrp : calculated;
+      final rateStr = rate.toStringAsFixed(2);
+      _productList[i] = item.copyWith(
+        metalRate: rateStr,
+        ratePerGram: rateStr,
+        totayRate: rateStr,
+        metalAmount: metalAmt.toStringAsFixed(2),
+        amount: itemAmt.toStringAsFixed(2),
+        itemAmount: itemAmt.toStringAsFixed(2),
+        totalItemAmount: itemAmt.toStringAsFixed(2),
+        netAmount: itemAmt.toStringAsFixed(2),
+        totalAmount: itemAmt.toStringAsFixed(2),
+      );
+    }
   }
 
   // Manual/RFID scanned search implementation
@@ -323,15 +455,7 @@ class DeliveryChallanViewModel extends ChangeNotifier with LiveScanGate {
       return 'No item found with code/RFID: $codeQuery';
     }
 
-    // Check duplicate in active list
-    final exists = _productList.any(
-      (x) =>
-          x.itemCode.toUpperCase() == matchedItem.itemCode.toUpperCase() ||
-          x.rfidCode.toUpperCase() == matchedItem.rfid.toUpperCase() ||
-          x.tid.toUpperCase() == matchedItem.tid.toUpperCase(),
-    );
-
-    if (exists) {
+    if (_isAlreadyAdded(matchedItem, scannedKey: codeQuery)) {
       return 'Item already added';
     }
 
@@ -363,7 +487,7 @@ class DeliveryChallanViewModel extends ChangeNotifier with LiveScanGate {
     final double finePercent = double.tryParse(finePercentStr) ?? 0.0;
 
     final double netWt = double.tryParse(matchedItem.netWeight) ?? 0.0;
-    final double rate = _getRateForPurity(matchedItem.purity);
+    final double rate = _getRateForPurity(matchedItem.purity, purityId: matchedItem.purityId);
     final double metalAmt = netWt * rate;
     final double stoneAmt = double.tryParse(matchedItem.stoneAmount) ?? 0.0;
     final double diamondAmt = double.tryParse(matchedItem.diamondAmount) ?? 0.0;
@@ -371,8 +495,12 @@ class DeliveryChallanViewModel extends ChangeNotifier with LiveScanGate {
     // Making Amt = makingPerGram + makingFixedAmt + ((makingPercent / 100.0) * netWt) + makingFixedWastage
     final double makingAmt = makingPerGram + makingFixedAmt + ((makingPercent / 100.0) * netWt) + makingFixedWastage;
 
-    // Final total item amount
-    final double itemAmt = stoneAmt + diamondAmt + metalAmt + makingAmt;
+    final double calculatedAmt = stoneAmt + diamondAmt + metalAmt + makingAmt;
+    final double itemAmt = matchedItem.mrp > 0 ? matchedItem.mrp : calculatedAmt;
+    final rateStr = rate.toStringAsFixed(2);
+    final tagCode = matchedItem.rfid.trim().isNotEmpty
+        ? matchedItem.rfid
+        : (matchedItem.epc.trim().isNotEmpty ? matchedItem.epc : matchedItem.itemCode);
 
     // Fine weight
     final double fineWt = netWt * (makingFixedWastage / 100.0);
@@ -385,14 +513,14 @@ class DeliveryChallanViewModel extends ChangeNotifier with LiveScanGate {
       categoryName: matchedItem.category,
       challanStatus: _selectedChallan != null ? 'Sold' : 'Pending',
       productName: matchedItem.productName,
-      quantity: (matchedItem.totalQty > 0 ? matchedItem.totalQty : matchedItem.pcs > 0 ? matchedItem.pcs : 1).toString(),
+      quantity: '1',
       hsnCode: '',
       itemCode: matchedItem.itemCode,
       grossWt: matchedItem.grossWeight,
       netWt: matchedItem.netWeight,
       productId: matchedItem.productId,
       customerId: customerId,
-      metalRate: rate.toString(),
+      metalRate: rateStr,
       makingCharg: makingAmt.toStringAsFixed(2),
       price: matchedItem.mrp.toString(),
       huidCode: '',
@@ -404,7 +532,7 @@ class DeliveryChallanViewModel extends ChangeNotifier with LiveScanGate {
       packingWeight: '0.0',
       metalAmount: metalAmt.toStringAsFixed(2),
       oldGoldPurchase: false,
-      ratePerGram: rate.toString(),
+      ratePerGram: rateStr,
       amount: itemAmt.toStringAsFixed(2),
       challanType: 'Delivery',
       finePercentage: finePercent.toString(),
@@ -471,7 +599,7 @@ class DeliveryChallanViewModel extends ChangeNotifier with LiveScanGate {
       stoneLessPercent: '0.0',
       designId: matchedItem.designId,
       packetId: matchedItem.packetId,
-      rfidCode: matchedItem.rfid.isNotEmpty ? matchedItem.rfid : matchedItem.itemCode,
+      rfidCode: tagCode,
       image: matchedItem.imageUrl,
       diamondWt: matchedItem.diamondWeight,
       stoneAmt: matchedItem.stoneAmount,
@@ -480,7 +608,7 @@ class DeliveryChallanViewModel extends ChangeNotifier with LiveScanGate {
       fineWt: fineWt.toStringAsFixed(3),
       qty: 1,
       tid: matchedItem.tid,
-      totayRate: rate.toString(),
+      totayRate: rateStr,
       makingPercent: makingPercent.toString(),
       fixMaking: makingFixedAmt.toString(),
       fixWastage: makingFixedWastage.toString(),
@@ -539,11 +667,7 @@ class DeliveryChallanViewModel extends ChangeNotifier with LiveScanGate {
 
   // Aggregates
   double getBaseTotal() {
-    double total = 0.0;
-    for (final item in _productList) {
-      total += double.tryParse(item.amount) ?? 0.0;
-    }
-    return total;
+    return _productList.fold(0.0, (sum, item) => sum + lineAmount(item));
   }
 
   double getGstAmount() {

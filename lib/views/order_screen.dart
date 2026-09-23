@@ -778,25 +778,30 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
     final s = context.s;
     final headers = [s.headerPName, s.itemcode, s.headerGwt, s.headerNwt, s.headerFwWt, s.colStoneAmt, s.colDiamondAmt, s.itemAmt, s.fieldRfidCode];
 
-    // Footer totals (mirrors the Kotlin OrderListTable footer row).
+    // Footer totals aligned to the same columns as the rows.
     double sum(String? Function(OrderItem) sel) =>
         items.fold(0.0, (s, it) => s + (double.tryParse(sel(it) ?? '') ?? 0.0));
+    int lineQty(OrderItem it) {
+      final q = int.tryParse(it.qty.trim()) ?? 0;
+      return q <= 0 ? 1 : q;
+    }
+    final totalCount = items.fold<int>(0, (n, it) => n + lineQty(it));
     final totalGross = sum((it) => it.grWt);
     final totalNet = sum((it) => it.nWt);
-    final totalFine = sum((it) => it.makingFixedWastage);
+    final totalFine = sum((it) => it.finePlusWt);
     final totalStone = sum((it) => it.stoneAmt);
     final totalDiamond = sum((it) => it.diamondAmt);
     final totalAmt = sum((it) => it.itemAmt);
     final totals = [
       s.total,
-      '${items.length}',
+      '$totalCount',
       totalGross.toStringAsFixed(3),
       totalNet.toStringAsFixed(3),
       totalFine.toStringAsFixed(3),
       totalStone.toStringAsFixed(2),
       totalDiamond.toStringAsFixed(2),
       totalAmt.toStringAsFixed(2),
-      totalAmt.toStringAsFixed(2),
+      '',
     ];
 
     return Container(
