@@ -537,7 +537,7 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
           : await _apiService.addQuotation(payload);
 
       // Keep customer + QuotationDate from payload when API omits/overwrites them.
-      final responseItems = (response is Map) ? response['QuotationItem'] : null;
+      final responseItems = response?['QuotationItem'];
       final savedItems = _mergeReturnedQuotationItems(items, responseItems);
       final merged = <String, dynamic>{
         ...payload,
