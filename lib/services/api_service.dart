@@ -143,6 +143,20 @@ class ApiService {
     return null;
   }
 
+  static List<dynamic> _asDynamicList(dynamic data) {
+    if (data is List) return data;
+    if (data is Map) {
+      final nested = data['data'] ??
+          data['Data'] ??
+          data['result'] ??
+          data['Result'] ??
+          data['Items'] ??
+          data['items'];
+      if (nested is List) return nested;
+    }
+    return const [];
+  }
+
   // Delete product API call
   Future<bool> deleteProduct(int id, String clientCode) async {
     try {
@@ -326,6 +340,46 @@ class ApiService {
       final errMsg = e.response?.data?.toString() ?? e.message ?? 'Unknown error';
       throw Exception('File upload failed: $errMsg');
     }
+  }
+
+  /// Latest stock-taking unmatched RFID list (labelled-stock sticker details).
+  Future<List<dynamic>> getStockTakingUnmatchedList({
+    required String clientCode,
+    required String branchAddress,
+    required String stockTakingDate,
+  }) async {
+    final body = {
+      'ClientCode': clientCode,
+      'BranchAddress': branchAddress,
+      'StockTakingDate': stockTakingDate,
+    };
+    try {
+      final response = await _dio.post(
+        'api/ProductMaster/GetStockTakingUnmatchedList',
+        data: body,
+      );
+      if (response.statusCode == 200) {
+        final list = _asDynamicList(response.data);
+        if (list.isNotEmpty) return list;
+      }
+    } on DioException catch (_) {}
+
+    try {
+      final response = await _dio.get(
+        'api/ProductMaster/GetStockTakingUnmatchedList',
+        queryParameters: {
+          'clientCode': clientCode,
+          'branchAddress': branchAddress,
+          'stockTakingDate': stockTakingDate,
+        },
+      );
+      if (response.statusCode == 200) {
+        return _asDynamicList(response.data);
+      }
+    } on DioException catch (e) {
+      throw Exception('Failed to load missing stocks: ${e.message}');
+    }
+    return const [];
   }
 
   // Full order list — Sparkle uses ClientCodeRequest only (NOT empty search fields).

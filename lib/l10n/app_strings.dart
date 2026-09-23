@@ -146,6 +146,8 @@ class AppStrings {
   String get alignFaceInCircle => _t('alignFaceInCircle');
   String get scanningFace => _t('scanningFace');
   String get scanDisplay => _t('scanDisplay');
+  String get scanMissingStocks => _t('scanMissingStocks');
+  String get noMissingStocks => _t('noMissingStocks');
   String get scanCounter => _t('scanCounter');
   String get scanBox => _t('scanBox');
   String get scanBranch => _t('scanBranch');
@@ -792,6 +794,8 @@ class AppStrings {
       'product': 'Product',
       'inventory': 'Inventory',
       'scanDisplay': 'Scan Display',
+      'scanMissingStocks': 'Scan missing Stocks',
+      'noMissingStocks': 'No missing stocks found',
       'scanCounter': 'Scan Counter',
       'scanBox': 'Scan Box',
       'scanBranch': 'Scan Branch',
@@ -1495,6 +1499,8 @@ class AppStrings {
       'product': 'उत्पाद',
       'inventory': 'इन्वेंटरी',
       'scanDisplay': 'स्कैन डिस्प्ले',
+      'scanMissingStocks': 'स्कैन मिसिंग स्टॉक्स',
+      'noMissingStocks': 'कोई मिसिंग स्टॉक नहीं मिला',
       'scanCounter': 'स्कैन काउंटर',
       'scanBox': 'स्कैन बॉक्स',
       'scanBranch': 'स्कैन शाखा',
@@ -2031,6 +2037,8 @@ class AppStrings {
       'product': 'منتج',
       'inventory': 'المخزون',
       'scanDisplay': 'عرض المسح',
+      'scanMissingStocks': 'مسح المخزون المفقود',
+      'noMissingStocks': 'لا يوجد مخزون مفقود',
       'scanCounter': 'عداد المسح',
       'scanBox': 'صندوق المسح',
       'scanBranch': 'فرع المسح',

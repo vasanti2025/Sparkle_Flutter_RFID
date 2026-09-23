@@ -170,6 +170,9 @@ class ScanDisplayScreen extends StatefulWidget {
 class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   String _filterType = '';
   String _filterValue = '';
+  bool get _isMissingStocksMode => _filterType == 'Scan missing Stocks';
+  bool get _isFullStockCatalog =>
+      _filterType == 'Scan Display' || _isMissingStocksMode;
   bool _isInit = false;
   bool _isLoadingItems = false;
   bool _isSaving = false;
@@ -272,6 +275,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       if (args != null) {
         _filterType = args['filterType'] as String? ?? '';
         _filterValue = args['filterValue'] as String? ?? '';
+        if (_isMissingStocksMode) {
+          _selectedMenu = 'UNMATCHED';
+        }
       }
       _isInit = true;
       _isLoadingItems = true;
@@ -298,9 +304,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
     final viewModel = Provider.of<ProductViewModel>(context, listen: false);
     final String? filterType =
-        _filterType == 'Scan Display' ? null : _filterType;
+        _isFullStockCatalog ? null : _filterType;
     final String? filterValue =
-        _filterType == 'Scan Display' ? null : _filterValue;
+        _isFullStockCatalog ? null : _filterValue;
 
     final list = await viewModel.loadScanDisplayItems(
       filterType: filterType,
@@ -885,7 +891,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       _selectedCategories.clear();
       _selectedProducts.clear();
       _selectedDesigns.clear();
-      _selectedMenu = 'ALL';
+      _selectedMenu = _isMissingStocksMode ? 'UNMATCHED' : 'ALL';
       _currentLevel = 'Category';
       _selectedCategory = null;
       _selectedProduct = null;
@@ -921,7 +927,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         if (item.currentScannedStatus != 'Matched') unmatched++;
       }
       _allUnmatchedCount = unmatched;
-      _selectedMenu = 'ALL';
+      _selectedMenu = _isMissingStocksMode ? 'UNMATCHED' : 'ALL';
       _currentLevel = 'Category';
       _selectedCategory = null;
       _selectedProduct = null;
@@ -1232,8 +1238,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     await Future<void>.delayed(Duration.zero);
     if (!mounted) return;
     try {
-      final scopeLabel = _filterType == 'Scan Display'
-          ? s.scanDisplay
+      final scopeLabel = _isFullStockCatalog
+          ? (_isMissingStocksMode ? s.scanMissingStocks : s.scanDisplay)
           : (_filterValue.isNotEmpty
               ? _filterValue.replaceAll('\u001F', ', ')
               : s.inventory);
@@ -1853,8 +1859,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                       autofocus: true,
                     )
                   : Text(
-                      _filterType == 'Scan Display'
-                          ? s.scanDisplay
+                      _isFullStockCatalog
+                          ? (_isMissingStocksMode ? s.scanMissingStocks : s.scanDisplay)
                           : (_filterValue.isNotEmpty
                               ? _filterValue.replaceAll('\u001F', ', ')
                               : s.inventory),

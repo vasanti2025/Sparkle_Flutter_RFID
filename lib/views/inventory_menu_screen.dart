@@ -40,6 +40,10 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
       _navigateToScanDisplay('Scan Display', const ['Scan Display']);
       return;
     }
+    if (key == 'Scan missing Stocks') {
+      Navigator.pushNamed(context, '/scan_missing_stocks');
+      return;
+    }
 
     setState(() => _isLoading = true);
 
@@ -128,6 +132,7 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
 
     final List<Map<String, dynamic>> menuItems = [
       {'key': 'Scan Display', 'title': s.scanDisplay, 'icon': Icons.qr_code_scanner},
+      {'key': 'Scan missing Stocks', 'title': s.scanMissingStocks, 'icon': Icons.playlist_remove},
       {'key': 'Scan Counter', 'title': s.scanCounter, 'icon': Icons.dns},
       {'key': 'Scan Box', 'title': s.scanBox, 'icon': Icons.all_inbox},
       {'key': 'Scan Branch', 'title': s.scanBranch, 'icon': Icons.store},

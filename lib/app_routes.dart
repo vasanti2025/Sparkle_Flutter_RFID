@@ -24,6 +24,7 @@ import 'views/sample_in_screen.dart';
 import 'views/sample_out_list_screen.dart';
 import 'views/sample_out_screen.dart';
 import 'views/scan_display_screen.dart';
+import 'views/scan_missing_stocks.dart';
 import 'views/scan_to_desktop_screen.dart';
 import 'views/search_screen.dart';
 import 'views/settings_screen.dart';
@@ -86,6 +87,8 @@ Widget? _buildRoutePage(RouteSettings settings) {
       return const InventoryMenuScreen();
     case '/scan_display':
       return const ScanDisplayScreen();
+    case '/scan_missing_stocks':
+      return const ScanMissingStocksScreen();
     case '/scan_desktop':
       return const ScanToDesktopScreen();
     case '/search':

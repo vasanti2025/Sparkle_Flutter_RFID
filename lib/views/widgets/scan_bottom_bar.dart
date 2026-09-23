@@ -322,6 +322,45 @@ class ScanBottomBarInventory extends StatelessWidget {
   }
 }
 
+class ScanBottomBarMissingStocks extends StatelessWidget {
+  final VoidCallback onSave;
+  final VoidCallback onScan;
+  final bool isScanning;
+  final bool scanEnabled;
+  final bool saveEnabled;
+
+  const ScanBottomBarMissingStocks({
+    super.key,
+    required this.onSave,
+    required this.onScan,
+    required this.isScanning,
+    this.scanEnabled = true,
+    this.saveEnabled = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.s;
+    return _buildBottomBarLayout(
+      leftButton1: _buildBarButton(
+        icon: Icons.save,
+        label: s.save,
+        onTap: onSave,
+        enabled: saveEnabled,
+      ),
+      leftButton2: const SizedBox(width: 64),
+      centerButton: _buildOverlappingScanButton(
+        isScanning: isScanning,
+        onTap: onScan,
+        s: s,
+        enabled: scanEnabled,
+      ),
+      rightButton1: const SizedBox(width: 64),
+      rightButton2: const SizedBox(width: 64),
+    );
+  }
+}
+
 class ScanBottomBarDesktop extends StatelessWidget {
   final VoidCallback onSave;
   final VoidCallback onClear;
