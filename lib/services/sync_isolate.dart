@@ -770,12 +770,25 @@ CREATE TABLE IF NOT EXISTS rfid_tags (
       view.str(const ['BranchType', 'branchType']),
       view.rawInt('DesignId'),
       0,
-      view.rawDouble('TotalWeight'),
+      _totalWtForLocalDb(view),
       view.str(const ['WeightCategory', 'weightCategory']),
       view.rawInt('SKUId'),
       view.rawInt('PurityId'),
       status,
     ];
+  }
+
+  /// Local DB only. Valid API TotalWt is kept; blank/null uses GrossWt.
+  static double _totalWtForLocalDb(_JsonView view) {
+    final total = view.str(const ['TotalWt', 'TotalWeight', 'totalWt', 'totalWeight']);
+    if (total.isNotEmpty) {
+      return double.tryParse(total) ?? 0.0;
+    }
+    final gross = view.str(const ['GrossWt', 'grossWt']);
+    if (gross.isNotEmpty) {
+      return double.tryParse(gross) ?? 0.0;
+    }
+    return 0.0;
   }
 
   static String _apiString(Map<String, dynamic> json, List<String> keys) {

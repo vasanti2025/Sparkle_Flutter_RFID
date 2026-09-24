@@ -129,6 +129,21 @@ class SampleOutModel {
     return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 
+  /// Total Wt for Sample In/Out rows: API TotalWt, else existing GrossWt.
+  static String issueTotalWt(Map<String, dynamic> json) {
+    final total = json['TotalWt']?.toString().trim() ?? '';
+    if (total.isNotEmpty && total.toLowerCase() != 'null') {
+      final n = double.tryParse(total);
+      if (n == null || n > 0) return total;
+    }
+    final gross = json['GrossWt']?.toString().trim() ?? '';
+    if (gross.isNotEmpty && gross.toLowerCase() != 'null') return gross;
+    final net = json['NetWt']?.toString().trim() ?? '';
+    return net.isNotEmpty ? net : '0.0';
+  }
+
+  static String _issueTotalWt(Map<String, dynamic> json) => issueTotalWt(json);
+
   static bool _issueItemIsActive(Map<String, dynamic> item) {
     final status = item['StatusType'];
     if (status == false || status == 0 || status == 'false' || status == '0') {
@@ -200,7 +215,7 @@ class SampleOutModel {
       productNo: '',
       size: '1',
       stoneAmount: json['StoneAmount']?.toString() ?? '0.0',
-      totalWt: json['TotalWt']?.toString() ?? json['NetWt']?.toString() ?? '0.0',
+      totalWt: _issueTotalWt(json),
       packingWeight: '0.0',
       metalAmount: json['MetalAmount']?.toString() ?? '0.0',
       oldGoldPurchase: false,

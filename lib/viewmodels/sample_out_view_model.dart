@@ -394,7 +394,7 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
       productNo: '',
       size: '1',
       stoneAmount: matchedItem.stoneAmount,
-      totalWt: matchedItem.totalGwt.toString(),
+      totalWt: matchedItem.labelledTotalWt,
       packingWeight: '0.0',
       metalAmount: metalAmt.toStringAsFixed(2),
       oldGoldPurchase: false,

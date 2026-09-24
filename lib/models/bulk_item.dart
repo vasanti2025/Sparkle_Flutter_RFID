@@ -54,6 +54,16 @@ class BulkItem {
   int isScanned; // 0 = false, 1 = true (SQLite handles booleans as integers)
   final double totalWt;
   final String categoryWt;
+
+  /// Existing labelled Total Wt for Add-screen fields after RFID/barcode add.
+  /// Uses stored [totalWt] when present; otherwise the item's [grossWeight].
+  String get labelledTotalWt {
+    if (totalWt > 0) return totalWt.toString();
+    final gw = grossWeight.trim();
+    if (gw.isNotEmpty) return gw;
+    if (totalGwt > 0) return totalGwt.toString();
+    return totalWt.toString();
+  }
   final int skuId;
   final int purityId;
   final String status;
