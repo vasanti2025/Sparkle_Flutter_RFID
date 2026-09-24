@@ -325,7 +325,7 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
       finePlusWt: fineWt.toStringAsFixed(3),
       itemAmt: itemAmt.toStringAsFixed(2),
       packingWt: matchedItem.netWeight,
-      totalWt: matchedItem.totalWt.toString(),
+      totalWt: matchedItem.labelledTotalWt,
       stoneWt: matchedItem.totalStoneWt.toString(),
       dimondWt: matchedItem.diamondWeight,
       sku: matchedItem.sku,

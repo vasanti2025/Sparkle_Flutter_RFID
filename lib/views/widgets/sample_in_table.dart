@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../l10n/l10n_extension.dart';
 import '../../models/sample_in.dart';
+import '../../models/sample_out.dart';
 import '../../utils/stretch_table_widths.dart';
 
 class SampleInTable extends StatelessWidget {
@@ -119,7 +120,7 @@ class SampleInTable extends StatelessWidget {
                                       child: Row(
                                         children: [
                                           _cell(itemCode, colItemcode),
-                                          _cell(issue['TotalWt']?.toString() ?? '', colTWt),
+                                          _cell(SampleOutModel.issueTotalWt(issue), colTWt),
                                           _cell(issue['GrossWt']?.toString() ?? '', colGwt),
                                           _cell(issue['StoneWeight']?.toString() ?? '', colSwt),
                                           _cell(issue['DiamondWeight']?.toString() ?? '', colDwt),
@@ -171,7 +172,7 @@ class SampleInTable extends StatelessWidget {
                         child: Row(
                           children: [
                             _footerCell('${issueItems.length}', colItemcode),
-                            _footerCell(sum((i) => i['TotalWt']?.toString() ?? '0').toStringAsFixed(3), colTWt),
+                            _footerCell(sum((i) => SampleOutModel.issueTotalWt(i)).toStringAsFixed(3), colTWt),
                             _footerCell(sum((i) => i['GrossWt']?.toString() ?? '0').toStringAsFixed(3), colGwt),
                             _footerCell(sum((i) => i['StoneWeight']?.toString() ?? '0').toStringAsFixed(3), colSwt),
                             _footerCell(sum((i) => i['DiamondWeight']?.toString() ?? '0').toStringAsFixed(3), colDwt),
