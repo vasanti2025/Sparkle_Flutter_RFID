@@ -342,11 +342,42 @@ class ApiService {
     }
   }
 
+  /// Stock-taking rows already matched on [stockTakingDate].
+  Future<List<dynamic>> getStockTakingMatchedList({
+    required String clientCode,
+    required String branchAddress,
+    required String stockTakingDate,
+  }) {
+    return _getStockTakingList(
+      path: 'api/ProductMaster/GetStockTakingMatchedList',
+      clientCode: clientCode,
+      branchAddress: branchAddress,
+      stockTakingDate: stockTakingDate,
+      failureMessage: 'Failed to load matched stocks',
+    );
+  }
+
   /// Latest stock-taking unmatched RFID list (labelled-stock sticker details).
   Future<List<dynamic>> getStockTakingUnmatchedList({
     required String clientCode,
     required String branchAddress,
     required String stockTakingDate,
+  }) {
+    return _getStockTakingList(
+      path: 'api/ProductMaster/GetStockTakingUnmatchedList',
+      clientCode: clientCode,
+      branchAddress: branchAddress,
+      stockTakingDate: stockTakingDate,
+      failureMessage: 'Failed to load missing stocks',
+    );
+  }
+
+  Future<List<dynamic>> _getStockTakingList({
+    required String path,
+    required String clientCode,
+    required String branchAddress,
+    required String stockTakingDate,
+    required String failureMessage,
   }) async {
     final body = {
       'ClientCode': clientCode,
@@ -354,19 +385,16 @@ class ApiService {
       'StockTakingDate': stockTakingDate,
     };
     try {
-      final response = await _dio.post(
-        'api/ProductMaster/GetStockTakingUnmatchedList',
-        data: body,
-      );
+      final response = await _dio.post(path, data: body);
       if (response.statusCode == 200) {
-        final list = _asDynamicList(response.data);
+        final list = _unwrapStockTakingBody(response.data);
         if (list.isNotEmpty) return list;
       }
     } on DioException catch (_) {}
 
     try {
       final response = await _dio.get(
-        'api/ProductMaster/GetStockTakingUnmatchedList',
+        path,
         queryParameters: {
           'clientCode': clientCode,
           'branchAddress': branchAddress,
@@ -374,12 +402,37 @@ class ApiService {
         },
       );
       if (response.statusCode == 200) {
-        return _asDynamicList(response.data);
+        return _unwrapStockTakingBody(response.data);
       }
     } on DioException catch (e) {
-      throw Exception('Failed to load missing stocks: ${e.message}');
+      throw Exception('$failureMessage: ${e.message}');
     }
     return const [];
+  }
+
+  List<dynamic> _unwrapStockTakingBody(dynamic data) {
+    final direct = _asDynamicList(data);
+    if (direct.isNotEmpty) return direct;
+    if (data is Map) {
+      const keys = [
+        'UnmatchedList',
+        'unmatchedList',
+        'MatchedList',
+        'matchedList',
+        'StockTakingList',
+        'stockTakingList',
+        'List',
+        'list',
+      ];
+      for (final key in keys) {
+        if (!data.containsKey(key)) continue;
+        final value = data[key];
+        final nested = _asDynamicList(value);
+        if (nested.isNotEmpty) return nested;
+        if (value is List) return value;
+      }
+    }
+    return direct;
   }
 
   // Full order list — Sparkle uses ClientCodeRequest only (NOT empty search fields).

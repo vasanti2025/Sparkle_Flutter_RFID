@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:rfid_flutter/utils/app_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:path_provider/path_provider.dart';
@@ -10,6 +11,7 @@ import '../models/bulk_item.dart';
 import '../viewmodels/product_view_model.dart';
 import '../viewmodels/dashboard_view_model.dart';
 import '../viewmodels/settings_view_model.dart';
+import '../services/api_service.dart';
 import '../services/pref_service.dart';
 import '../services/rfid_service.dart';
 import '../services/email_service.dart';
@@ -44,6 +46,38 @@ class _GroupBucket {
   int matchedQty = 0;
   double totalWt = 0;
   double matchedWt = 0;
+}
+
+/// In-memory Scan Display catalog, kept so a date filter can be cleared
+/// without reloading or dropping an unsaved live scan.
+class _ScanCatalogSnapshot {
+  _ScanCatalogSnapshot({
+    required this.items,
+    required this.matchedKeys,
+    required this.unlabelled,
+    required this.selectedMenu,
+    required this.currentLevel,
+    required this.categories,
+    required this.products,
+    required this.designs,
+    required this.category,
+    required this.product,
+    required this.design,
+    required this.showResume,
+  });
+
+  final List<ScannedBulkItem> items;
+  final Set<String> matchedKeys;
+  final List<String> unlabelled;
+  final String selectedMenu;
+  final String currentLevel;
+  final List<String> categories;
+  final List<String> products;
+  final List<String> designs;
+  final String? category;
+  final String? product;
+  final String? design;
+  final bool showResume;
 }
 
 class ScannedBulkItem {
@@ -173,6 +207,12 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   bool get _isMissingStocksMode => _filterType == 'Scan missing Stocks';
   bool get _isFullStockCatalog =>
       _filterType == 'Scan Display' || _isMissingStocksMode;
+  bool get _isScanDisplayHome => _filterType == 'Scan Display';
+  DateTime? _stockTakingDate;
+  int _stockTakingReq = 0;
+  bool _dateListActive = false;
+  final Set<String> _dateBaselineMatchedKeys = {};
+  _ScanCatalogSnapshot? _catalogSnapshot;
   bool _isInit = false;
   bool _isLoadingItems = false;
   bool _isSaving = false;
@@ -335,6 +375,12 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     }
 
     setState(() {
+      _matchedEpcSet.clear();
+      _unlabelledEpcs.clear();
+      _unlabelledEpcSet.clear();
+      _unlabelledItemCache.clear();
+      _epcToMasterIndex.clear();
+      _filteredDbEpcSet = {};
       _scannedItems = scanned;
       _isLoadingItems = false;
       _lookupMapsReady = false;
@@ -469,6 +515,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       _selectedDesigns.length,
       _matchedEpcSet.length,
       _scannedItems.length,
+      _stockTakingDate?.millisecondsSinceEpoch ?? 0,
     );
   }
 
@@ -878,16 +925,30 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     if (_isScanning || _scanStartInProgress) {
       unawaited(_stopScanning());
     }
+    final dateMode = _stockTakingDate != null;
     setState(() {
       _showResumeOnScanButton = false;
-      _matchedEpcSet.clear();
-      for (var item in _scannedItems) {
-        item.currentScannedStatus = 'Unmatched';
+      if (dateMode) {
+        _matchedEpcSet
+          ..clear()
+          ..addAll(_dateBaselineMatchedKeys);
+        for (final item in _scannedItems) {
+          item.currentScannedStatus = _statusForItem(item);
+        }
+      } else {
+        _matchedEpcSet.clear();
+        for (var item in _scannedItems) {
+          item.currentScannedStatus = 'Unmatched';
+        }
       }
       _unlabelledEpcs.clear();
       _unlabelledEpcSet.clear();
       _unlabelledItemCache.clear();
-      _allUnmatchedCount = _scannedItems.length;
+      _allUnmatchedCount = dateMode
+          ? _scannedItems
+              .where((item) => item.currentScannedStatus != 'Matched')
+              .length
+          : _scannedItems.length;
       _selectedCategories.clear();
       _selectedProducts.clear();
       _selectedDesigns.clear();
@@ -913,11 +974,17 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   void _resumeScan() {
     setState(() {
-      _matchedEpcSet.clear();
-      for (var item in _scannedItems) {
-        if (item.originalBulkItem.isScanned == 1) {
-          for (final key in _matchKeysForItem(item)) {
-            _matchedEpcSet.add(key);
+      if (_stockTakingDate != null) {
+        _matchedEpcSet
+          ..clear()
+          ..addAll(_dateBaselineMatchedKeys);
+      } else {
+        _matchedEpcSet.clear();
+        for (var item in _scannedItems) {
+          if (item.originalBulkItem.isScanned == 1) {
+            for (final key in _matchKeysForItem(item)) {
+              _matchedEpcSet.add(key);
+            }
           }
         }
       }
@@ -1161,6 +1228,11 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       );
 
       // Local SQLite + full-file verification upload in parallel (fast path).
+      // A date filter list can contain API rows with no local id. Skip those
+      // so a zero id does not stamp every unsaved local row.
+      final rowsForLocal = _stockTakingDate == null
+          ? finalItems
+          : finalItems.where((item) => item.bulkItemId > 0).toList();
       final uploadFuture = viewModel.uploadVerification(
         clientCode: employee.clientCode!,
         items: uploadItemsPayload,
@@ -1170,7 +1242,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         branchName: location?.branchName,
         deviceCode: deviceCode,
       );
-      unawaited(viewModel.saveScanResults(finalItems));
+      if (rowsForLocal.isNotEmpty) {
+        unawaited(viewModel.saveScanResults(rowsForLocal));
+      }
       final success = await uploadFuture;
 
       if (!mounted) return;
@@ -1932,7 +2006,18 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  if (_isScanDisplayHome)
+                    IconButton(
+                      tooltip: s.filter,
+                      icon: Icon(
+                        _stockTakingDate != null
+                            ? Icons.filter_alt
+                            : Icons.filter_alt_outlined,
+                        color: Colors.white,
+                      ),
+                      onPressed: () => unawaited(_showStockTakingFilterPopup()),
+                    ),
+                  const SizedBox(width: 4),
                 ]
               ],
             ),
@@ -1944,6 +2029,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
               children: [
                 // Horizontal category dropdown filters (Category, Product, Design)
                 _buildLevelFilters(),
+                _buildStockTakingTitle(),
 
                 // Table Header row matching Compose dark grey
                 _buildTableHeader(),
@@ -2057,6 +2143,392 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
           ),
       ],
     );
+  }
+
+  Widget _buildStockTakingTitle() {
+    final date = _stockTakingDate;
+    if (!_isScanDisplayHome || date == null) return const SizedBox.shrink();
+    final s = context.s;
+    final status = _selectedMenu == 'UNMATCHED' ? s.unmatch : s.match;
+    final dateLabel = DateFormat('dd-MM-yyyy').format(date);
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFFF4F0FA),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      child: Text(
+        '$status  •  $dateLabel',
+        style: AppFonts.poppins(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          color: const Color(0xFF5231A7),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showStockTakingFilterPopup() async {
+    if (_isLoadingItems && _scannedItems.isEmpty) {
+      _showToast(context.sRead.pleaseWaitItemsLoading);
+      return;
+    }
+    final s = context.sRead;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    var menu = _stockTakingDate != null && _selectedMenu == 'UNMATCHED'
+        ? 'UNMATCHED'
+        : 'MATCHED';
+    var date = _stockTakingDate ?? today;
+
+    final action = await showAppDialog<String>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            final dateLabel = DateFormat('dd-MM-yyyy').format(date);
+            return AlertDialog(
+              backgroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              title: Text(
+                s.filter,
+                style: AppFonts.poppins(fontWeight: FontWeight.w600, fontSize: 16),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  RadioListTile<String>(
+                    value: 'MATCHED',
+                    groupValue: menu,
+                    activeColor: const Color(0xFF5231A7),
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(s.match, style: AppFonts.poppins(fontSize: 14)),
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setLocal(() => menu = value);
+                    },
+                  ),
+                  RadioListTile<String>(
+                    value: 'UNMATCHED',
+                    groupValue: menu,
+                    activeColor: const Color(0xFF5231A7),
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(s.unmatch, style: AppFonts.poppins(fontSize: 14)),
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setLocal(() => menu = value);
+                    },
+                  ),
+                  const SizedBox(height: 4),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.calendar_today, color: Color(0xFF5231A7)),
+                    title: Text(s.date, style: AppFonts.poppins(fontSize: 13)),
+                    subtitle: Text(
+                      dateLabel,
+                      style: AppFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: ctx,
+                        initialDate: date.isAfter(today) ? today : date,
+                        firstDate: DateTime(2020),
+                        lastDate: today,
+                      );
+                      if (picked == null) return;
+                      setLocal(() {
+                        date = DateTime(picked.year, picked.month, picked.day);
+                      });
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                if (_stockTakingDate != null)
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, 'clear'),
+                    child: Text(s.clearBtn, style: AppFonts.poppins(color: Colors.grey[700])),
+                  ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: Text(s.cancel, style: AppFonts.poppins(color: Colors.grey[700])),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF5231A7),
+                  ),
+                  onPressed: () => Navigator.pop(ctx, 'filter'),
+                  child: Text(s.filter, style: AppFonts.poppins(color: Colors.white)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    if (!mounted || action == null) return;
+    if (action == 'clear') {
+      await _clearStockTakingDate();
+      return;
+    }
+    await _loadStockTakingDate(date, menu: menu);
+  }
+
+  Future<String?> _resolveStockTakingBranchAddress() async {
+    final pref = context.read<PrefService>();
+    if (pref.isWholesaleLoginUser()) {
+      if (!await _ensureBranchCounterForWholesale()) return null;
+      if (!mounted) return null;
+      final loc = _sessionLocation;
+      if (loc == null) return null;
+      if (loc.branchId > 0) return '${loc.branchId}';
+      final name = loc.branchName.trim();
+      if (name.isEmpty) {
+        _showToast(context.sRead.pleaseSelectBranch);
+        return null;
+      }
+      return name;
+    }
+
+    final emp = context.read<DashboardViewModel>().employee;
+    var branchId = pref.getBranchId();
+    if (branchId <= 0) branchId = emp?.defaultBranchId ?? 0;
+    if (branchId > 0) return '$branchId';
+    final name = (emp?.defaultBranch ?? emp?.branchName ?? '').trim();
+    if (name.isEmpty) {
+      _showToast(context.sRead.pleaseSelectBranch);
+      return null;
+    }
+    return name;
+  }
+
+  void _captureCatalogIfNeeded() {
+    if (_catalogSnapshot != null) return;
+    _catalogSnapshot = _ScanCatalogSnapshot(
+      items: List<ScannedBulkItem>.from(_scannedItems),
+      matchedKeys: Set<String>.from(_matchedEpcSet),
+      unlabelled: List<String>.from(_unlabelledEpcs),
+      selectedMenu: _selectedMenu,
+      currentLevel: _currentLevel,
+      categories: List<String>.from(_selectedCategories),
+      products: List<String>.from(_selectedProducts),
+      designs: List<String>.from(_selectedDesigns),
+      category: _selectedCategory,
+      product: _selectedProduct,
+      design: _selectedDesign,
+      showResume: _showResumeOnScanButton,
+    );
+  }
+
+  List<ScannedBulkItem> _rowsToScanned(
+    List<dynamic> raw,
+    String status,
+    Set<String> seen,
+  ) {
+    final out = <ScannedBulkItem>[];
+    for (final row in raw) {
+      if (row is! Map) continue;
+      final item = BulkItem.fromApi(Map<String, dynamic>.from(row));
+      final identity = (item.epc.trim().isNotEmpty
+              ? item.epc
+              : (item.rfid.trim().isNotEmpty ? item.rfid : item.itemCode))
+          .trim()
+          .toUpperCase();
+      if (identity.isEmpty || !seen.add(identity)) continue;
+      out.add(ScannedBulkItem(item, status));
+    }
+    return out;
+  }
+
+  void _seedDateMatches(List<ScannedBulkItem> items) {
+    _matchedEpcSet.clear();
+    _dateBaselineMatchedKeys.clear();
+    for (final item in items) {
+      if (item.currentScannedStatus != 'Matched') continue;
+      for (final key in item.matchKeys) {
+        _matchedEpcSet.add(key);
+        _dateBaselineMatchedKeys.add(key);
+      }
+    }
+  }
+
+  void _installDateItems(List<ScannedBulkItem> scanned, {String? menu}) {
+    _seedDateMatches(scanned);
+    var unmatched = 0;
+    for (final item in scanned) {
+      if (item.currentScannedStatus != 'Matched') unmatched++;
+    }
+    _epcToMasterIndex.clear();
+    _filteredDbEpcSet = {};
+    _dateListActive = true;
+    setState(() {
+      _scannedItems = scanned;
+      _isLoadingItems = false;
+      _lookupMapsReady = false;
+      _unlabelledEpcs.clear();
+      _unlabelledEpcSet.clear();
+      _unlabelledItemCache.clear();
+      _allUnmatchedCount = unmatched;
+      _showResumeOnScanButton = false;
+      if (menu == 'MATCHED' || menu == 'UNMATCHED') {
+        _selectedMenu = menu!;
+        _currentLevel = 'DesignItems';
+        _showMenu = false;
+      }
+      _selectedCategories.clear();
+      _selectedProducts.clear();
+      _selectedDesigns.clear();
+      _selectedCategory = null;
+      _selectedProduct = null;
+      _selectedDesign = null;
+      _recalculateScopeCounts();
+      _refreshDisplayCache(forceListRefresh: true);
+    });
+    scheduleMicrotask(() async {
+      if (!mounted || _stockTakingDate == null) return;
+      await _buildLookupMapsChunked();
+      if (!mounted || _stockTakingDate == null) return;
+      await _setFilteredItemsForScanChunked();
+    });
+  }
+
+  Future<void> _loadStockTakingDate(DateTime day, {String? menu}) async {
+    if (_isScanning || _scanStartInProgress) {
+      await _stopScanning();
+      if (!mounted) return;
+      _scanEpoch++;
+    }
+
+    final branchAddress = await _resolveStockTakingBranchAddress();
+    if (!mounted || branchAddress == null) return;
+
+    final clientCode =
+        context.read<DashboardViewModel>().employee?.clientCode ?? '';
+    if (clientCode.isEmpty) {
+      _showToast(context.sRead.errorSessionExpired);
+      return;
+    }
+
+    final req = ++_stockTakingReq;
+    final previousDate = _stockTakingDate;
+    setState(() {
+      _stockTakingDate = day;
+      _isLoadingItems = true;
+    });
+
+    try {
+      final api = context.read<ApiService>();
+      final dateStr = DateFormat('yyyy-MM-dd').format(day);
+      final lists = await Future.wait([
+        api.getStockTakingMatchedList(
+          clientCode: clientCode,
+          branchAddress: branchAddress,
+          stockTakingDate: dateStr,
+        ),
+        api.getStockTakingUnmatchedList(
+          clientCode: clientCode,
+          branchAddress: branchAddress,
+          stockTakingDate: dateStr,
+        ),
+      ]);
+      if (!mounted || req != _stockTakingReq) return;
+
+      final seen = <String>{};
+      final scanned = <ScannedBulkItem>[
+        ..._rowsToScanned(lists[0], 'Matched', seen),
+        ..._rowsToScanned(lists[1], 'Unmatched', seen),
+      ];
+      debugPrint(
+        'Stock taking $dateStr matched=${lists[0].length} '
+        'unmatched=${lists[1].length} shown=${scanned.length}',
+      );
+      _captureCatalogIfNeeded();
+      _installDateItems(scanned, menu: menu);
+    } catch (e) {
+      if (!mounted || req != _stockTakingReq) return;
+      debugPrint('Stock taking load failed: $e');
+      setState(() {
+        _stockTakingDate = previousDate;
+        _isLoadingItems = false;
+      });
+      _showToast(context.sRead.errorLoadingData);
+    }
+  }
+
+  Future<void> _clearStockTakingDate() async {
+    if (_stockTakingDate == null && _catalogSnapshot == null) return;
+    _stockTakingReq++;
+    if (_isScanning || _scanStartInProgress) {
+      await _stopScanning();
+      if (!mounted) return;
+      _scanEpoch++;
+    }
+
+    final snap = _catalogSnapshot;
+    _catalogSnapshot = null;
+    _stockTakingDate = null;
+    _dateBaselineMatchedKeys.clear();
+
+    if (!_dateListActive) {
+      _dateListActive = false;
+      if (mounted) {
+        setState(() => _isLoadingItems = false);
+      }
+      return;
+    }
+    _dateListActive = false;
+
+    if (snap == null) {
+      _matchedEpcSet.clear();
+      await _loadItems();
+      return;
+    }
+
+    _matchedEpcSet
+      ..clear()
+      ..addAll(snap.matchedKeys);
+    _epcToMasterIndex.clear();
+    _filteredDbEpcSet = {};
+    if (!mounted) return;
+    setState(() {
+      _scannedItems = snap.items;
+      _unlabelledEpcs
+        ..clear()
+        ..addAll(snap.unlabelled);
+      _unlabelledEpcSet
+        ..clear()
+        ..addAll(snap.unlabelled);
+      _unlabelledItemCache.clear();
+      _selectedMenu = snap.selectedMenu;
+      _currentLevel = snap.currentLevel;
+      _selectedCategories
+        ..clear()
+        ..addAll(snap.categories);
+      _selectedProducts
+        ..clear()
+        ..addAll(snap.products);
+      _selectedDesigns
+        ..clear()
+        ..addAll(snap.designs);
+      _selectedCategory = snap.category;
+      _selectedProduct = snap.product;
+      _selectedDesign = snap.design;
+      _showResumeOnScanButton = snap.showResume;
+      _lookupMapsReady = false;
+      _isLoadingItems = false;
+      _syncItemStatusesFromMatchedSet();
+      var unmatched = 0;
+      for (final item in _scannedItems) {
+        if (item.currentScannedStatus != 'Matched') unmatched++;
+      }
+      _allUnmatchedCount = unmatched;
+      _recalculateScopeCounts();
+      _refreshDisplayCache(forceListRefresh: true);
+    });
+    scheduleMicrotask(() async {
+      if (!mounted || _stockTakingDate != null) return;
+      await _buildLookupMapsChunked();
+      if (!mounted || _stockTakingDate != null) return;
+      await _setFilteredItemsForScanChunked();
+    });
   }
 
   Widget _buildLevelFilters() {
