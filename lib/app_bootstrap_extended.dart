@@ -21,6 +21,8 @@ import 'viewmodels/single_product_view_model.dart';
 import 'viewmodels/stock_transfer_view_model.dart';
 import 'viewmodels/stock_verification_view_model.dart';
 
+
+
 /// Remaining ViewModels — loaded after Login/Dashboard first frame.
 List<SingleChildWidget> buildExtendedProviders({
   required PrefService prefService,
