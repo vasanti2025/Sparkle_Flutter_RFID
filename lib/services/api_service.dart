@@ -19,6 +19,7 @@ class ApiService {
   final Dio _dio;
 
   String get baseUrl => _prefService.getEffectiveApiBaseUrl();
+  final Map<String, List<Map<String, dynamic>>> _branchMasterCache = {};
 
   ApiService(this._prefService) : _dio = Dio() {
     _dio.options.connectTimeout = const Duration(seconds: 60);
@@ -342,6 +343,65 @@ class ApiService {
     }
   }
 
+  /// Branch master `BranchAddress` (for example `1007`), then name, then id.
+  /// Stock-taking APIs accept id, name, or address; address is the working payload.
+  Future<String> resolveStockTakingBranchAddress({
+    required String clientCode,
+    int branchId = 0,
+    String branchName = '',
+  }) async {
+    final name = branchName.trim();
+    final rows = await _branchMasterRows(clientCode);
+    Map<String, dynamic>? match;
+    if (branchId > 0) {
+      for (final row in rows) {
+        final id = int.tryParse('${row['Id'] ?? row['BranchId'] ?? ''}') ?? 0;
+        if (id == branchId) {
+          match = row;
+          break;
+        }
+      }
+    }
+    if (match == null && name.isNotEmpty) {
+      final lower = name.toLowerCase();
+      for (final row in rows) {
+        final rowName = '${row['BranchName'] ?? ''}'.trim().toLowerCase();
+        final addr = '${row['BranchAddress'] ?? ''}'.trim().toLowerCase();
+        if (rowName == lower || addr == lower) {
+          match = row;
+          break;
+        }
+      }
+    }
+    if (match != null) {
+      final addr = '${match['BranchAddress'] ?? ''}'.trim();
+      if (addr.isNotEmpty && addr.toLowerCase() != 'null') return addr;
+      final rowName = '${match['BranchName'] ?? ''}'.trim();
+      if (rowName.isNotEmpty) return rowName;
+    }
+    if (name.isNotEmpty) return name;
+    if (branchId > 0) return '$branchId';
+    return '';
+  }
+
+  Future<List<Map<String, dynamic>>> _branchMasterRows(String clientCode) async {
+    final code = clientCode.trim();
+    if (code.isEmpty) return const [];
+    final cached = _branchMasterCache[code];
+    if (cached != null) return cached;
+    try {
+      final raw = await getAllBranches(code);
+      final rows = <Map<String, dynamic>>[
+        for (final row in raw)
+          if (row is Map) Map<String, dynamic>.from(row),
+      ];
+      if (rows.isNotEmpty) _branchMasterCache[code] = rows;
+      return rows;
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// Stock-taking rows already matched on [stockTakingDate].
   Future<List<dynamic>> getStockTakingMatchedList({
     required String clientCode,
@@ -385,29 +445,34 @@ class ApiService {
       'StockTakingDate': stockTakingDate,
     };
     try {
-      final response = await _dio.post(path, data: body);
-      if (response.statusCode == 200) {
-        final list = _unwrapStockTakingBody(response.data);
-        if (list.isNotEmpty) return list;
-      }
-    } on DioException catch (_) {}
-
-    try {
-      final response = await _dio.get(
+      final response = await _dio.post(
         path,
-        queryParameters: {
-          'clientCode': clientCode,
-          'branchAddress': branchAddress,
-          'stockTakingDate': stockTakingDate,
-        },
+        data: body,
+        options: Options(
+          connectTimeout: const Duration(seconds: 150),
+          receiveTimeout: const Duration(seconds: 150),
+          sendTimeout: const Duration(seconds: 150),
+        ),
       );
-      if (response.statusCode == 200) {
-        return _unwrapStockTakingBody(response.data);
+      final data = response.data;
+      if (data is Map && data['Success'] == false) {
+        final message = data['Message']?.toString().trim();
+        throw Exception(
+          message != null && message.isNotEmpty ? message : failureMessage,
+        );
       }
+      if (response.statusCode == 200) {
+        return _unwrapStockTakingBody(data);
+      }
+      throw Exception(failureMessage);
     } on DioException catch (e) {
+      final server = e.response?.data;
+      if (server is Map && server['Message'] != null) {
+        final message = server['Message'].toString().trim();
+        if (message.isNotEmpty) throw Exception(message);
+      }
       throw Exception('$failureMessage: ${e.message}');
     }
-    return const [];
   }
 
   List<dynamic> _unwrapStockTakingBody(dynamic data) {

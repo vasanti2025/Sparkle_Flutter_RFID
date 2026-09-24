@@ -211,6 +211,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   DateTime? _stockTakingDate;
   int _stockTakingReq = 0;
   bool _dateListActive = false;
+  bool _dateShowMatched = false;
+  bool _dateShowUnmatched = false;
   final Set<String> _dateBaselineMatchedKeys = {};
   _ScanCatalogSnapshot? _catalogSnapshot;
   bool _isInit = false;
@@ -516,6 +518,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       _matchedEpcSet.length,
       _scannedItems.length,
       _stockTakingDate?.millisecondsSinceEpoch ?? 0,
+      _dateShowMatched,
+      _dateShowUnmatched,
     );
   }
 
@@ -952,8 +956,12 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       _selectedCategories.clear();
       _selectedProducts.clear();
       _selectedDesigns.clear();
-      _selectedMenu = _isMissingStocksMode ? 'UNMATCHED' : 'ALL';
-      _currentLevel = 'Category';
+      if (dateMode) {
+        _applyDateViewMode();
+      } else {
+        _selectedMenu = _isMissingStocksMode ? 'UNMATCHED' : 'ALL';
+        _currentLevel = 'Category';
+      }
       _selectedCategory = null;
       _selectedProduct = null;
       _selectedDesign = null;
@@ -994,8 +1002,12 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         if (item.currentScannedStatus != 'Matched') unmatched++;
       }
       _allUnmatchedCount = unmatched;
-      _selectedMenu = _isMissingStocksMode ? 'UNMATCHED' : 'ALL';
-      _currentLevel = 'Category';
+      if (_stockTakingDate != null) {
+        _applyDateViewMode();
+      } else {
+        _selectedMenu = _isMissingStocksMode ? 'UNMATCHED' : 'ALL';
+        _currentLevel = 'Category';
+      }
       _selectedCategory = null;
       _selectedProduct = null;
       _selectedDesign = null;
@@ -2063,6 +2075,10 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                 onDismiss: () => setState(() => _showMenu = false),
                 onMatched: () {
                   setState(() {
+                    if (_dateListActive) {
+                      _dateShowMatched = true;
+                      _dateShowUnmatched = false;
+                    }
                     _selectedMenu = 'MATCHED';
                     _currentLevel = 'DesignItems';
                     _showMenu = false;
@@ -2070,6 +2086,10 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                 },
                 onUnmatched: () {
                   setState(() {
+                    if (_dateListActive) {
+                      _dateShowMatched = false;
+                      _dateShowUnmatched = true;
+                    }
                     _selectedMenu = 'UNMATCHED';
                     _currentLevel = 'DesignItems';
                     _showMenu = false;
@@ -2114,6 +2134,10 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
     final showLoaderOverlay =
         (_isLoadingItems || _isSaving) && _scannedItems.isNotEmpty;
+    if (_showBothDateLists &&
+        (_currentLevel == 'DesignItems' || _selectedMenu != 'UNLABELLED')) {
+      return _buildBothDateLists(filteredItems, showLoaderOverlay);
+    }
 
     return Stack(
       children: [
@@ -2145,11 +2169,93 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     );
   }
 
+  Widget _buildBothDateLists(
+    List<ScannedBulkItem> items,
+    bool showLoaderOverlay,
+  ) {
+    final date = _stockTakingDate;
+    final matched = <ScannedBulkItem>[];
+    final unmatched = <ScannedBulkItem>[];
+    for (final item in items) {
+      if (item.currentScannedStatus == 'Matched') {
+        matched.add(item);
+      } else {
+        unmatched.add(item);
+      }
+    }
+    final slots = <Object>[
+      'MATCHED',
+      if (matched.isEmpty) 'EMPTY',
+      if (matched.isNotEmpty) ...matched,
+      'UNMATCHED',
+      if (unmatched.isEmpty) 'EMPTY_UNMATCH',
+      if (unmatched.isNotEmpty) ...unmatched,
+    ];
+    return Stack(
+      children: [
+        ListView.builder(
+          itemCount: slots.length,
+          itemBuilder: (context, index) {
+            final slot = slots[index];
+            if (slot == 'MATCHED' && date != null) {
+              return _dateTitleBar(context.s.match, date);
+            }
+            if (slot == 'UNMATCHED' && date != null) {
+              return _dateTitleBar(context.s.unmatch, date);
+            }
+            if (slot == 'EMPTY' || slot == 'EMPTY_UNMATCH') {
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                child: Text(
+                  context.s.noItems,
+                  style: AppFonts.poppins(fontSize: 13, color: Colors.grey[600]),
+                ),
+              );
+            }
+            return _buildDesignItemRow(slot as ScannedBulkItem);
+          },
+        ),
+        if (showLoaderOverlay)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: ColoredBox(
+                color: Colors.white.withValues(alpha: 0.55),
+                child: const Center(
+                  child: CircularProgressIndicator(color: Color(0xFF5231A7)),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  bool get _showBothDateLists =>
+      _dateListActive && _dateShowMatched && _dateShowUnmatched;
+
+  void _applyDateViewMode() {
+    if (_dateShowMatched && _dateShowUnmatched) {
+      _selectedMenu = 'ALL';
+    } else if (_dateShowUnmatched) {
+      _selectedMenu = 'UNMATCHED';
+    } else {
+      _selectedMenu = 'MATCHED';
+    }
+    _currentLevel = 'DesignItems';
+    _showMenu = false;
+  }
+
   Widget _buildStockTakingTitle() {
     final date = _stockTakingDate;
-    if (!_isScanDisplayHome || date == null) return const SizedBox.shrink();
+    if (!_isScanDisplayHome || date == null || _showBothDateLists) {
+      return const SizedBox.shrink();
+    }
     final s = context.s;
-    final status = _selectedMenu == 'UNMATCHED' ? s.unmatch : s.match;
+    final status = _dateShowUnmatched ? s.unmatch : s.match;
+    return _dateTitleBar(status, date);
+  }
+
+  Widget _dateTitleBar(String status, DateTime date) {
     final dateLabel = DateFormat('dd-MM-yyyy').format(date);
     return Container(
       width: double.infinity,
@@ -2174,9 +2280,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     final s = context.sRead;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    var menu = _stockTakingDate != null && _selectedMenu == 'UNMATCHED'
-        ? 'UNMATCHED'
-        : 'MATCHED';
+    var showMatch = _stockTakingDate != null ? _dateShowMatched : true;
+    var showUnmatch = _stockTakingDate != null ? _dateShowUnmatched : false;
     var date = _stockTakingDate ?? today;
 
     final action = await showAppDialog<String>(
@@ -2195,27 +2300,21 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  RadioListTile<String>(
-                    value: 'MATCHED',
-                    groupValue: menu,
+                  CheckboxListTile(
+                    value: showMatch,
                     activeColor: const Color(0xFF5231A7),
                     contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
                     title: Text(s.match, style: AppFonts.poppins(fontSize: 14)),
-                    onChanged: (value) {
-                      if (value == null) return;
-                      setLocal(() => menu = value);
-                    },
+                    onChanged: (value) => setLocal(() => showMatch = value ?? false),
                   ),
-                  RadioListTile<String>(
-                    value: 'UNMATCHED',
-                    groupValue: menu,
+                  CheckboxListTile(
+                    value: showUnmatch,
                     activeColor: const Color(0xFF5231A7),
                     contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
                     title: Text(s.unmatch, style: AppFonts.poppins(fontSize: 14)),
-                    onChanged: (value) {
-                      if (value == null) return;
-                      setLocal(() => menu = value);
-                    },
+                    onChanged: (value) => setLocal(() => showUnmatch = value ?? false),
                   ),
                   const SizedBox(height: 4),
                   ListTile(
@@ -2255,7 +2354,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF5231A7),
                   ),
-                  onPressed: () => Navigator.pop(ctx, 'filter'),
+                  onPressed: (!showMatch && !showUnmatch)
+                      ? null
+                      : () => Navigator.pop(ctx, 'filter'),
                   child: Text(s.filter, style: AppFonts.poppins(color: Colors.white)),
                 ),
               ],
@@ -2269,35 +2370,44 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       await _clearStockTakingDate();
       return;
     }
-    await _loadStockTakingDate(date, menu: menu);
+    await _loadStockTakingDate(
+      date,
+      showMatched: showMatch,
+      showUnmatched: showUnmatch,
+    );
   }
 
   Future<String?> _resolveStockTakingBranchAddress() async {
     final pref = context.read<PrefService>();
+    final api = context.read<ApiService>();
+    final clientCode =
+        context.read<DashboardViewModel>().employee?.clientCode ?? '';
+    var branchId = 0;
+    var branchName = '';
     if (pref.isWholesaleLoginUser()) {
       if (!await _ensureBranchCounterForWholesale()) return null;
       if (!mounted) return null;
       final loc = _sessionLocation;
       if (loc == null) return null;
-      if (loc.branchId > 0) return '${loc.branchId}';
-      final name = loc.branchName.trim();
-      if (name.isEmpty) {
-        _showToast(context.sRead.pleaseSelectBranch);
-        return null;
-      }
-      return name;
+      branchId = loc.branchId;
+      branchName = loc.branchName.trim();
+    } else {
+      final emp = context.read<DashboardViewModel>().employee;
+      branchId = pref.getBranchId();
+      if (branchId <= 0) branchId = emp?.defaultBranchId ?? 0;
+      branchName = (emp?.defaultBranch ?? emp?.branchName ?? '').trim();
     }
-
-    final emp = context.read<DashboardViewModel>().employee;
-    var branchId = pref.getBranchId();
-    if (branchId <= 0) branchId = emp?.defaultBranchId ?? 0;
-    if (branchId > 0) return '$branchId';
-    final name = (emp?.defaultBranch ?? emp?.branchName ?? '').trim();
-    if (name.isEmpty) {
+    final address = await api.resolveStockTakingBranchAddress(
+      clientCode: clientCode,
+      branchId: branchId,
+      branchName: branchName,
+    );
+    if (!mounted) return null;
+    if (address.isEmpty) {
       _showToast(context.sRead.pleaseSelectBranch);
       return null;
     }
-    return name;
+    return address;
   }
 
   void _captureCatalogIfNeeded() {
@@ -2350,7 +2460,11 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     }
   }
 
-  void _installDateItems(List<ScannedBulkItem> scanned, {String? menu}) {
+  void _installDateItems(
+    List<ScannedBulkItem> scanned, {
+    required bool showMatched,
+    required bool showUnmatched,
+  }) {
     _seedDateMatches(scanned);
     var unmatched = 0;
     for (final item in scanned) {
@@ -2368,11 +2482,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       _unlabelledItemCache.clear();
       _allUnmatchedCount = unmatched;
       _showResumeOnScanButton = false;
-      if (menu == 'MATCHED' || menu == 'UNMATCHED') {
-        _selectedMenu = menu!;
-        _currentLevel = 'DesignItems';
-        _showMenu = false;
-      }
+      _dateShowMatched = showMatched;
+      _dateShowUnmatched = showUnmatched;
+      _applyDateViewMode();
       _selectedCategories.clear();
       _selectedProducts.clear();
       _selectedDesigns.clear();
@@ -2390,7 +2502,11 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     });
   }
 
-  Future<void> _loadStockTakingDate(DateTime day, {String? menu}) async {
+  Future<void> _loadStockTakingDate(
+    DateTime day, {
+    required bool showMatched,
+    required bool showUnmatched,
+  }) async {
     if (_isScanning || _scanStartInProgress) {
       await _stopScanning();
       if (!mounted) return;
@@ -2441,7 +2557,11 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         'unmatched=${lists[1].length} shown=${scanned.length}',
       );
       _captureCatalogIfNeeded();
-      _installDateItems(scanned, menu: menu);
+      _installDateItems(
+        scanned,
+        showMatched: showMatched,
+        showUnmatched: showUnmatched,
+      );
     } catch (e) {
       if (!mounted || req != _stockTakingReq) return;
       debugPrint('Stock taking load failed: $e');
@@ -2465,6 +2585,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     final snap = _catalogSnapshot;
     _catalogSnapshot = null;
     _stockTakingDate = null;
+    _dateShowMatched = false;
+    _dateShowUnmatched = false;
     _dateBaselineMatchedKeys.clear();
 
     if (!_dateListActive) {

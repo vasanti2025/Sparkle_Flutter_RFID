@@ -70,12 +70,16 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
   int _power = 30;
   int _lastTriggerMs = 0;
   int _lastUiMs = 0;
+  int _loadReq = 0;
+  late DateTime _stockDate;
 
   int get _matchedCount => _rows.where((r) => r.matched).length;
 
   @override
   void initState() {
     super.initState();
+    final now = DateTime.now();
+    _stockDate = DateTime(now.year, now.month, now.day);
     _power = context.read<PrefService>().inventoryPower.clamp(1, 30);
     _rfid.preWarmReader();
     _rfid.clearSearchTags();
@@ -232,7 +236,28 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
     await _loadMissingStocks(skipBranchPrompt: true);
   }
 
+  Future<void> _pickStockDate() async {
+    if (_saving) return;
+    if (_scanning) await _stopScan();
+    if (!mounted) return;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final picked = await showDatePicker(
+      context: context,
+      helpText: context.sRead.selectDate,
+      initialDate: _stockDate.isAfter(today) ? today : _stockDate,
+      firstDate: DateTime(2020),
+      lastDate: today,
+    );
+    if (picked == null || !mounted) return;
+    final day = DateTime(picked.year, picked.month, picked.day);
+    if (day == _stockDate) return;
+    setState(() => _stockDate = day);
+    await _loadMissingStocks(skipBranchPrompt: true);
+  }
+
   Future<void> _loadMissingStocks({bool skipBranchPrompt = false}) async {
+    final req = ++_loadReq;
     setState(() {
       _loading = true;
       _error = null;
@@ -240,7 +265,7 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
     final needBranch = _branchId <= 0 && _branchName.isEmpty;
     if (!skipBranchPrompt || needBranch) {
       final ok = await _ensureWholesaleBranch(promptIfMissing: !skipBranchPrompt);
-      if (!mounted) return;
+      if (!mounted || req != _loadReq) return;
       if (!ok) {
         setState(() {
           _loading = false;
@@ -263,10 +288,24 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
 
     try {
       final api = context.read<ApiService>();
-      final date = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final date = DateFormat('yyyy-MM-dd').format(_stockDate);
+      final branchAddress = await api.resolveStockTakingBranchAddress(
+        clientCode: clientCode,
+        branchId: _branchId,
+        branchName: _branchName,
+      );
+      if (branchAddress.isEmpty) {
+        if (!mounted || req != _loadReq) return;
+        setState(() {
+          _loading = false;
+          _rows.clear();
+          _error = context.sRead.pleaseSelectBranch;
+        });
+        return;
+      }
       final raw = await api.getStockTakingUnmatchedList(
         clientCode: clientCode,
-        branchAddress: _branchId > 0 ? '$_branchId' : '',
+        branchAddress: branchAddress,
         stockTakingDate: date,
       );
       final next = <_MissingRow>[];
@@ -282,8 +321,8 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
         if (key.isEmpty || !seen.add(key)) continue;
         next.add(_MissingRow(item));
       }
+      if (!mounted || req != _loadReq) return;
       _rebuildLookup(next);
-      if (!mounted) return;
       setState(() {
         _rows
           ..clear()
@@ -292,7 +331,7 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
         _loading = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || req != _loadReq) return;
       setState(() {
         _rows.clear();
         _matchedKeys.clear();
@@ -517,8 +556,33 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
             ),
             title: Text(
               s.scanMissingStocks,
+              overflow: TextOverflow.ellipsis,
               style: AppFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600),
             ),
+            actions: [
+              TextButton(
+                onPressed: _saving ? null : () => unawaited(_pickStockDate()),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.calendar_today, color: Colors.white, size: 16),
+                    const SizedBox(width: 6),
+                    Text(
+                      DateFormat('dd-MM-yyyy').format(_stockDate),
+                      style: AppFonts.poppins(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
