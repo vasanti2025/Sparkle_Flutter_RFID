@@ -432,18 +432,55 @@ class ApiService {
     );
   }
 
+  /// Matched stock-taking list for a numeric branch id.
+  Future<List<dynamic>> getStockTakingMatchedListByBranchId({
+    required String clientCode,
+    required int branchId,
+    required String stockTakingDate,
+  }) {
+    return _getStockTakingList(
+      path: 'api/ProductMaster/GetStockTakingMatchedListByBranchId',
+      clientCode: clientCode,
+      branchId: branchId,
+      stockTakingDate: stockTakingDate,
+      failureMessage: 'Failed to load matched stocks',
+    );
+  }
+
+  /// Unmatched stock-taking list for a numeric branch id.
+  Future<List<dynamic>> getStockTakingUnmatchedListByBranchId({
+    required String clientCode,
+    required int branchId,
+    required String stockTakingDate,
+  }) {
+    return _getStockTakingList(
+      path: 'api/ProductMaster/GetStockTakingUnmatchedListByBranchId',
+      clientCode: clientCode,
+      branchId: branchId,
+      stockTakingDate: stockTakingDate,
+      failureMessage: 'Failed to load missing stocks',
+    );
+  }
+
   Future<List<dynamic>> _getStockTakingList({
     required String path,
     required String clientCode,
-    required String branchAddress,
     required String stockTakingDate,
     required String failureMessage,
+    String branchAddress = '',
+    int? branchId,
   }) async {
-    final body = {
-      'ClientCode': clientCode,
-      'BranchAddress': branchAddress,
-      'StockTakingDate': stockTakingDate,
-    };
+    final body = branchId != null
+        ? {
+            'ClientCode': clientCode,
+            'BranchId': branchId,
+            'StockTakingDate': stockTakingDate,
+          }
+        : {
+            'ClientCode': clientCode,
+            'BranchAddress': branchAddress,
+            'StockTakingDate': stockTakingDate,
+          };
     try {
       final response = await _dio.post(
         path,

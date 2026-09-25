@@ -2377,6 +2377,14 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     );
   }
 
+  /// Branch id saved at login (`DefaultBranchId`).
+  int _loginBranchId() {
+    final pref = context.read<PrefService>();
+    final saved = pref.getBranchId();
+    if (saved > 0) return saved;
+    return context.read<DashboardViewModel>().employee?.defaultBranchId ?? 0;
+  }
+
   Future<String?> _resolveStockTakingBranchAddress() async {
     final pref = context.read<PrefService>();
     final api = context.read<ApiService>();
@@ -2522,6 +2530,13 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       _showToast(context.sRead.errorSessionExpired);
       return;
     }
+    final keepLegacyBranch = clientCode.trim().toUpperCase() ==
+        PrefService.wholesaleClientCode;
+    final loginBranchId = _loginBranchId();
+    if (!keepLegacyBranch && loginBranchId <= 0) {
+      _showToast(context.sRead.pleaseSelectBranch);
+      return;
+    }
 
     final req = ++_stockTakingReq;
     final previousDate = _stockTakingDate;
@@ -2533,18 +2548,33 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     try {
       final api = context.read<ApiService>();
       final dateStr = DateFormat('yyyy-MM-dd').format(day);
-      final lists = await Future.wait([
-        api.getStockTakingMatchedList(
-          clientCode: clientCode,
-          branchAddress: branchAddress,
-          stockTakingDate: dateStr,
-        ),
-        api.getStockTakingUnmatchedList(
-          clientCode: clientCode,
-          branchAddress: branchAddress,
-          stockTakingDate: dateStr,
-        ),
-      ]);
+      final lists = await Future.wait(
+        keepLegacyBranch
+            ? [
+                api.getStockTakingMatchedList(
+                  clientCode: clientCode,
+                  branchAddress: branchAddress,
+                  stockTakingDate: dateStr,
+                ),
+                api.getStockTakingUnmatchedList(
+                  clientCode: clientCode,
+                  branchAddress: branchAddress,
+                  stockTakingDate: dateStr,
+                ),
+              ]
+            : [
+                api.getStockTakingMatchedListByBranchId(
+                  clientCode: clientCode,
+                  branchId: loginBranchId,
+                  stockTakingDate: dateStr,
+                ),
+                api.getStockTakingUnmatchedListByBranchId(
+                  clientCode: clientCode,
+                  branchId: loginBranchId,
+                  stockTakingDate: dateStr,
+                ),
+              ],
+      );
       if (!mounted || req != _stockTakingReq) return;
 
       final seen = <String>{};
