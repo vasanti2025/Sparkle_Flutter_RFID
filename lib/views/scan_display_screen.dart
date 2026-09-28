@@ -194,6 +194,23 @@ class ScannedBulkItem {
   }
 }
 
+class _ItemSummaryAcc {
+  _ItemSummaryAcc(this.counter, this.category, this.product);
+  final String counter;
+  final String category;
+  final String product;
+  int totalQty = 0;
+  int matchQty = 0;
+  double totalGwt = 0;
+  double matchGwt = 0;
+  double totalNwt = 0;
+  double matchNwt = 0;
+  double totalSwt = 0;
+  double matchSwt = 0;
+  double totalMrp = 0;
+  double matchMrp = 0;
+}
+
 class ScanDisplayScreen extends StatefulWidget {
   const ScanDisplayScreen({super.key});
 
@@ -1282,7 +1299,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     catalog.onSave = _saveScanResults;
     catalog.onEmail = (dialogContext) {
       if (!mounted) return;
-      _showEmailReportDialog(dialogContext);
+      _openEmailReport(dialogContext);
     };
     catalog.onSelectMenu = (menu) {
       if (!mounted) return;
@@ -1591,6 +1608,10 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     );
   }
 
+  double _csvWeight(String raw) => double.tryParse(raw.trim()) ?? 0.0;
+
+  double _csvMrp(double raw) => raw.isFinite ? raw : 0.0;
+
   String _generateCsvString() {
     final buffer = StringBuffer();
     
@@ -1608,67 +1629,109 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     writeRow([
       "Counter Name", "Category", "Product",
       "Total Qty", "Match Qty", "Unmatch Qty",
-      "Total G.Wt", "Match G.Wt", "Unmatch G.Wt"
+      "Total G.Wt", "Match G.Wt", "Unmatch G.Wt",
+      "Total N.Wt", "Match N.Wt", "Unmatch N.Wt",
+      "Total S.Wt", "Match S.Wt", "Unmatch S.Wt",
+      "Total MRP", "Match MRP", "Unmatch MRP",
     ]);
 
-    final groups = <String, Map<String, dynamic>>{};
-    for (var item in _scannedItems) {
-      final key = "${item.counterName}_${item.category}_${item.productName}";
-      final g = groups.putIfAbsent(key, () => {
-        'counter': item.counterName,
-        'category': item.category,
-        'product': item.productName,
-        'totalQty': 0,
-        'matchQty': 0,
-        'totalGwt': 0.0,
-        'matchGwt': 0.0,
-      });
-      g['totalQty'] += 1;
-      final double gwt = double.tryParse(item.grossWeight) ?? 0.0;
-      g['totalGwt'] += gwt;
+    final groups = <String, _ItemSummaryAcc>{};
+    for (final item in _scannedItems) {
+      final key = '${item.counterName}_${item.category}_${item.productName}';
+      final g = groups.putIfAbsent(
+        key,
+        () => _ItemSummaryAcc(item.counterName, item.category, item.productName),
+      );
+      final gwt = _csvWeight(item.grossWeight);
+      final nwt = _csvWeight(item.netWeight);
+      final swt = _csvWeight(item.originalBulkItem.stoneWeight);
+      final mrp = _csvMrp(item.originalBulkItem.mrp);
+      g.totalQty++;
+      g.totalGwt += gwt;
+      g.totalNwt += nwt;
+      g.totalSwt += swt;
+      g.totalMrp += mrp;
       if (item.currentScannedStatus == 'Matched') {
-        g['matchQty'] += 1;
-        g['matchGwt'] += gwt;
+        g.matchQty++;
+        g.matchGwt += gwt;
+        g.matchNwt += nwt;
+        g.matchSwt += swt;
+        g.matchMrp += mrp;
       }
     }
 
-    int grandTotalQty = 0;
-    int grandMatchQty = 0;
-    int grandUnmatchQty = 0;
-    double grandTotalGwt = 0.0;
-    double grandMatchGwt = 0.0;
-    double grandUnmatchGwt = 0.0;
+    var grandTotalQty = 0;
+    var grandMatchQty = 0;
+    var grandUnmatchQty = 0;
+    var grandTotalGwt = 0.0;
+    var grandMatchGwt = 0.0;
+    var grandUnmatchGwt = 0.0;
+    var grandTotalNwt = 0.0;
+    var grandMatchNwt = 0.0;
+    var grandUnmatchNwt = 0.0;
+    var grandTotalSwt = 0.0;
+    var grandMatchSwt = 0.0;
+    var grandUnmatchSwt = 0.0;
+    var grandTotalMrp = 0.0;
+    var grandMatchMrp = 0.0;
+    var grandUnmatchMrp = 0.0;
 
-    groups.forEach((key, g) {
-      final int tQty = g['totalQty'];
-      final int mQty = g['matchQty'];
-      final int uQty = tQty - mQty;
-      final double tGwt = g['totalGwt'];
-      final double mGwt = g['matchGwt'];
-      final double uGwt = tGwt - mGwt;
+    for (final g in groups.values) {
+      final uQty = g.totalQty - g.matchQty;
+      final uGwt = g.totalGwt - g.matchGwt;
+      final uNwt = g.totalNwt - g.matchNwt;
+      final uSwt = g.totalSwt - g.matchSwt;
+      final uMrp = g.totalMrp - g.matchMrp;
 
       writeRow([
-        g['counter'], g['category'], g['product'],
-        tQty, mQty, uQty,
-        tGwt.toStringAsFixed(3),
-        mGwt.toStringAsFixed(3),
-        uGwt.toStringAsFixed(3)
+        g.counter, g.category, g.product,
+        g.totalQty, g.matchQty, uQty,
+        g.totalGwt.toStringAsFixed(3),
+        g.matchGwt.toStringAsFixed(3),
+        uGwt.toStringAsFixed(3),
+        g.totalNwt.toStringAsFixed(3),
+        g.matchNwt.toStringAsFixed(3),
+        uNwt.toStringAsFixed(3),
+        g.totalSwt.toStringAsFixed(3),
+        g.matchSwt.toStringAsFixed(3),
+        uSwt.toStringAsFixed(3),
+        g.totalMrp.toStringAsFixed(2),
+        g.matchMrp.toStringAsFixed(2),
+        uMrp.toStringAsFixed(2),
       ]);
 
-      grandTotalQty += tQty;
-      grandMatchQty += mQty;
+      grandTotalQty += g.totalQty;
+      grandMatchQty += g.matchQty;
       grandUnmatchQty += uQty;
-      grandTotalGwt += tGwt;
-      grandMatchGwt += mGwt;
+      grandTotalGwt += g.totalGwt;
+      grandMatchGwt += g.matchGwt;
       grandUnmatchGwt += uGwt;
-    });
+      grandTotalNwt += g.totalNwt;
+      grandMatchNwt += g.matchNwt;
+      grandUnmatchNwt += uNwt;
+      grandTotalSwt += g.totalSwt;
+      grandMatchSwt += g.matchSwt;
+      grandUnmatchSwt += uSwt;
+      grandTotalMrp += g.totalMrp;
+      grandMatchMrp += g.matchMrp;
+      grandUnmatchMrp += uMrp;
+    }
 
     writeRow([
       "TOTAL", "", "",
       grandTotalQty, grandMatchQty, grandUnmatchQty,
       grandTotalGwt.toStringAsFixed(3),
       grandMatchGwt.toStringAsFixed(3),
-      grandUnmatchGwt.toStringAsFixed(3)
+      grandUnmatchGwt.toStringAsFixed(3),
+      grandTotalNwt.toStringAsFixed(3),
+      grandMatchNwt.toStringAsFixed(3),
+      grandUnmatchNwt.toStringAsFixed(3),
+      grandTotalSwt.toStringAsFixed(3),
+      grandMatchSwt.toStringAsFixed(3),
+      grandUnmatchSwt.toStringAsFixed(3),
+      grandTotalMrp.toStringAsFixed(2),
+      grandMatchMrp.toStringAsFixed(2),
+      grandUnmatchMrp.toStringAsFixed(2),
     ]);
 
     buffer.writeln();
@@ -1712,19 +1775,36 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     return buffer.toString();
   }
 
-  void _showEmailReportDialog([BuildContext? dialogContext]) async {
-    final prefs = await SharedPreferences.getInstance();
-    List<String> savedEmails = prefs.getStringList('saved_emails') ?? [];
+  void _openEmailReport([BuildContext? dialogContext]) {
+    if (_showMenu && mounted) {
+      setState(() => _showMenu = false);
+    }
+    unawaited(_showEmailReportDialog(dialogContext));
+  }
 
+  Future<void> _showEmailReportDialog([BuildContext? dialogContext]) async {
     if (!mounted) return;
-    final host = dialogContext ?? context;
+    final host = (dialogContext != null && dialogContext.mounted)
+        ? dialogContext
+        : context;
     if (!host.mounted) return;
+
+    SharedPreferences? prefs;
+    List<String> savedEmails = const [];
+    try {
+      prefs = await SharedPreferences.getInstance();
+      savedEmails = prefs.getStringList('saved_emails') ?? [];
+    } catch (e) {
+      debugPrint('Email prefs load failed: $e');
+    }
+    if (!mounted || !host.mounted) return;
 
     String? selectedEmail;
     String newEmail = '';
     bool isSending = false;
     final s = context.sRead;
-    
+
+    try {
     showAppDialog(
       context: host,
       barrierDismissible: false,
@@ -1829,12 +1909,15 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
                           try {
                             // 1. Save email if new
-                            if (newEmail.trim().isNotEmpty && !savedEmails.contains(newEmail.trim())) {
-                              savedEmails.add(newEmail.trim());
-                              await prefs.setStringList('saved_emails', savedEmails);
+                            if (newEmail.trim().isNotEmpty &&
+                                !savedEmails.contains(newEmail.trim())) {
+                              savedEmails = [...savedEmails, newEmail.trim()];
+                              final store = prefs ?? await SharedPreferences.getInstance();
+                              await store.setStringList('saved_emails', savedEmails);
                             }
 
-                            // 2. Generate CSV
+                            // Let the sending spinner paint before CSV work.
+                            await Future<void>.delayed(Duration.zero);
                             final csvString = _generateCsvString();
                             final tempDir = await getTemporaryDirectory();
                             final file = File('${tempDir.path}/scan_report.csv');
@@ -1878,6 +1961,12 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         );
       },
     );
+    } catch (e) {
+      debugPrint('Email dialog failed: $e');
+      if (mounted) {
+        _showToast(s.failedWithMessage(e.toString()));
+      }
+    }
   }
 
   @override
@@ -3348,7 +3437,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         });
       },
       onScan: _toggleScanning,
-      onEmail: _showEmailReportDialog,
+      onEmail: _openEmailReport,
       onReset: _resetScanning,
       isScanning: _isScanning,
       showResume: _showResumeOnScanButton,
