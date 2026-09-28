@@ -377,6 +377,83 @@ class BulkItem {
     );
   }
 
+  /// Direct-key parse for stock-taking lists. Skips the case-insensitive
+  /// lookup used by [fromApi], which is too slow on 1k+ rows.
+  factory BulkItem.fromStockTaking(Map<dynamic, dynamic> json) {
+    String text(String key) {
+      final value = json[key];
+      if (value == null) return '';
+      final s = value.toString().trim();
+      if (s.isEmpty || s.toLowerCase() == 'null') return '';
+      return s;
+    }
+
+    int number(String key) => int.tryParse(text(key)) ?? 0;
+
+    final itemCode = text('ItemCode');
+    final rfidCode = text('RFIDCode');
+    final tidNumber = text('TIDNumber');
+    return BulkItem(
+      bulkItemId: number('Id'),
+      productName: text('ProductName'),
+      itemCode: itemCode,
+      rfid: rfidCode.isNotEmpty ? rfidCode : text('RFIDTag'),
+      grossWeight: text('GrossWeight'),
+      stoneWeight: text('TotalStoneWeight'),
+      diamondWeight: text('TotalDiamondWeight'),
+      netWeight: text('NetWeight'),
+      category: text('CategoryName'),
+      design: text('DesignName'),
+      purity: text('PurityName'),
+      makingPerGram: '',
+      makingPercent: '',
+      fixMaking: '',
+      fixWastage: '',
+      stoneAmount: '',
+      diamondAmount: '',
+      sku: text('SKU'),
+      epc: tidNumber,
+      vendor: '',
+      tid: tidNumber,
+      box: '',
+      designCode: '',
+      productCode: '',
+      imageUrl: text('Images'),
+      totalQty: number('Quantity'),
+      pcs: 0,
+      matchedPcs: 0,
+      totalGwt: 0,
+      matchGwt: 0,
+      totalStoneWt: 0,
+      matchStoneWt: 0,
+      totalNetWt: 0,
+      matchNetWt: 0,
+      unmatchedQty: 0,
+      matchedQty: 0,
+      unmatchedGrossWt: 0,
+      mrp: double.tryParse(text('MRP')) ?? 0,
+      counterName: text('CounterName'),
+      counterId: number('CounterId'),
+      boxId: 0,
+      boxName: text('BoxName'),
+      branchId: number('BranchId'),
+      branchName: text('BranchName'),
+      packetId: 0,
+      packetName: '',
+      scannedStatus: '',
+      categoryId: number('CategoryId'),
+      productId: number('ProductId'),
+      branchType: '',
+      designId: number('DesignId'),
+      isScanned: 0,
+      totalWt: 0,
+      categoryWt: '',
+      skuId: 0,
+      purityId: number('PurityId'),
+      status: text('Status'),
+    );
+  }
+
   /// Local-only row for bulk add / excel import (matches Kotlin defaults).
   factory BulkItem.local({
     required String category,

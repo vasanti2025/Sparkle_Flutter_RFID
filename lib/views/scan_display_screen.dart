@@ -805,6 +805,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       // Do not seed from stale prefs — that overwrote API names (e.g. 1007 → Main Branch).
       final picked = await showScanBranchCounterDialog(
         context: context,
+        showStart: true,
         initial: existing,
       );
       if (picked == null) return false;

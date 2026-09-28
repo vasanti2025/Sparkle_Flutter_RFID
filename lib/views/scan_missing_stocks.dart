@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:rfid_flutter/utils/app_fonts.dart';
 
@@ -18,6 +21,57 @@ import '../viewmodels/product_view_model.dart';
 import '../viewmodels/settings_view_model.dart';
 import 'widgets/scan_bottom_bar.dart';
 import 'widgets/scan_branch_counter_dialog.dart';
+
+final Map<String, List<BulkItem>> _missingStockMemory = {};
+
+/// Parsed on the caller. A background isolate copies the whole payload and
+/// makes a large list slower, not faster.
+List<BulkItem> parseStockTakingRows(List<dynamic> raw) {
+  final out = <BulkItem>[];
+  final seen = <String>{};
+  for (final row in raw) {
+    if (row is! Map) continue;
+    final item = BulkItem.fromStockTaking(row);
+    final status = item.status.toLowerCase();
+    if (status == 'match' || status == 'matched') continue;
+    final key = (item.epc.isNotEmpty
+            ? item.epc
+            : (item.rfid.isNotEmpty ? item.rfid : item.itemCode))
+        .trim()
+        .toUpperCase();
+    if (key.isEmpty || !seen.add(key)) continue;
+    out.add(item);
+  }
+  return out;
+}
+
+Future<File> _missingStockCacheFile(String key) async {
+  final dir = await getApplicationSupportDirectory();
+  final safe = key.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+  return File('${dir.path}/missing_stock_$safe.json');
+}
+
+Future<List<BulkItem>?> _readMissingStockCache(String key) async {
+  try {
+    final file = await _missingStockCacheFile(key);
+    if (!await file.exists()) return null;
+    final decoded = jsonDecode(await file.readAsString());
+    if (decoded is! List) return null;
+    return [
+      for (final row in decoded)
+        if (row is Map) BulkItem.fromMap(Map<String, dynamic>.from(row)),
+    ];
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<void> _writeMissingStockCache(String key, List<BulkItem> items) async {
+  try {
+    final file = await _missingStockCacheFile(key);
+    await file.writeAsString(jsonEncode([for (final item in items) item.toMap()]));
+  } catch (_) {}
+}
 
 class _MissingRow {
   _MissingRow(this.item);
@@ -66,7 +120,8 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
   int _branchId = 0;
   int _counterId = 0;
   String _counterName = '';
-  bool _branchPromptOpen = false;
+  RfidDeviceAssignment? _scanLocation;
+  bool _locationPromptOpen = false;
   int _power = 30;
   int _lastTriggerMs = 0;
   int _lastUiMs = 0;
@@ -121,7 +176,11 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
       if (_branchId <= 0) _branchId = emp?.defaultBranchId ?? 0;
       _branchName = (emp?.branchName ?? '').trim();
       if (_branchName.isEmpty && _branchId > 0) _branchName = '$_branchId';
-      return _branchId > 0;
+      if (_branchId <= 0) {
+        if (promptIfMissing) await _alertAssignBranchFromSettings();
+        return false;
+      }
+      return true;
     }
 
     await settings.ensureDeviceId();
@@ -130,7 +189,7 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
 
     final assigned = settings.assignedBranchesForDevice;
     if (!settings.hasDeviceAssignments || assigned.isEmpty) {
-      if (promptIfMissing) await _alertSelectWholesaleFirst();
+      if (promptIfMissing) await _alertAssignBranchFromSettings();
       _branchId = 0;
       _branchName = '';
       return false;
@@ -151,17 +210,7 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
       }
     }
 
-    if (match == null) {
-      if (!promptIfMissing) {
-        _branchId = 0;
-        _branchName = '';
-        return false;
-      }
-      final picked = await _promptSelectAssignedBranch();
-      if (picked == null || !mounted) return false;
-      _applyLocation(picked);
-      return _branchId > 0 || _branchName.isNotEmpty;
-    }
+    match ??= assigned.first;
 
     _branchId = match.id;
     _branchName = match.name.trim().isNotEmpty ? match.name.trim() : '${match.id}';
@@ -178,14 +227,17 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
     return true;
   }
 
-  Future<void> _alertSelectWholesaleFirst() async {
+  Future<void> _alertAssignBranchFromSettings() async {
     if (!mounted) return;
     final s = context.sRead;
     await showAppDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(s.wholesaleOption, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
-        content: Text(s.scanAddWholesaleBranchCounter, style: AppFonts.poppins(fontSize: 14)),
+        title: Text(s.selectBranch, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
+        content: Text(
+          s.pleaseAssignBranchFromSettings,
+          style: AppFonts.poppins(fontSize: 14),
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: Text(s.ok)),
         ],
@@ -193,88 +245,61 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
     );
   }
 
-  Future<RfidDeviceAssignment?> _promptSelectAssignedBranch() async {
-    if (!mounted || _branchPromptOpen) return null;
-    _branchPromptOpen = true;
-    try {
-      final s = context.sRead;
-      final go = await showAppDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(s.selectBranch, style: AppFonts.poppins(fontWeight: FontWeight.bold)),
-          content: Text(s.pleaseSelectBranch, style: AppFonts.poppins(fontSize: 14)),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(s.cancel)),
-            TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(s.ok)),
-          ],
-        ),
-      );
-      if (go != true || !mounted) return null;
-      return showScanBranchCounterDialog(context: context);
-    } finally {
-      _branchPromptOpen = false;
-    }
-  }
-
-  Future<void> _onBranchBarTap() async {
-    if (_saving || _scanning) return;
+  void _applySavedBranch() {
+    if (_branchId > 0 || _branchName.isNotEmpty) return;
     final pref = context.read<PrefService>();
-    if (!pref.isWholesaleLoginUser()) return;
-    final picked = await showScanBranchCounterDialog(
-      context: context,
-      initial: (_branchId > 0 || _branchName.isNotEmpty)
-          ? RfidDeviceAssignment(
-              branchId: _branchId,
-              branchName: _branchName,
-              counterId: _counterId,
-              counterName: _counterName,
-            )
-          : null,
-    );
-    if (picked == null || !mounted) return;
-    _applyLocation(picked);
-    await _loadMissingStocks(skipBranchPrompt: true);
+    if (pref.isWholesaleLoginUser()) {
+      final id = pref.getWholesaleBranchId();
+      final name = pref.getWholesaleBranchName().trim();
+      if (id <= 0 && name.isEmpty) return;
+      _branchId = id;
+      _branchName = name.isNotEmpty ? name : '$id';
+      _counterId = pref.getWholesaleCounterId();
+      _counterName = pref.getWholesaleCounterName().trim();
+      return;
+    }
+    final emp = context.read<DashboardViewModel>().employee;
+    _branchId = pref.getBranchId();
+    if (_branchId <= 0) _branchId = emp?.defaultBranchId ?? 0;
+    _branchName = (emp?.defaultBranch ?? emp?.branchName ?? '').trim();
+    if (_branchName.isEmpty && _branchId > 0) _branchName = '$_branchId';
   }
 
-  Future<void> _pickStockDate() async {
-    if (_saving) return;
-    if (_scanning) await _stopScan();
+  void _publishRows(List<BulkItem> items) {
+    final next = <_MissingRow>[for (final item in items) _MissingRow(item)];
+    _rebuildLookup(next);
     if (!mounted) return;
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final picked = await showDatePicker(
-      context: context,
-      helpText: context.sRead.selectDate,
-      initialDate: _stockDate.isAfter(today) ? today : _stockDate,
-      firstDate: DateTime(2020),
-      lastDate: today,
-    );
-    if (picked == null || !mounted) return;
-    final day = DateTime(picked.year, picked.month, picked.day);
-    if (day == _stockDate) return;
-    setState(() => _stockDate = day);
-    await _loadMissingStocks(skipBranchPrompt: true);
+    setState(() {
+      _rows
+        ..clear()
+        ..addAll(next);
+      _matchedKeys.clear();
+      _loading = false;
+      _error = null;
+    });
   }
 
   Future<void> _loadMissingStocks({bool skipBranchPrompt = false}) async {
     final req = ++_loadReq;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    _applySavedBranch();
     final needBranch = _branchId <= 0 && _branchName.isEmpty;
-    if (!skipBranchPrompt || needBranch) {
+    if (needBranch) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
       final ok = await _ensureWholesaleBranch(promptIfMissing: !skipBranchPrompt);
       if (!mounted || req != _loadReq) return;
       if (!ok) {
         setState(() {
           _loading = false;
           _rows.clear();
-          _error = context.sRead.pleaseSelectBranch;
+          _error = context.sRead.pleaseAssignBranchFromSettings;
         });
         return;
       }
     }
+
     final emp = context.read<DashboardViewModel>().employee;
     final clientCode = emp?.clientCode ?? '';
     if (clientCode.isEmpty) {
@@ -286,21 +311,41 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
       return;
     }
 
+    final date = DateFormat('yyyy-MM-dd').format(_stockDate);
+    final cacheKey =
+        '$clientCode|$_branchId|${_branchName.trim().toLowerCase()}|$date';
+    final memory = _missingStockMemory[cacheKey];
+    if (memory != null) {
+      _publishRows(memory);
+    } else {
+      final disk = await _readMissingStockCache(cacheKey);
+      if (!mounted || req != _loadReq) return;
+      if (disk != null) {
+        _missingStockMemory[cacheKey] = disk;
+        _publishRows(disk);
+      } else if (_rows.isEmpty) {
+        setState(() {
+          _loading = true;
+          _error = null;
+        });
+      }
+    }
+
     try {
       final api = context.read<ApiService>();
-      final date = DateFormat('yyyy-MM-dd').format(_stockDate);
       final branchAddress = await api.resolveStockTakingBranchAddress(
         clientCode: clientCode,
         branchId: _branchId,
         branchName: _branchName,
       );
       if (branchAddress.isEmpty) {
-        if (!mounted || req != _loadReq) return;
+        if (!mounted || req != _loadReq || _rows.isNotEmpty) return;
         setState(() {
           _loading = false;
           _rows.clear();
-          _error = context.sRead.pleaseSelectBranch;
+          _error = context.sRead.pleaseAssignBranchFromSettings;
         });
+        await _alertAssignBranchFromSettings();
         return;
       }
       final raw = await api.getStockTakingUnmatchedList(
@@ -308,30 +353,14 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
         branchAddress: branchAddress,
         stockTakingDate: date,
       );
-      final next = <_MissingRow>[];
-      final seen = <String>{};
-      for (final row in raw) {
-        if (row is! Map) continue;
-        final item = BulkItem.fromApi(Map<String, dynamic>.from(row));
-        final key = (item.epc.isNotEmpty
-                ? item.epc
-                : (item.rfid.isNotEmpty ? item.rfid : item.itemCode))
-            .trim()
-            .toUpperCase();
-        if (key.isEmpty || !seen.add(key)) continue;
-        next.add(_MissingRow(item));
-      }
       if (!mounted || req != _loadReq) return;
-      _rebuildLookup(next);
-      setState(() {
-        _rows
-          ..clear()
-          ..addAll(next);
-        _matchedKeys.clear();
-        _loading = false;
-      });
+      if (_scanning || _matchedKeys.isNotEmpty) return;
+      final items = parseStockTakingRows(raw);
+      _missingStockMemory[cacheKey] = items;
+      unawaited(_writeMissingStockCache(cacheKey, items));
+      _publishRows(items);
     } catch (e) {
-      if (!mounted || req != _loadReq) return;
+      if (!mounted || req != _loadReq || _rows.isNotEmpty) return;
       setState(() {
         _rows.clear();
         _matchedKeys.clear();
@@ -386,16 +415,7 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
   }
 
   void _toggleScan() {
-    if (_saving || _loading) return;
-    if (_branchId <= 0 && _branchName.isEmpty) {
-      unawaited(() async {
-        final ok = await _ensureWholesaleBranch(promptIfMissing: true);
-        if (!ok || !mounted) return;
-        if (_rows.isEmpty) await _loadMissingStocks(skipBranchPrompt: true);
-        if (mounted && !_scanning) unawaited(_startScan());
-      }());
-      return;
-    }
+    if (_saving) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastTriggerMs < 300) return;
     _lastTriggerMs = now;
@@ -403,11 +423,58 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
     if (_scanning) {
       unawaited(_stopScan());
     } else {
-      unawaited(_startScan());
+      unawaited(_startScanAfterCounter());
+    }
+  }
+
+  /// Same branch/counter popup as Scan Display, then start inventory on that counter.
+  Future<void> _startScanAfterCounter() async {
+    if (!await _ensureCounterForScan()) return;
+    if (!mounted || _scanning) return;
+    await _startScan();
+  }
+
+  Future<bool> _ensureCounterForScan() async {
+    final pref = context.read<PrefService>();
+    if (!pref.isWholesaleLoginUser()) return true;
+    final existing = _scanLocation;
+    if (existing != null && existing.isValid) return true;
+    if (_locationPromptOpen) return false;
+    _locationPromptOpen = true;
+    try {
+      final picked = await showScanBranchCounterDialog(
+        context: context,
+        showStart: true,
+        initial: existing ??
+            ((_branchId > 0 || _branchName.isNotEmpty)
+                ? RfidDeviceAssignment(
+                    branchId: _branchId,
+                    branchName: _branchName,
+                    counterId: _counterId,
+                    counterName: _counterName,
+                  )
+                : null),
+      );
+      if (picked == null || !picked.isValid || !mounted) return false;
+      final branchChanged = picked.branchId != _branchId ||
+          picked.branchName.trim().toLowerCase() != _branchName.trim().toLowerCase();
+      _applyLocation(picked);
+      _scanLocation = picked;
+      if (branchChanged || _rows.isEmpty) {
+        await _loadMissingStocks(skipBranchPrompt: true);
+        if (!mounted) return false;
+      }
+      return true;
+    } finally {
+      _locationPromptOpen = false;
     }
   }
 
   Future<void> _startScan() async {
+    if (_loading) {
+      _toast(context.sRead.pleaseWaitItemsLoading);
+      return;
+    }
     if (_rows.isEmpty) {
       _toast(context.sRead.noMissingStocks);
       return;
@@ -559,57 +626,23 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
               overflow: TextOverflow.ellipsis,
               style: AppFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600),
             ),
-            actions: [
-              TextButton(
-                onPressed: _saving ? null : () => unawaited(_pickStockDate()),
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.calendar_today, color: Colors.white, size: 16),
-                    const SizedBox(width: 6),
-                    Text(
-                      DateFormat('dd-MM-yyyy').format(_stockDate),
-                      style: AppFonts.poppins(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
           ),
         ),
       ),
       body: Column(
         children: [
-          GestureDetector(
-            onTap: _onBranchBarTap,
-            child: Container(
-              width: double.infinity,
-              color: const Color(0xFFF5F3F3),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _branchName.isNotEmpty
-                          ? '${s.branch}: $_branchName'
-                          : s.pleaseSelectBranch,
-                      style: AppFonts.poppins(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF3B363E),
-                      ),
-                    ),
-                  ),
-                  const Icon(Icons.arrow_drop_down, color: Color(0xFF3B363E)),
-                ],
+          Container(
+            width: double.infinity,
+            color: const Color(0xFFF5F3F3),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Text(
+              _branchName.isNotEmpty
+                  ? '${s.branch}: $_branchName'
+                  : s.pleaseSelectBranch,
+              style: AppFonts.poppins(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF3B363E),
               ),
             ),
           ),
@@ -628,7 +661,7 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
         onSave: _save,
         onScan: _toggleScan,
         isScanning: _scanning,
-        scanEnabled: !_saving && !_loading,
+        scanEnabled: !_saving,
         saveEnabled: !_saving && !_loading && _rows.isNotEmpty,
       ),
     );
@@ -675,7 +708,8 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
         ),
       );
     }
-    if (_rows.isEmpty) {
+    final unmatched = [for (final row in _rows) if (!row.matched) row];
+    if (unmatched.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -691,8 +725,8 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
     return Stack(
       children: [
         ListView.builder(
-          itemCount: _rows.length,
-          itemBuilder: (context, i) => _itemRow(_rows[i]),
+          itemCount: unmatched.length,
+          itemBuilder: (context, i) => _itemRow(unmatched[i]),
         ),
         if (_saving)
           const Positioned.fill(

@@ -594,6 +594,7 @@ class AppStrings {
   String get counterName => _t('counterName');
   String get selectCounter => _t('selectCounter');
   String get pleaseSelectBranch => _t('pleaseSelectBranch');
+  String get pleaseAssignBranchFromSettings => _t('pleaseAssignBranchFromSettings');
   String get pleaseSelectCounter => _t('pleaseSelectCounter');
   String get pleaseEnterDeviceId => _t('pleaseEnterDeviceId');
   String get wholesaleSaved => _t('wholesaleSaved');
@@ -1401,6 +1402,7 @@ class AppStrings {
       'counterId': 'Counter ID',
       'selectCounter': 'Select Counter',
       'pleaseSelectBranch': 'Please select a branch.',
+      'pleaseAssignBranchFromSettings': 'Please assign a branch from Settings.',
       'pleaseSelectCounter': 'Please select a counter.',
       'pleaseEnterDeviceId': 'Please enter a device ID.',
       'wholesaleSaved': 'Wholesale option saved',
@@ -1935,6 +1937,7 @@ class AppStrings {
       'counterId': 'काउंटर ID',
       'selectCounter': 'काउंटर चुनें',
       'pleaseSelectBranch': 'कृपया एक शाखा चुनें।',
+      'pleaseAssignBranchFromSettings': 'कृपया सेटिंग्स से एक शाखा असाइन करें।',
       'pleaseSelectCounter': 'कृपया एक काउंटर चुनें।',
       'pleaseEnterDeviceId': 'कृपया डिवाइस ID दर्ज करें।',
       'wholesaleSaved': 'होलसेल विकल्प सेव हो गया',
@@ -2495,6 +2498,7 @@ class AppStrings {
       'counterId': 'معرف العداد',
       'selectCounter': 'اختر العداد',
       'pleaseSelectBranch': 'يرجى اختيار فرع.',
+      'pleaseAssignBranchFromSettings': 'يرجى تعيين فرع من الإعدادات.',
       'pleaseSelectCounter': 'يرجى اختيار عداد.',
       'pleaseEnterDeviceId': 'يرجى إدخال معرف الجهاز.',
       'wholesaleSaved': 'تم حفظ خيار الجملة',

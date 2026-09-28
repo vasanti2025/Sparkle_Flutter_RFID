@@ -69,8 +69,10 @@ class ApiLoggingInterceptor extends Interceptor {
   }
 
   Object? _logBody(String path, Map<String, dynamic> extra, Object? data) {
+    final lowerPath = path.toLowerCase();
     if (extra['skip_api_log_body'] == true ||
-        path.toLowerCase().contains('getallstockverificationbysession')) {
+        lowerPath.contains('getallstockverificationbysession') ||
+        lowerPath.contains('getstocktaking')) {
       if (data == null) return null;
       if (data is String) return '[omitted ${data.length} chars]';
       if (data is List) return '[omitted list ${data.length}]';

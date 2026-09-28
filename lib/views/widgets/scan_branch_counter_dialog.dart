@@ -10,18 +10,26 @@ import '../../viewmodels/settings_view_model.dart';
 Future<RfidDeviceAssignment?> showScanBranchCounterDialog({
   required BuildContext context,
   RfidDeviceAssignment? initial,
+  bool showStart = true,
 }) {
   return showAppDialog<RfidDeviceAssignment>(
     context: context,
     barrierDismissible: false,
-    builder: (_) => _ScanBranchCounterDialog(initial: initial),
+    builder: (_) => _ScanBranchCounterDialog(
+      initial: initial,
+      showStart: showStart,
+    ),
   );
 }
 
 class _ScanBranchCounterDialog extends StatefulWidget {
   final RfidDeviceAssignment? initial;
+  final bool showStart;
 
-  const _ScanBranchCounterDialog({this.initial});
+  const _ScanBranchCounterDialog({
+    this.initial,
+    this.showStart = true,
+  });
 
   @override
   State<_ScanBranchCounterDialog> createState() => _ScanBranchCounterDialogState();
@@ -120,6 +128,7 @@ class _ScanBranchCounterDialogState extends State<_ScanBranchCounterDialog> {
     );
     if (picked == null || !mounted) return;
     setState(() => _applyBranch(picked, vm));
+    if (!widget.showStart && _counter != null) _confirm();
   }
 
   Future<void> _pickCounter() async {
@@ -147,6 +156,7 @@ class _ScanBranchCounterDialogState extends State<_ScanBranchCounterDialog> {
     );
     if (picked == null || !mounted) return;
     setState(() => _counter = picked);
+    if (!widget.showStart) _confirm();
   }
 
   void _confirm() {
@@ -222,7 +232,7 @@ class _ScanBranchCounterDialogState extends State<_ScanBranchCounterDialog> {
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: Text(s.cancel)),
-        TextButton(onPressed: _confirm, child: Text(s.start)),
+        if (widget.showStart) TextButton(onPressed: _confirm, child: Text(s.start)),
       ],
     );
   }
