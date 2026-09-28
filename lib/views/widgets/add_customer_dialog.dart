@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../l10n/l10n_extension.dart';
+import '../../services/country_state_service.dart';
 import '../../utils/app_dropdown.dart';
 
 /// Add Customer Profile dialog — validation aligned with Sparkle
@@ -29,18 +31,17 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
   final _gstCtrl = TextEditingController();
   final _streetCtrl = TextEditingController();
   final _cityCtrl = TextEditingController();
+  final _countryManualCtrl = TextEditingController();
+  final _stateManualCtrl = TextEditingController();
 
-  String _selectedCountry = 'India';
-  String _selectedState = 'Maharashtra';
+  String? _selectedCountry;
+  String? _selectedState;
+  List<String> _countries = const [];
+  List<String> _states = const [];
+  bool _loadingCountries = true;
+  bool _loadingStates = false;
+  bool _useManualLocation = false;
 
-  final List<String> _countries = ['India', 'USA', 'UK', 'Canada'];
-  final List<String> _states = [
-    'Andhra Pradesh', 'Bihar', 'Goa', 'Gujarat', 'Karnataka',
-    'Kerala', 'Maharashtra', 'Rajasthan', 'Tamil Nadu', 'Telangana'
-  ];
-
-  // Same patterns as Sparkle AddCustomerDialog.
-  static final _phoneRe = RegExp(r'^[0-9]{10}$');
   static final _emailRe = RegExp(
     r'^[a-zA-Z0-9_+&*-]+(?:\.[a-zA-Z0-9_+&*-]+)*@(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,7}$',
   );
@@ -51,6 +52,13 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
   static final _nameDigitRe = RegExp(r'\d');
 
   @override
+  void initState() {
+    super.initState();
+    _countryManualCtrl.addListener(_onManualCountryChanged);
+    _loadCountries();
+  }
+
+  @override
   void dispose() {
     _nameCtrl.dispose();
     _phoneCtrl.dispose();
@@ -59,7 +67,119 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
     _gstCtrl.dispose();
     _streetCtrl.dispose();
     _cityCtrl.dispose();
+    _countryManualCtrl.dispose();
+    _stateManualCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadCountries() async {
+    setState(() {
+      _loadingCountries = true;
+      _useManualLocation = false;
+    });
+    try {
+      final countries = await CountryStateService.fetchCountries();
+      if (!mounted) return;
+      if (countries.isEmpty) {
+        setState(() {
+          _loadingCountries = false;
+          _useManualLocation = true;
+        });
+        return;
+      }
+      final preferred = countries.contains('India') ? 'India' : countries.first;
+      setState(() {
+        _countries = countries;
+        _selectedCountry = preferred;
+        _loadingCountries = false;
+      });
+      _clipMobileToRule();
+      await _loadStates(preferred);
+    } catch (e) {
+      debugPrint('AddCustomer loadCountries: $e');
+      if (!mounted) return;
+      setState(() {
+        _loadingCountries = false;
+        _useManualLocation = true;
+      });
+    }
+  }
+
+  Future<void> _loadStates(String country) async {
+    setState(() {
+      _loadingStates = true;
+      _states = const [];
+      _selectedState = null;
+    });
+    try {
+      final states = await CountryStateService.fetchStates(country);
+      if (!mounted) return;
+      String? selected;
+      if (states.isNotEmpty) {
+        selected = country == 'India' && states.contains('Maharashtra')
+            ? 'Maharashtra'
+            : states.first;
+      }
+      setState(() {
+        _states = states;
+        _selectedState = selected;
+        _loadingStates = false;
+      });
+      _clipMobileToRule();
+    } catch (e) {
+      debugPrint('AddCustomer loadStates: $e');
+      if (!mounted) return;
+      setState(() {
+        _states = const [];
+        _selectedState = null;
+        _loadingStates = false;
+      });
+    }
+  }
+
+  String _countryForSave() {
+    if (_useManualLocation) return _countryManualCtrl.text.trim();
+    return _selectedCountry?.trim() ?? '';
+  }
+
+  String _stateForSave() {
+    if (_useManualLocation) return _stateManualCtrl.text.trim();
+    return _selectedState?.trim() ?? '';
+  }
+
+  _MobileRule _mobileRule() {
+    return _MobileRule.forLocation(_countryForSave(), _stateForSave());
+  }
+
+  void _onManualCountryChanged() {
+    if (!_useManualLocation) return;
+    _clipMobileToRule();
+    if (mounted) setState(() {});
+  }
+
+  void _clipMobileToRule() {
+    final max = _mobileRule().max;
+    final phone = _phoneCtrl.text;
+    if (phone.length > max) {
+      _phoneCtrl.value = TextEditingValue(
+        text: phone.substring(0, max),
+        selection: TextSelection.collapsed(offset: max),
+      );
+    }
+  }
+
+  String? _validateMobile(String? value) {
+    final phone = value?.trim() ?? '';
+    if (phone.isEmpty) return context.s.validationMobileRequired;
+    final rule = _mobileRule();
+    if (!RegExp(r'^\d+$').hasMatch(phone) ||
+        phone.length < rule.min ||
+        phone.length > rule.max) {
+      return rule.min == rule.max
+          ? 'Enter a valid ${rule.min}-digit mobile number'
+          : 'Enter a valid ${rule.min}-${rule.max} digit mobile number';
+    }
+    return null;
   }
 
   @override
@@ -122,21 +242,15 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
                       ),
                       const SizedBox(height: 10),
                       _buildTextField(
+                        key: ValueKey('mobile-${_mobileRule().min}-${_mobileRule().max}'),
                         controller: _phoneCtrl,
                         hintText: s.fieldMobileNumber,
                         keyboardType: TextInputType.phone,
                         inputFormatters: [
                           FilteringTextInputFormatter.digitsOnly,
-                          LengthLimitingTextInputFormatter(10),
+                          LengthLimitingTextInputFormatter(_mobileRule().max),
                         ],
-                        validator: (v) {
-                          final phone = v?.trim() ?? '';
-                          if (phone.isEmpty) return s.validationMobileRequired;
-                          if (!_phoneRe.hasMatch(phone)) {
-                            return s.validationMobileDigits;
-                          }
-                          return null;
-                        },
+                        validator: _validateMobile,
                       ),
                       const SizedBox(height: 10),
                       _buildTextField(
@@ -195,26 +309,11 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
                       const SizedBox(height: 10),
 
                       Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: _buildDropdownField(
-                              value: _selectedCountry,
-                              items: _countries,
-                              onChanged: (v) {
-                                if (v != null) setState(() => _selectedCountry = v);
-                              },
-                            ),
-                          ),
+                          Expanded(child: _buildCountryField()),
                           const SizedBox(width: 8),
-                          Expanded(
-                            child: _buildDropdownField(
-                              value: _selectedState,
-                              items: _states,
-                              onChanged: (v) {
-                                if (v != null) setState(() => _selectedState = v);
-                              },
-                            ),
-                          ),
+                          Expanded(child: _buildStateField()),
                         ],
                       ),
                       const SizedBox(height: 10),
@@ -274,6 +373,12 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
                       child: ElevatedButton(
                         onPressed: () {
                           if (_formKey.currentState?.validate() ?? false) {
+                            if (_countryForSave().isEmpty) return;
+                            if (!_useManualLocation &&
+                                _states.isNotEmpty &&
+                                _stateForSave().isEmpty) {
+                              return;
+                            }
                             final names = _nameCtrl.text.trim().split(RegExp(r'\s+'));
                             final first = names.first;
                             final last =
@@ -288,8 +393,8 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
                               'GstNo': _gstCtrl.text.trim().toUpperCase(),
                               'PerAddStreet': _streetCtrl.text.trim(),
                               'City': _cityCtrl.text.trim(),
-                              'CurrAddState': _selectedState,
-                              'Country': _selectedCountry,
+                              'CurrAddState': _stateForSave(),
+                              'Country': _countryForSave(),
                             };
                             widget.onSave(req);
                           }
@@ -321,6 +426,7 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
   }
 
   Widget _buildTextField({
+    Key? key,
     required TextEditingController controller,
     required String hintText,
     TextInputType keyboardType = TextInputType.text,
@@ -329,6 +435,7 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
     String? Function(String?)? validator,
   }) {
     return TextFormField(
+      key: key,
       controller: controller,
       keyboardType: keyboardType,
       textCapitalization: textCapitalization,
@@ -351,25 +458,157 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
     );
   }
 
-  Widget _buildDropdownField({
-    required String value,
-    required List<String> items,
-    required Function(String?) onChanged,
+  Widget _buildCountryField() {
+    if (_useManualLocation) {
+      return _buildTextField(
+        controller: _countryManualCtrl,
+        hintText: 'Country *',
+        validator: (v) {
+          if (v == null || v.trim().isEmpty) return 'Please select country';
+          return null;
+        },
+      );
+    }
+    return FormField<String>(
+      validator: (_) {
+        if (_loadingCountries) return 'Loading countries…';
+        if (_countryForSave().isEmpty) return 'Please select country';
+        return null;
+      },
+      builder: (field) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildPickerBox(
+              label: _loadingCountries
+                  ? 'Loading countries…'
+                  : (_selectedCountry ?? 'Country *'),
+              hint: _selectedCountry == null,
+              enabled: !_loadingCountries && _countries.isNotEmpty,
+              loading: _loadingCountries,
+              onTap: () async {
+                final picked = await showScrollableOptionSheet<String>(
+                  context: context,
+                  title: 'Country',
+                  options: _countries,
+                  labelOf: (v) => v,
+                  searchable: true,
+                );
+                if (picked == null || !mounted) return;
+                setState(() => _selectedCountry = picked);
+                field.didChange(picked);
+                _clipMobileToRule();
+                await _loadStates(picked);
+              },
+            ),
+            if (field.hasError)
+              Padding(
+                padding: const EdgeInsets.only(left: 12, top: 4),
+                child: Text(
+                  field.errorText!,
+                  style: GoogleFonts.poppins(fontSize: 12, color: Colors.red[700]),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildStateField() {
+    if (_useManualLocation) {
+      return _buildTextField(
+        controller: _stateManualCtrl,
+        hintText: 'State',
+      );
+    }
+    final noStates =
+        !_loadingStates && _states.isEmpty && _selectedCountry != null;
+    return FormField<String>(
+      validator: (_) {
+        if (_loadingStates) return 'Loading states…';
+        if (!noStates && _states.isNotEmpty && _stateForSave().isEmpty) {
+          return 'Please select state';
+        }
+        return null;
+      },
+      builder: (field) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildPickerBox(
+              label: _loadingStates
+                  ? 'Loading states…'
+                  : (_selectedState ?? (noStates ? 'No states' : 'State *')),
+              hint: _selectedState == null,
+              enabled: !_loadingStates && _states.isNotEmpty,
+              loading: _loadingStates,
+              onTap: () async {
+                final picked = await showScrollableOptionSheet<String>(
+                  context: context,
+                  title: 'State',
+                  options: _states,
+                  labelOf: (v) => v,
+                  searchable: true,
+                );
+                if (picked == null || !mounted) return;
+                setState(() => _selectedState = picked);
+                field.didChange(picked);
+                _clipMobileToRule();
+              },
+            ),
+            if (field.hasError)
+              Padding(
+                padding: const EdgeInsets.only(left: 12, top: 4),
+                child: Text(
+                  field.errorText!,
+                  style: GoogleFonts.poppins(fontSize: 12, color: Colors.red[700]),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildPickerBox({
+    required String label,
+    required bool hint,
+    required bool enabled,
+    required bool loading,
+    required VoidCallback onTap,
   }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF5F5F5),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: value,
-          isExpanded: true,
-          menuMaxHeight: kDropdownMenuMaxHeight,
-          style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
-          items: items.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-          onChanged: onChanged,
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      child: Container(
+        height: 42,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF5F5F5),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  color: hint ? Colors.grey[500] : Colors.black,
+                ),
+              ),
+            ),
+            if (loading)
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              Icon(Icons.arrow_drop_down, color: Colors.grey[700]),
+          ],
         ),
       ),
     );
@@ -386,5 +625,97 @@ class _UpperCaseTextFormatter extends TextInputFormatter {
       text: newValue.text.toUpperCase(),
       selection: newValue.selection,
     );
+  }
+}
+
+/// National mobile digit lengths by country (Countries Now names / aliases).
+/// State is accepted so rules can vary by state later; India is 10 in every state.
+class _MobileRule {
+  final int min;
+  final int max;
+  const _MobileRule(this.min, [int? max]) : max = max ?? min;
+
+  static _MobileRule forLocation(String country, String state) {
+    final c = country.trim().toLowerCase();
+    if (c.isEmpty) return const _MobileRule(10);
+
+    switch (c) {
+      case 'india':
+      case 'in':
+        return const _MobileRule(10);
+      case 'united kingdom':
+      case 'uk':
+      case 'great britain':
+      case 'england':
+      case 'scotland':
+      case 'wales':
+      case 'northern ireland':
+        return const _MobileRule(11);
+      case 'united states':
+      case 'united states of america':
+      case 'usa':
+      case 'us':
+      case 'canada':
+      case 'pakistan':
+      case 'bangladesh':
+      case 'nepal':
+      case 'saudi arabia':
+      case 'egypt':
+      case 'nigeria':
+      case 'mexico':
+      case 'argentina':
+      case 'colombia':
+      case 'philippines':
+      case 'south korea':
+      case 'korea':
+      case 'japan':
+      case 'italy':
+      case 'spain':
+      case 'russia':
+      case 'turkey':
+      case 'south africa':
+        return const _MobileRule(10);
+      case 'china':
+        return const _MobileRule(11);
+      case 'united arab emirates':
+      case 'uae':
+      case 'australia':
+      case 'france':
+      case 'new zealand':
+      case 'sri lanka':
+      case 'thailand':
+      case 'malaysia':
+      case 'israel':
+      case 'jordan':
+      case 'kenya':
+      case 'ghana':
+      case 'morocco':
+      case 'chile':
+      case 'peru':
+        return const _MobileRule(9);
+      case 'singapore':
+      case 'hong kong':
+      case 'qatar':
+      case 'kuwait':
+      case 'oman':
+      case 'bahrain':
+      case 'denmark':
+      case 'norway':
+        return const _MobileRule(8);
+      case 'indonesia':
+        return const _MobileRule(10, 12);
+      case 'brazil':
+        return const _MobileRule(10, 11);
+      case 'vietnam':
+        return const _MobileRule(9, 10);
+      case 'ireland':
+      case 'sweden':
+      case 'finland':
+        return const _MobileRule(9, 10);
+      case 'germany':
+        return const _MobileRule(10, 11);
+      default:
+        return const _MobileRule(7, 15);
+    }
   }
 }
