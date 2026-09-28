@@ -11,6 +11,7 @@ import '../services/api_service.dart';
 import '../services/pref_service.dart';
 import '../services/face_recognition_service.dart';
 import '../utils/camera_permission_util.dart';
+import '../utils/user_facing_error.dart';
 
 class AddFaceScreen extends StatefulWidget {
   const AddFaceScreen({super.key});
@@ -340,7 +341,14 @@ class _AddFaceScreenState extends State<AddFaceScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(s.errorWithMessage(e)), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text(
+              UserFacingError.isNetwork(e)
+                  ? s.noInternetConnection
+                  : s.errorWithMessage(UserFacingError.of(e)),
+            ),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {

@@ -4,6 +4,7 @@ import '../l10n/l10n_extension.dart';
 import '../services/pref_service.dart';
 import '../viewmodels/dashboard_view_model.dart';
 import '../viewmodels/login_view_model.dart';
+import '../utils/user_facing_error.dart';
 import '../session_vm_hooks.dart' deferred as vm_hooks;
 import 'widgets/curved_header_painter.dart';
 
@@ -106,7 +107,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(err),
+          content: Text(UserFacingError.fromMessage(err)),
           backgroundColor: Colors.red,
           duration: const Duration(seconds: 5),
         ),

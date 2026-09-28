@@ -17,6 +17,7 @@ import 'widgets/quotation_pdf.dart';
 import '../utils/tag_scan_batcher.dart';
 import '../utils/barcode_scan_mixin.dart';
 import '../utils/tray_scan_auto_stop.dart';
+import '../utils/user_facing_error.dart';
 import 'widgets/order_bulk_details_dialog.dart';
 
 const _brandGradient = LinearGradient(
@@ -1002,12 +1003,20 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
                 _customerSearchCtrl.clear();
                 Navigator.pop(context);
               } else {
-                ScaffoldMessenger.of(context)
-                    .showSnackBar(SnackBar(content: Text(vm.errorMessage ?? s.failedToSaveQuotation)));
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(UserFacingError.fromMessage(
+                  vm.errorMessage,
+                  fallback: s.failedToSaveQuotation,
+                  noInternetMessage: s.noInternetConnection,
+                ))));
               }
             } catch (e) {
               if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(UserFacingError.of(
+                  e,
+                  noInternetMessage: s.noInternetConnection,
+                ))));
               }
             }
           },

@@ -9,6 +9,7 @@ import '../models/user_permission.dart';
 import '../services/api_service.dart';
 import '../services/location_sync_service.dart' deferred as loc_sync;
 import '../services/pref_service.dart';
+import '../utils/user_facing_error.dart';
 
 class LoginViewModel extends ChangeNotifier {
   final ApiService _apiService;
@@ -196,7 +197,7 @@ class LoginViewModel extends ChangeNotifier {
       await _completeLogin(response, username: user, password: pass);
       return true;
     } catch (e) {
-      _showLoginError(e.toString().replaceFirst('Exception: ', ''));
+      _showLoginError(UserFacingError.of(e));
       return false;
     }
   }

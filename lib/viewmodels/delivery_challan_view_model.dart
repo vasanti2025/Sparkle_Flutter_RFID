@@ -11,6 +11,7 @@ import '../services/list_json_cache.dart';
 import '../services/pref_service.dart';
 
 import '../utils/tag_scan_batcher.dart';
+import '../utils/user_facing_error.dart';
 
 class DeliveryChallanViewModel extends ChangeNotifier with LiveScanGate {
   final PrefService _prefService;
@@ -143,7 +144,7 @@ class DeliveryChallanViewModel extends ChangeNotifier with LiveScanGate {
         _selectedBranchName = defaultBranch['BranchName']?.toString() ?? '';
       }
     } catch (e) {
-      _errorMessage = e.toString();
+      _errorMessage = UserFacingError.of(e);
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -217,7 +218,7 @@ class DeliveryChallanViewModel extends ChangeNotifier with LiveScanGate {
       await ListJsonCache.instance.save(key, rawChallans);
     } catch (e) {
       if (_challans.isEmpty) {
-        _errorMessage = e.toString();
+        _errorMessage = UserFacingError.of(e);
       }
     }
     notifyListeners();
@@ -293,7 +294,7 @@ class DeliveryChallanViewModel extends ChangeNotifier with LiveScanGate {
       notifyListeners();
       return false;
     } catch (e) {
-      _errorMessage = e.toString();
+      _errorMessage = UserFacingError.of(e);
       _isLoading = false;
       notifyListeners();
       return false;
@@ -819,7 +820,7 @@ class DeliveryChallanViewModel extends ChangeNotifier with LiveScanGate {
       return null;
     } catch (e) {
       _isLoading = false;
-      _errorMessage = e.toString();
+      _errorMessage = UserFacingError.of(e);
       notifyListeners();
       return null;
     }
@@ -957,7 +958,7 @@ class DeliveryChallanViewModel extends ChangeNotifier with LiveScanGate {
       return false;
     } catch (e) {
       _isLoading = false;
-      _errorMessage = e.toString();
+      _errorMessage = UserFacingError.of(e);
       notifyListeners();
       return false;
     }

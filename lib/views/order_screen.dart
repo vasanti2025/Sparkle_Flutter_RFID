@@ -23,6 +23,7 @@ import '../utils/tag_scan_batcher.dart';
 import '../utils/barcode_scan_mixin.dart';
 import '../utils/stretch_table_widths.dart';
 import '../utils/tray_scan_auto_stop.dart';
+import '../utils/user_facing_error.dart';
 
 // Brand gradient used across the screen (matches Sparkle Kotlin app).
 const _brandGradient = LinearGradient(
@@ -1080,10 +1081,19 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
               _customerSearchCtrl.clear();
               Navigator.pop(context);
             } else {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(vm.errorMessage ?? s.failedToSaveOrder)));
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text(UserFacingError.fromMessage(
+                vm.errorMessage,
+                fallback: s.failedToSaveOrder,
+                noInternetMessage: s.noInternetConnection,
+              ))));
             }
           } catch (e) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text(UserFacingError.of(
+              e,
+              noInternetMessage: s.noInternetConnection,
+            ))));
           }
         },
         onList: () {

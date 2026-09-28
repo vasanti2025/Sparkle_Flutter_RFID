@@ -17,6 +17,7 @@ import '../utils/tag_scan_batcher.dart';
 import '../utils/barcode_scan_mixin.dart';
 import '../utils/stretch_table_widths.dart';
 import '../utils/tray_scan_auto_stop.dart';
+import '../utils/user_facing_error.dart';
 import 'widgets/challan_details_dialog.dart';
 
 class DeliveryChallanScreen extends StatefulWidget {
@@ -1085,11 +1086,20 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
               Navigator.pop(context); // Go back to list
             } else {
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(vm.errorMessage ?? s.failedToSubmitChallan)),
+                SnackBar(
+                    content: Text(UserFacingError.fromMessage(
+                  vm.errorMessage,
+                  fallback: s.failedToSubmitChallan,
+                  noInternetMessage: s.noInternetConnection,
+                ))),
               );
             }
           } catch (e) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text(UserFacingError.of(
+              e,
+              noInternetMessage: s.noInternetConnection,
+            ))));
           }
         },
         onList: () {

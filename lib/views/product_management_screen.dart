@@ -6,6 +6,7 @@ import '../l10n/l10n_extension.dart';
 import '../services/db_service.dart';
 import '../services/excel_product_service.dart';
 import '../viewmodels/product_view_model.dart';
+import '../utils/user_facing_error.dart';
 import '../viewmodels/bulk_product_view_model.dart';
 import 'import_excel_flow.dart';
 import 'sync_sheet_flow.dart';
@@ -56,7 +57,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(err), backgroundColor: Colors.red),
+          SnackBar(content: Text(UserFacingError.fromMessage(err)), backgroundColor: Colors.red),
         );
         viewModel.clearErrorMessage();
       });
@@ -81,7 +82,11 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
       await ExcelProductService.shareExportedFile(file);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s.exportFailed(e.toString()))));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(UserFacingError.isNetwork(e)
+              ? s.noInternetConnection
+              : s.exportFailed(UserFacingError.of(e))),
+        ));
       }
     } finally {
       if (mounted) setState(() => _exporting = false);

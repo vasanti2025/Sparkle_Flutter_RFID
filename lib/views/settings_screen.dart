@@ -9,6 +9,7 @@ import '../services/locale_service.dart';
 import '../services/pref_service.dart';
 import '../utils/app_dropdown.dart';
 import '../viewmodels/settings_view_model.dart';
+import '../utils/user_facing_error.dart';
 import 'widgets/product_form_widgets.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -218,7 +219,11 @@ class SettingsScreen extends StatelessWidget {
                 }
               } catch (e) {
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${s.backupFailed}: $e')));
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(UserFacingError.isNetwork(e)
+                        ? s.noInternetConnection
+                        : '${s.backupFailed}: ${UserFacingError.of(e)}'),
+                  ));
                 }
               }
             },
@@ -241,7 +246,11 @@ class SettingsScreen extends StatelessWidget {
                 }
               } catch (e) {
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${s.backupFailed}: $e')));
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(UserFacingError.isNetwork(e)
+                        ? s.noInternetConnection
+                        : '${s.backupFailed}: ${UserFacingError.of(e)}'),
+                  ));
                 }
               }
             },
@@ -278,7 +287,11 @@ class SettingsScreen extends StatelessWidget {
                 }
               } catch (e) {
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${s.backupFailed}: $e')));
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(UserFacingError.isNetwork(e)
+                        ? s.noInternetConnection
+                        : '${s.backupFailed}: ${UserFacingError.of(e)}'),
+                  ));
                 }
               }
             },

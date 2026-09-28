@@ -13,6 +13,7 @@ import '../services/pref_service.dart';
 import '../views/widgets/sample_print_pdf.dart';
 
 import '../utils/tag_scan_batcher.dart';
+import '../utils/user_facing_error.dart';
 
 class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
   final PrefService _prefService;
@@ -115,7 +116,7 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
         _description = '';
       }
     } catch (e) {
-      _errorMessage = e.toString();
+      _errorMessage = UserFacingError.of(e);
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -178,7 +179,7 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
       await ListJsonCache.instance.save(key, _cacheRawWithSavedItems(raw));
     } catch (e) {
       if (_sampleOutList.isEmpty) {
-        _errorMessage = e.toString();
+        _errorMessage = UserFacingError.of(e);
       }
     }
     notifyListeners();
@@ -254,7 +255,7 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
       notifyListeners();
       return false;
     } catch (e) {
-      _errorMessage = e.toString();
+      _errorMessage = UserFacingError.of(e);
       _isLoading = false;
       notifyListeners();
       return false;
@@ -686,7 +687,7 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
       notifyListeners();
       return null;
     } catch (e) {
-      _errorMessage = e.toString();
+      _errorMessage = UserFacingError.of(e);
       _isLoading = false;
       notifyListeners();
       return null;
@@ -807,7 +808,7 @@ class SampleOutViewModel extends ChangeNotifier with LiveScanGate {
       notifyListeners();
       return false;
     } catch (e) {
-      _errorMessage = e.toString();
+      _errorMessage = UserFacingError.of(e);
       _isLoading = false;
       notifyListeners();
       return false;

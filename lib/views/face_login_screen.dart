@@ -13,6 +13,7 @@ import '../services/api_service.dart';
 import '../services/pref_service.dart';
 import '../services/face_recognition_service.dart';
 import '../utils/camera_permission_util.dart';
+import '../utils/user_facing_error.dart';
 import '../viewmodels/dashboard_view_model.dart';
 import '../viewmodels/product_view_model.dart';
 import '../viewmodels/stock_transfer_view_model.dart';
@@ -451,7 +452,7 @@ class _FaceLoginScreenState extends State<FaceLoginScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString()), backgroundColor: Colors.orange),
+          SnackBar(content: Text(UserFacingError.of(e, noInternetMessage: context.sRead.noInternetConnection)), backgroundColor: Colors.orange),
         );
       }
     } finally {

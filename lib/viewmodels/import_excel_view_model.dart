@@ -8,6 +8,7 @@ import '../services/db_service.dart';
 import '../services/excel_product_service.dart';
 import '../services/google_sheet_service.dart';
 import '../services/pref_service.dart';
+import '../utils/user_facing_error.dart';
 
 class ImportExcelViewModel extends ChangeNotifier {
   final DbService _dbService;
@@ -143,7 +144,9 @@ class ImportExcelViewModel extends ChangeNotifier {
       _progress = ImportProgress(
         totalFields: 0,
         importedFields: 0,
-        failedFields: [e.toString()],
+        failedFields: [
+          UserFacingError.isNetwork(e) ? UserFacingError.noInternet : e.toString(),
+        ],
       );
     } finally {
       _importing = false;
@@ -191,7 +194,9 @@ class ImportExcelViewModel extends ChangeNotifier {
       _progress = ImportProgress(
         totalFields: 0,
         importedFields: 0,
-        failedFields: [e.toString()],
+        failedFields: [
+          UserFacingError.isNetwork(e) ? UserFacingError.noInternet : e.toString(),
+        ],
       );
     } finally {
       _importing = false;

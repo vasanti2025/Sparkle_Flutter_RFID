@@ -13,6 +13,7 @@ import '../services/pref_service.dart';
 import '../services/sync_isolate.dart';
 import '../services/api_service.dart';
 import '../utils/product_image.dart';
+import '../utils/user_facing_error.dart';
 
 class ProductViewModel extends ChangeNotifier {
   final PrefService _prefService;
@@ -359,7 +360,9 @@ class ProductViewModel extends ChangeNotifier {
       ProductImage.warmUrls(uniqueItems.map((e) => e.imageUrl));
     } catch (e) {
       if (generation == _listLoadGeneration) {
-        _errorMessage = 'Failed to load products: ${e.toString()}';
+        _errorMessage = UserFacingError.isNetwork(e)
+            ? UserFacingError.noInternet
+            : 'Failed to load products: ${UserFacingError.of(e)}';
       }
     } finally {
       if (generation == _listLoadGeneration) {
@@ -490,7 +493,7 @@ class ProductViewModel extends ChangeNotifier {
         return false;
       }
     } catch (e) {
-      _errorMessage = e.toString().replaceFirst('Exception: ', '');
+      _errorMessage = UserFacingError.of(e);
       notifyListeners();
       return false;
     } finally {
@@ -692,7 +695,7 @@ class ProductViewModel extends ChangeNotifier {
         return false;
       }
     } catch (e) {
-      _errorMessage = e.toString().replaceFirst('Exception: ', '');
+      _errorMessage = UserFacingError.of(e);
       notifyListeners();
       return false;
     } finally {
@@ -889,7 +892,7 @@ class ProductViewModel extends ChangeNotifier {
       );
       return true;
     } catch (e) {
-      _errorMessage = e.toString().replaceFirst('Exception: ', '');
+      _errorMessage = UserFacingError.of(e);
       notifyListeners();
       return false;
     } finally {

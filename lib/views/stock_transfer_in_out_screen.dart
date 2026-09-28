@@ -5,6 +5,7 @@ import '../l10n/l10n_extension.dart';
 import '../models/stock_transfer_models.dart';
 import '../viewmodels/stock_transfer_view_model.dart';
 import '../utils/app_dropdown.dart';
+import '../utils/user_facing_error.dart';
 import 'widgets/product_form_widgets.dart';
 import 'widgets/stock_transfer_dialogs.dart';
 
@@ -68,7 +69,7 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen>
       }
       await _loadTransfers(showLoader: false);
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = UserFacingError.of(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -107,7 +108,7 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen>
     } catch (e) {
       if (!mounted || generation != _loadGeneration) return;
       setState(() {
-        if (_transfers.isEmpty) _error = e.toString();
+        if (_transfers.isEmpty) _error = UserFacingError.of(e);
       });
     } finally {
       if (mounted && generation == _loadGeneration && useLoader) {

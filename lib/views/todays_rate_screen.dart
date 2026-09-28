@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../l10n/l10n_extension.dart';
+import '../utils/user_facing_error.dart';
 import '../viewmodels/daily_rate_view_model.dart';
 
 // Brand gradient (purple -> red) used across the app.
@@ -70,7 +71,9 @@ class _TodaysRateScreenState extends State<TodaysRateScreen> {
     final s = context.sRead;
     final ok = await vm.submitUpdate();
     if (!mounted) return;
-    final msg = vm.updateMessage ?? (ok ? s.ratesUpdatedSuccessfully : s.failedToUpdateRates);
+    final msg = UserFacingError.isNetwork(vm.updateMessage ?? '')
+        ? UserFacingError.fromMessage(vm.updateMessage)
+        : (vm.updateMessage ?? (ok ? s.ratesUpdatedSuccessfully : s.failedToUpdateRates));
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     vm.resetUpdateState();
     if (ok) Navigator.pop(context);
@@ -128,7 +131,7 @@ class _TodaysRateScreenState extends State<TodaysRateScreen> {
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
-            vm.errorMessage ?? context.s.noRatesFound,
+            UserFacingError.fromMessage(vm.errorMessage, fallback: context.s.noRatesFound),
             textAlign: TextAlign.center,
             style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey[600]),
           ),

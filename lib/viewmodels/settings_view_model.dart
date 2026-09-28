@@ -10,6 +10,7 @@ import '../services/location_sync_service.dart';
 import '../services/location_service.dart';
 import '../services/pref_service.dart';
 import '../services/rfid_service.dart';
+import '../utils/user_facing_error.dart';
 
 class SettingsViewModel extends ChangeNotifier {
   final PrefService _prefService;
@@ -521,7 +522,7 @@ class SettingsViewModel extends ChangeNotifier {
       _wholesaleBranches = results[0] as List<WholesaleBranch>;
       _wholesaleCounters = results[1] as List<WholesaleCounter>;
     } catch (e) {
-      _wholesaleError = e.toString();
+      _wholesaleError = UserFacingError.of(e);
     } finally {
       _loadingWholesale = false;
       notifyListeners();

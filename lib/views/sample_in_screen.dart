@@ -17,6 +17,7 @@ import 'widgets/sample_print_pdf.dart';
 import '../utils/tag_scan_batcher.dart';
 import '../utils/barcode_scan_mixin.dart';
 import '../utils/tray_scan_auto_stop.dart';
+import '../utils/user_facing_error.dart';
 import '../utils/app_dropdown.dart';
 import 'widgets/scan_bottom_bar.dart';
 
@@ -744,7 +745,12 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
             _sampleOutNoCtrl.clear();
             Navigator.pop(context);
           } else {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(vm.errorMessage ?? s.failedToSaveSampleIn)));
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text(UserFacingError.fromMessage(
+              vm.errorMessage,
+              fallback: s.failedToSaveSampleIn,
+              noInternetMessage: s.noInternetConnection,
+            ))));
           }
         },
         onList: () {

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:mailer/mailer.dart';
 import 'package:mailer/smtp_server.dart';
+import '../utils/user_facing_error.dart';
 
 class EmailService {
   /// Sends an email with optional attachments using Hostinger SMTP.
@@ -40,7 +41,9 @@ class EmailService {
       return true;
     } catch (e) {
       debugPrint('❌ SMTP Email failed to send: $e');
-      throw Exception('Email sending failed: $e');
+      throw Exception(UserFacingError.isNetwork(e)
+          ? UserFacingError.noInternet
+          : 'Email sending failed: $e');
     }
   }
 }

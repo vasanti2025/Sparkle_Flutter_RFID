@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import '../models/product_master.dart';
 import '../services/api_service.dart';
 import '../services/pref_service.dart';
+import '../utils/user_facing_error.dart';
 
 class SingleProductViewModel extends ChangeNotifier {
   final PrefService _prefService;
@@ -65,7 +66,7 @@ class SingleProductViewModel extends ChangeNotifier {
       _designs = (results[4] as List).map((e) => DesignModel.fromJson(e as Map<String, dynamic>)).toList();
       _purities = (results[5] as List).map((e) => PurityModel.fromJson(e as Map<String, dynamic>)).toList();
     } catch (e) {
-      _error = e.toString();
+      _error = UserFacingError.of(e);
     } finally {
       _loading = false;
       notifyListeners();
@@ -234,7 +235,7 @@ class SingleProductViewModel extends ChangeNotifier {
       _message = msg ?? 'Product saved successfully';
       return true;
     } catch (e) {
-      _error = e.toString().replaceFirst('Exception: ', '');
+      _error = UserFacingError.of(e);
       return false;
     } finally {
       _saving = false;

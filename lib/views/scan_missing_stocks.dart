@@ -16,6 +16,7 @@ import '../services/pref_service.dart';
 import '../services/rfid_service.dart';
 import '../utils/product_image.dart';
 import '../utils/scan_key.dart';
+import '../utils/user_facing_error.dart';
 import '../viewmodels/dashboard_view_model.dart';
 import '../viewmodels/product_view_model.dart';
 import '../viewmodels/settings_view_model.dart';
@@ -365,7 +366,7 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
         _rows.clear();
         _matchedKeys.clear();
         _loading = false;
-        _error = e.toString().replaceFirst('Exception: ', '');
+        _error = UserFacingError.of(e);
       });
     }
   }
@@ -577,12 +578,16 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
         _toast(context.sRead.stockVerificationUploaded);
         await _loadMissingStocks();
       } else {
-        _toast(context.sRead.verificationUploadFailed(viewModel.errorMessage ?? ''));
+        _toast(UserFacingError.isNetwork(viewModel.errorMessage ?? '')
+            ? context.sRead.noInternetConnection
+            : context.sRead.verificationUploadFailed(viewModel.errorMessage ?? ''));
       }
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      _toast(context.sRead.verificationUploadFailed(e.toString()));
+      _toast(UserFacingError.isNetwork(e)
+          ? context.sRead.noInternetConnection
+          : context.sRead.verificationUploadFailed(UserFacingError.of(e)));
     }
   }
 

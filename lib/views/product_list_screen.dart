@@ -10,6 +10,7 @@ import '../viewmodels/product_view_model.dart';
 import '../theme/list_text_styles.dart';
 import '../utils/app_dropdown.dart';
 import '../utils/product_image.dart';
+import '../utils/user_facing_error.dart';
 
 class ProductListScreen extends StatefulWidget {
   const ProductListScreen({super.key});
@@ -177,7 +178,13 @@ class _ProductListScreenState extends State<ProductListScreen> {
                   );
                 } else {
                   messenger.showSnackBar(
-                    SnackBar(content: Text('❌ ${s.errorWithMessage(viewModel.errorMessage ?? '')}')),
+                    SnackBar(
+                      content: Text(
+                        UserFacingError.isNetwork(viewModel.errorMessage ?? '')
+                            ? UserFacingError.fromMessage(viewModel.errorMessage)
+                            : '❌ ${s.errorWithMessage(viewModel.errorMessage ?? '')}',
+                      ),
+                    ),
                   );
                 }
               },
