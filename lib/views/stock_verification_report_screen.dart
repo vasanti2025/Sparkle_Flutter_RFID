@@ -9,6 +9,7 @@ import '../../models/stock_verification_report.dart';
 import '../../services/consolidated_report_export_service.dart';
 import '../../viewmodels/stock_verification_view_model.dart';
 import '../utils/app_dropdown.dart';
+import '../utils/user_facing_error.dart';
 import 'widgets/consolidated_report_tree.dart';
 
 class StockVerificationReportScreen extends StatefulWidget {
@@ -143,7 +144,9 @@ class _StockVerificationReportScreenState extends State<StockVerificationReportS
     if (mounted) Navigator.pop(context);
     if (!mounted) return;
     if (err != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(UserFacingError.fromMessage(err))),
+      );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(sRead.reportExportedSuccessfully)),
@@ -249,7 +252,10 @@ class _StockVerificationReportScreenState extends State<StockVerificationReportS
       case ReportLoadState.loading:
         return const Center(child: CircularProgressIndicator());
       case ReportLoadState.error:
-        return emptyOrError(vm.errorMessage ?? context.s.errorLoadingSessions);
+        return emptyOrError(UserFacingError.fromMessage(
+          vm.errorMessage,
+          fallback: context.s.errorLoadingSessions,
+        ));
       case ReportLoadState.success:
         final sessions = vm.sessionList?.sessions ?? [];
         if (sessions.isEmpty) {
@@ -304,7 +310,14 @@ class _StockVerificationReportScreenState extends State<StockVerificationReportS
       case ReportLoadState.loading:
         return const Center(child: CircularProgressIndicator());
       case ReportLoadState.error:
-        return Center(child: Text(vm.errorMessage ?? context.s.errorLoadingReport));
+        return Center(
+          child: Text(
+            UserFacingError.fromMessage(
+              vm.errorMessage,
+              fallback: context.s.errorLoadingReport,
+            ),
+          ),
+        );
       case ReportLoadState.success:
         final branches = vm.consolidatedReport?.branches ?? [];
         if (branches.isEmpty) {

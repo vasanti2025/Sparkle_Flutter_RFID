@@ -19,6 +19,7 @@ import '../services/session_lifecycle.dart';
 import '../utils/product_image.dart';
 import '../utils/scan_key.dart';
 import '../utils/tray_scan_auto_stop.dart';
+import '../utils/user_facing_error.dart';
 import 'search_screen.dart';
 import 'widgets/scan_bottom_bar.dart';
 import 'widgets/scan_display_list_menu.dart';
@@ -1147,13 +1148,19 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         _showToast(context.sRead.stockVerificationUploaded);
       } else {
         _showToast(
-          context.sRead.verificationUploadFailed(viewModel.errorMessage ?? ''),
+          UserFacingError.fromMessage(
+            viewModel.errorMessage,
+            fallback: context.sRead.verificationUploadFailed(''),
+            noInternetMessage: context.sRead.noInternetConnection,
+          ),
         );
       }
     } catch (e) {
       if (!mounted) return;
       setState(() => _isSaving = false);
-      _showToast(context.sRead.verificationUploadFailed(e.toString()));
+      _showToast(UserFacingError.isNetwork(e)
+          ? context.sRead.noInternetConnection
+          : context.sRead.verificationUploadFailed(UserFacingError.of(e)));
     }
   }*/
 
@@ -1284,13 +1291,19 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         _showToast(context.sRead.stockVerificationUploaded);
       } else {
         _showToast(
-          context.sRead.verificationUploadFailed(viewModel.errorMessage ?? ''),
+          UserFacingError.fromMessage(
+            viewModel.errorMessage,
+            fallback: context.sRead.verificationUploadFailed(''),
+            noInternetMessage: context.sRead.noInternetConnection,
+          ),
         );
       }
     } catch (e) {
       if (!mounted) return;
       setState(() => _isSaving = false);
-      _showToast(context.sRead.verificationUploadFailed(e.toString()));
+      _showToast(UserFacingError.isNetwork(e)
+          ? context.sRead.noInternetConnection
+          : context.sRead.verificationUploadFailed(UserFacingError.of(e)));
     }
   }
 
@@ -1938,7 +1951,12 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                             }
                             navigator.pop();
                           } catch (e) {
-                            _showToast(s.failedWithMessage(e.toString()), messengerContext: host);
+                            _showToast(
+                              UserFacingError.isNetwork(e)
+                                  ? s.noInternetConnection
+                                  : s.failedWithMessage(UserFacingError.of(e)),
+                              messengerContext: host,
+                            );
                             setDialogState(() {
                               isSending = false;
                             });
@@ -1964,7 +1982,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     } catch (e) {
       debugPrint('Email dialog failed: $e');
       if (mounted) {
-        _showToast(s.failedWithMessage(e.toString()));
+        _showToast(UserFacingError.isNetwork(e)
+            ? s.noInternetConnection
+            : s.failedWithMessage(UserFacingError.of(e)));
       }
     }
   }

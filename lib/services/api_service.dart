@@ -11,6 +11,7 @@ import 'order_payload_builder.dart';
 import 'api_logging_interceptor.dart';
 import 'pref_service.dart';
 import 'session_lifecycle.dart';
+import '../utils/user_facing_error.dart';
 
 class ApiService {
   static const String defaultBaseUrl = PrefService.defaultApiBaseUrl;
@@ -75,6 +76,11 @@ class ApiService {
     ));
   }
 
+  /// Display-only: no-internet transport errors only. All other messages stay as-is.
+  static String _keepOrNoInternet(DioException e, String original) {
+    return UserFacingError.isNetwork(e) ? UserFacingError.noInternet : original;
+  }
+
   Future<LoginResponse> login(LoginRequest request) async {
     try {
       final response = await _dio.post(
@@ -112,6 +118,9 @@ class ApiService {
         throw Exception('Server returned status: ${response.statusCode}');
       }
     } on DioException catch (e) {
+      if (UserFacingError.isNetwork(e)) {
+        throw Exception(UserFacingError.noInternet);
+      }
       String errMsg = 'Network error occurred';
       if (e.response != null && e.response?.data != null) {
         final data = e.response?.data;
@@ -169,7 +178,7 @@ class ApiService {
       );
       return response.statusCode == 200;
     } on DioException catch (e) {
-      throw Exception('Delete API failed: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Delete API failed: ${e.message}'));
     }
   }
 
@@ -182,7 +191,7 @@ class ApiService {
       );
       return response.statusCode == 200;
     } on DioException catch (e) {
-      throw Exception('Update API failed: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Update API failed: ${e.message}'));
     }
   }
 
@@ -224,7 +233,7 @@ class ApiService {
       }
       return null;
     } on DioException catch (e) {
-      throw Exception('Image upload failed: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Image upload failed: ${e.message}'));
     }
   }
 
@@ -246,7 +255,7 @@ class ApiService {
       return response.statusCode == 200;
     } on DioException catch (e) {
       final errMsg = e.response?.data?.toString() ?? e.message ?? 'Unknown error';
-      throw Exception('Upload failed: $errMsg');
+      throw Exception(_keepOrNoInternet(e, 'Upload failed: $errMsg'));
     }
   }
 
@@ -285,7 +294,7 @@ class ApiService {
       return response.statusCode == 200;
     } on DioException catch (e) {
       final errMsg = e.response?.data?.toString() ?? e.message ?? 'Unknown error';
-      throw Exception('Upload failed: $errMsg');
+      throw Exception(_keepOrNoInternet(e, 'Upload failed: $errMsg'));
     }
   }
 
@@ -339,7 +348,7 @@ class ApiService {
       return response.statusCode == 200 || response.statusCode == 201;
     } on DioException catch (e) {
       final errMsg = e.response?.data?.toString() ?? e.message ?? 'Unknown error';
-      throw Exception('File upload failed: $errMsg');
+      throw Exception(_keepOrNoInternet(e, 'File upload failed: $errMsg'));
     }
   }
 
@@ -508,7 +517,7 @@ class ApiService {
         final message = server['Message'].toString().trim();
         if (message.isNotEmpty) throw Exception(message);
       }
-      throw Exception('$failureMessage: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, '$failureMessage: ${e.message}'));
     }
   }
 
@@ -551,7 +560,7 @@ class ApiService {
       }
       return [];
     } on DioException catch (e) {
-      throw Exception('Failed to load orders: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to load orders: ${e.message}'));
     }
   }
 
@@ -582,7 +591,7 @@ class ApiService {
       }
       return [];
     } on DioException catch (e) {
-      throw Exception('Order search failed: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Order search failed: ${e.message}'));
     }
   }
 
@@ -606,7 +615,7 @@ class ApiService {
       }
       return null;
     } on DioException catch (e) {
-      throw Exception('Box details search failed: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Box details search failed: ${e.message}'));
     }
   }
 
@@ -622,7 +631,7 @@ class ApiService {
       }
       return [];
     } on DioException catch (e) {
-      throw Exception('Failed to load customers: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to load customers: ${e.message}'));
     }
   }
 
@@ -638,7 +647,7 @@ class ApiService {
       }
       return null;
     } on DioException catch (e) {
-      throw Exception('Failed to add customer: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to add customer: ${e.message}'));
     }
   }
 
@@ -654,7 +663,7 @@ class ApiService {
       }
       return [];
     } on DioException catch (e) {
-      throw Exception('Failed to load daily rates: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to load daily rates: ${e.message}'));
     }
   }
 
@@ -670,7 +679,7 @@ class ApiService {
       }
       return [];
     } on DioException catch (e) {
-      throw Exception('Failed to load purity list: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to load purity list: ${e.message}'));
     }
   }
 
@@ -683,7 +692,7 @@ class ApiService {
       );
       return response.statusCode == 200;
     } on DioException catch (e) {
-      throw Exception('Failed to update daily rates: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to update daily rates: ${e.message}'));
     }
   }
 
@@ -699,7 +708,7 @@ class ApiService {
       }
       return null;
     } on DioException catch (e) {
-      throw Exception('Failed to fetch last order number: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to fetch last order number: ${e.message}'));
     }
   }
 
@@ -743,7 +752,7 @@ class ApiService {
       final body = e.response?.data;
       final status = e.response?.statusCode;
       debugPrint('AddCustomOrder DioError status=$status body=$body');
-      throw Exception('Failed to save order (HTTP $status): $body');
+      throw Exception(_keepOrNoInternet(e, 'Failed to save order (HTTP $status): $body'));
     }
   }
 
@@ -776,7 +785,7 @@ class ApiService {
       throw Exception('UpdateCustomOrder failed: HTTP ${response.statusCode}');
     } on DioException catch (e) {
       final body = e.response?.data;
-      throw Exception('Failed to update order: ${e.message} | $body');
+      throw Exception(_keepOrNoInternet(e, 'Failed to update order: ${e.message} | $body'));
     }
   }
 
@@ -792,7 +801,7 @@ class ApiService {
       );
       return response.statusCode == 200;
     } on DioException catch (e) {
-      throw Exception('Failed to delete order: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to delete order: ${e.message}'));
     }
   }
 
@@ -809,7 +818,7 @@ class ApiService {
       }
       return [];
     } on DioException catch (e) {
-      throw Exception('Failed to load branches: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to load branches: ${e.message}'));
     }
   }
 
@@ -828,7 +837,7 @@ class ApiService {
       }
       return [];
     } on DioException catch (e) {
-      throw Exception('Failed to load delivery challans: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to load delivery challans: ${e.message}'));
     }
   }
 
@@ -847,7 +856,7 @@ class ApiService {
       }
       return null;
     } on DioException catch (e) {
-      throw Exception('Failed to fetch last challan number: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to fetch last challan number: ${e.message}'));
     }
   }
 
@@ -863,7 +872,7 @@ class ApiService {
       }
       return null;
     } on DioException catch (e) {
-      throw Exception('Failed to save delivery challan: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to save delivery challan: ${e.message}'));
     }
   }
 
@@ -879,7 +888,7 @@ class ApiService {
       }
       return null;
     } on DioException catch (e) {
-      throw Exception('Failed to update delivery challan: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to update delivery challan: ${e.message}'));
     }
   }
 
@@ -900,7 +909,7 @@ class ApiService {
       }
       return [];
     } on DioException catch (e) {
-      throw Exception('Failed to load quotations: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to load quotations: ${e.message}'));
     }
   }
 
@@ -916,7 +925,7 @@ class ApiService {
       }
       return null;
     } on DioException catch (e) {
-      throw Exception('Failed to fetch last quotation number: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to fetch last quotation number: ${e.message}'));
     }
   }
 
@@ -932,7 +941,7 @@ class ApiService {
       }
       return null;
     } on DioException catch (e) {
-      throw Exception('Failed to save quotation: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to save quotation: ${e.message}'));
     }
   }
 
@@ -946,10 +955,10 @@ class ApiService {
         try {
           return await _postQuotationUpdate('api/Order/UpadateQuotation', request);
         } on DioException catch (e2) {
-          throw Exception('Failed to update quotation: ${e2.message}');
+          throw Exception(_keepOrNoInternet(e2, 'Failed to update quotation: ${e2.message}'));
         }
       }
-      throw Exception('Failed to update quotation: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to update quotation: ${e.message}'));
     }
   }
 
@@ -980,7 +989,7 @@ class ApiService {
       }
       return [];
     } on DioException catch (e) {
-      throw Exception('Failed to load sample out list: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to load sample out list: ${e.message}'));
     }
   }
 
@@ -999,7 +1008,7 @@ class ApiService {
       }
       return null;
     } on DioException catch (e) {
-      throw Exception('Failed to fetch last sample out number: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to fetch last sample out number: ${e.message}'));
     }
   }
 
@@ -1014,7 +1023,7 @@ class ApiService {
       }
       return null;
     } on DioException catch (e) {
-      throw Exception('Failed to save sample out: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to save sample out: ${e.message}'));
     }
   }
 
@@ -1029,7 +1038,7 @@ class ApiService {
       }
       return null;
     } on DioException catch (e) {
-      throw Exception('Failed to update sample out: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to update sample out: ${e.message}'));
     }
   }
 
@@ -1047,7 +1056,7 @@ class ApiService {
       }
       return [];
     } on DioException catch (e) {
-      throw Exception('Failed to load sample in list: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to load sample in list: ${e.message}'));
     }
   }
 
@@ -1063,7 +1072,7 @@ class ApiService {
       }
       return [];
     } on DioException catch (e) {
-      throw Exception('Failed to load customer tunch: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to load customer tunch: ${e.message}'));
     }
   }
 
@@ -1108,7 +1117,7 @@ class ApiService {
       }
       return null;
     } on DioException catch (e) {
-      throw Exception('Failed to load consolidated report: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to load consolidated report: ${e.message}'));
     }
   }
 
@@ -1182,7 +1191,7 @@ class ApiService {
         throw Exception('Failed to load batch sessions: $e');
       }
     } on DioException catch (e) {
-      throw Exception('Failed to load batch sessions: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to load batch sessions: ${e.message}'));
     }
   }
 
@@ -1207,7 +1216,7 @@ class ApiService {
       }
       return jsonEncode(response.data);
     } on DioException catch (e) {
-      throw Exception('Failed to load batch sessions: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to load batch sessions: ${e.message}'));
     }
   }
 
@@ -1252,7 +1261,7 @@ class ApiService {
       }
       return null;
     } on DioException catch (e) {
-      throw Exception('Failed to load batch details: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to load batch details: ${e.message}'));
     }
   }
 
@@ -1265,7 +1274,7 @@ class ApiService {
       if (response.statusCode == 200 && response.data is List) return response.data as List;
       return [];
     } on DioException catch (e) {
-      throw Exception('Failed to load vendors: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to load vendors: ${e.message}'));
     }
   }
 
@@ -1278,7 +1287,7 @@ class ApiService {
       if (response.statusCode == 200 && response.data is List) return response.data as List;
       return [];
     } on DioException catch (e) {
-      throw Exception('Failed to load SKU: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to load SKU: ${e.message}'));
     }
   }
 
@@ -1291,7 +1300,7 @@ class ApiService {
       if (response.statusCode == 200 && response.data is List) return response.data as List;
       return [];
     } on DioException catch (e) {
-      throw Exception('Failed to load categories: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to load categories: ${e.message}'));
     }
   }
 
@@ -1304,7 +1313,7 @@ class ApiService {
       if (response.statusCode == 200 && response.data is List) return response.data as List;
       return [];
     } on DioException catch (e) {
-      throw Exception('Failed to load products: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to load products: ${e.message}'));
     }
   }
 
@@ -1317,7 +1326,7 @@ class ApiService {
       if (response.statusCode == 200 && response.data is List) return response.data as List;
       return [];
     } on DioException catch (e) {
-      throw Exception('Failed to load designs: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to load designs: ${e.message}'));
     }
   }
 
@@ -1330,7 +1339,7 @@ class ApiService {
       if (response.statusCode == 200 && response.data is List) return response.data as List;
       return [];
     } on DioException catch (e) {
-      throw Exception('Failed to load RFID tags: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to load RFID tags: ${e.message}'));
     }
   }
 
@@ -1351,7 +1360,7 @@ class ApiService {
     } on DioException catch (e) {
       final data = e.response?.data;
       if (data is Map && data['Message'] != null) throw Exception(data['Message'].toString());
-      throw Exception('Failed to save product: ${e.message}');
+      throw Exception(_keepOrNoInternet(e, 'Failed to save product: ${e.message}'));
     }
   }
 
@@ -1452,7 +1461,7 @@ class ApiService {
       if (body is Map && body['message'] != null) {
         throw Exception(body['message'].toString());
       }
-      throw Exception(e.message ?? 'Failed to save face to server');
+      throw Exception(_keepOrNoInternet(e, e.message ?? 'Failed to save face to server'));
     } catch (e) {
       if (e is Exception) rethrow;
       throw Exception(e.toString());
@@ -1477,7 +1486,7 @@ class ApiService {
       if (body is Map && body['message'] != null) {
         throw Exception(body['message'].toString());
       }
-      throw Exception(e.message ?? 'Failed to load face login data');
+      throw Exception(_keepOrNoInternet(e, e.message ?? 'Failed to load face login data'));
     }
   }
 

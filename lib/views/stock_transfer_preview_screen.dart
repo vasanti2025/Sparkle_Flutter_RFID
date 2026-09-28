@@ -6,6 +6,7 @@ import '../models/bulk_item.dart';
 import '../models/user_permission.dart';
 import '../services/pref_service.dart';
 import '../viewmodels/stock_transfer_view_model.dart';
+import '../utils/user_facing_error.dart';
 import 'widgets/product_form_widgets.dart';
 
 /// Same as Sparkle [StockTransferPreviewScreen]: Transfer opens Transfer Details popup,
@@ -136,7 +137,12 @@ class _StockTransferPreviewScreenState extends State<StockTransferPreviewScreen>
     } else {
       final msg = vm.transferStatusMessage?.trim();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text((msg != null && msg.isNotEmpty) ? msg : s.tr('transferFailed'))),
+        SnackBar(
+            content: Text(UserFacingError.fromMessage(
+          msg,
+          fallback: s.tr('transferFailed'),
+          noInternetMessage: s.noInternetConnection,
+        ))),
       );
     }
   }

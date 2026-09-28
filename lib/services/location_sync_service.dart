@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:workmanager/workmanager.dart';
 
+import '../utils/user_facing_error.dart';
 import 'location_sync_runner.dart';
 import 'pref_service.dart';
 
@@ -67,7 +68,11 @@ class LocationSyncService {
       return await LocationSyncRunner.runOnce();
     } catch (e, st) {
       debugPrint('LocationSyncService.syncNow error: $e\n$st');
-      return LocationSyncResult(uploaded: false, serverCount: 0, error: e.toString());
+      return LocationSyncResult(
+        uploaded: false,
+        serverCount: 0,
+        error: UserFacingError.isNetwork(e) ? UserFacingError.noInternet : e.toString(),
+      );
     } finally {
       _syncInFlight = false;
     }

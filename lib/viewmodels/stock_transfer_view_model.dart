@@ -10,6 +10,7 @@ import '../services/api_service.dart';
 import '../services/db_service.dart';
 import '../services/label_stock_sync_service.dart';
 import '../services/pref_service.dart';
+import '../utils/user_facing_error.dart';
 
 class StockTransferViewModel extends ChangeNotifier {
   final ApiService _apiService;
@@ -169,7 +170,7 @@ class StockTransferViewModel extends ChangeNotifier {
       // Same as Sparkle: show ALL labelled stock immediately (type not required).
       await loadAllLabelledStock();
     } catch (e) {
-      errorMessage = e.toString();
+      errorMessage = UserFacingError.of(e);
     } finally {
       isBootstrapping = false;
       notifyListeners();
@@ -220,7 +221,7 @@ class StockTransferViewModel extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       debugPrint('loadAllLabelledStock error: $e');
-      errorMessage = e.toString();
+      errorMessage = UserFacingError.of(e);
       notifyListeners();
     }
   }
@@ -247,7 +248,7 @@ class StockTransferViewModel extends ChangeNotifier {
       _packetNames = results[3];
       notifyListeners();
     } catch (e) {
-      errorMessage = e.toString();
+      errorMessage = UserFacingError.of(e);
       notifyListeners();
     }
   }
@@ -801,7 +802,7 @@ class StockTransferViewModel extends ChangeNotifier {
       }
       return ok;
     } catch (e) {
-      transferStatusMessage = e.toString();
+      transferStatusMessage = UserFacingError.of(e);
       return false;
     } finally {
       isLoading = false;

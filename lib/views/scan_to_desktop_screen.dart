@@ -14,6 +14,7 @@ import '../utils/tag_scan_batcher.dart';
 import '../utils/app_dropdown.dart';
 import '../utils/app_dialogs.dart';
 import '../utils/barcode_scan_mixin.dart';
+import '../utils/user_facing_error.dart';
 import 'widgets/scan_bottom_bar.dart';
 
 class DesktopTag {
@@ -477,7 +478,9 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
         _showToast(context.sRead.failedToSaveItemsToServer);
       }
     } catch (e) {
-      _showToast(context.sRead.errorSavingData('$e'));
+      _showToast(UserFacingError.isNetwork(e)
+          ? context.sRead.noInternetConnection
+          : context.sRead.errorSavingData(UserFacingError.of(e)));
     } finally {
       setState(() {
         _isLoading = false;
@@ -543,7 +546,9 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
         _showToast(context.sRead.failedToClearServerStock);
       }
     } catch (e) {
-      _showToast(context.sRead.errorClearingData('$e'));
+      _showToast(UserFacingError.isNetwork(e)
+          ? context.sRead.noInternetConnection
+          : context.sRead.errorClearingData(UserFacingError.of(e)));
     } finally {
       setState(() {
         _isLoading = false;

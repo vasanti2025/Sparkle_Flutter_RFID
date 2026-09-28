@@ -10,6 +10,7 @@ import '../services/list_json_cache.dart';
 import '../services/pref_service.dart';
 
 import '../utils/tag_scan_batcher.dart';
+import '../utils/user_facing_error.dart';
 
 /// ViewModel for the Quotation create/edit screen and quotation list.
 /// Quotation line items reuse the [OrderItem] model since the data shape is
@@ -84,7 +85,7 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
       }
       _lastMasterLoadAt = DateTime.now();
     } catch (e) {
-      _errorMessage = e.toString();
+      _errorMessage = UserFacingError.of(e);
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -119,7 +120,7 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
       notifyListeners();
       return false;
     } catch (e) {
-      _errorMessage = e.toString();
+      _errorMessage = UserFacingError.of(e);
       _isLoading = false;
       notifyListeners();
       return false;
@@ -521,7 +522,7 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
       return merged;
     } catch (e) {
       _isLoading = false;
-      _errorMessage = e.toString();
+      _errorMessage = UserFacingError.of(e);
       notifyListeners();
       rethrow;
     }
@@ -617,7 +618,7 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
       await ListJsonCache.instance.save(cacheKey, raw);
     } catch (e) {
       if (!hasCached) {
-        _errorMessage = e.toString();
+        _errorMessage = UserFacingError.of(e);
       } else {
         await _enrichQuotationsCustomerNames(_quotationsHistory);
       }

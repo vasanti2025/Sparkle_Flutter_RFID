@@ -7,6 +7,7 @@ import '../l10n/l10n_extension.dart';
 import '../../models/stock_verification_report.dart';
 import '../../services/consolidated_report_export_service.dart';
 import '../../viewmodels/stock_verification_view_model.dart';
+import '../utils/user_facing_error.dart';
 
 class StockVerificationDetailScreen extends StatefulWidget {
   final int branchId;
@@ -154,7 +155,11 @@ class _StockVerificationDetailScreenState extends State<StockVerificationDetailS
       case ReportLoadState.loading:
         return const Center(child: CircularProgressIndicator());
       case ReportLoadState.error:
-        return Center(child: Text(vm.errorMessage ?? 'Error loading data'));
+        return Center(
+          child: Text(
+            UserFacingError.fromMessage(vm.errorMessage, fallback: 'Error loading data'),
+          ),
+        );
       case ReportLoadState.success:
         if (_displayItems.isEmpty) {
           return Center(child: Text(s.noItemsFound));

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import '../models/daily_rate.dart';
 import '../services/api_service.dart';
 import '../services/pref_service.dart';
+import '../utils/user_facing_error.dart';
 
 enum RateUpdateStatus { idle, loading, success, failure }
 
@@ -98,7 +99,7 @@ class DailyRateViewModel extends ChangeNotifier {
 
       _rates = rows;
     } catch (e) {
-      _errorMessage = e.toString();
+      _errorMessage = UserFacingError.of(e);
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -155,7 +156,7 @@ class DailyRateViewModel extends ChangeNotifier {
       return false;
     } catch (e) {
       _updateStatus = RateUpdateStatus.failure;
-      _updateMessage = e.toString();
+      _updateMessage = UserFacingError.of(e);
       notifyListeners();
       return false;
     }

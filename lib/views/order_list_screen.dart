@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
 import '../utils/nav_perf.dart';
 import '../viewmodels/order_view_model.dart';
+import '../utils/user_facing_error.dart';
 import 'widgets/list_action_icon.dart';
 import 'widgets/order_pdf.dart';
 import 'widgets/spreadsheet_list_view.dart';
@@ -148,9 +149,16 @@ class _OrderListScreenState extends State<OrderListScreen> {
                     SnackBar(content: Text(s.orderDeletedSuccessfully)),
                   );
                 } else {
-                  final err = context.read<OrderViewModel>().errorMessage ?? s.failedWithMessage('');
+                  final err = UserFacingError.fromMessage(
+                    context.read<OrderViewModel>().errorMessage,
+                    fallback: s.failedWithMessage(''),
+                  );
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('${s.error}: $err')),
+                    SnackBar(
+                      content: Text(
+                        UserFacingError.isNetwork(err) ? err : '${s.error}: $err',
+                      ),
+                    ),
                   );
                 }
               },
@@ -200,7 +208,7 @@ class _OrderListScreenState extends State<OrderListScreen> {
 
     // Always show the real server/local error in a dialog (snackbars truncate).
     final message = (err != null && err.isNotEmpty)
-        ? err
+        ? UserFacingError.fromMessage(err)
         : (remaining > 0
             ? 'Synced $count; $remaining still pending'
             : 'Sync failed — check internet / customer');

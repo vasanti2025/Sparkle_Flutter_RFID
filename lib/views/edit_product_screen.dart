@@ -7,6 +7,7 @@ import '../l10n/l10n_extension.dart';
 import '../models/bulk_item.dart';
 import '../utils/product_image.dart';
 import '../viewmodels/product_view_model.dart';
+import '../utils/user_facing_error.dart';
 
 class EditProductScreen extends StatefulWidget {
   const EditProductScreen({super.key});
@@ -251,7 +252,13 @@ class _EditProductScreenState extends State<EditProductScreen> {
     } else {
       final errorMsg = viewModel.errorMessage ?? context.sRead.tr('failedToUpdateProduct');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('❌ ${context.sRead.tr('errorWithMessage', args: {'message': errorMsg})}')),
+        SnackBar(
+          content: Text(
+            UserFacingError.isNetwork(errorMsg)
+                ? UserFacingError.fromMessage(errorMsg)
+                : '❌ ${context.sRead.tr('errorWithMessage', args: {'message': errorMsg})}',
+          ),
+        ),
       );
     }
   }

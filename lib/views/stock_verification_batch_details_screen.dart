@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
 import '../../models/stock_verification_report.dart';
 import '../../viewmodels/stock_verification_view_model.dart';
+import '../utils/user_facing_error.dart';
 
 class StockVerificationBatchDetailsScreen extends StatefulWidget {
   final String scanBatchId;
@@ -213,7 +214,11 @@ class _StockVerificationBatchDetailsScreenState extends State<StockVerificationB
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(vm.errorMessage ?? s.error, textAlign: TextAlign.center, style: GoogleFonts.poppins()),
+                Text(
+                  UserFacingError.fromMessage(vm.errorMessage, fallback: s.error),
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.poppins(),
+                ),
                 const SizedBox(height: 12),
                 ElevatedButton(
                   onPressed: () => vm.fetchBatchDetails(widget.scanBatchId),

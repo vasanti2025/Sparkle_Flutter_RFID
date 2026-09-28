@@ -6,6 +6,7 @@ import '../services/google_sheet_service.dart';
 import '../services/pref_service.dart';
 import '../utils/app_dialogs.dart';
 import '../utils/fast_page_route.dart';
+import '../utils/user_facing_error.dart';
 import '../viewmodels/import_excel_view_model.dart';
 import 'import_excel_screen.dart';
 import 'widgets/excel_field_mapping_dialog.dart';
@@ -58,9 +59,11 @@ class SyncSheetFlow {
     );
 
     List<String> headers = const [];
+    Object? fetchError;
     try {
       headers = await vm.fetchGoogleSheetHeaders(csvUrl);
-    } catch (_) {
+    } catch (e) {
+      fetchError = e;
       headers = const [];
     }
     if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
@@ -68,7 +71,13 @@ class SyncSheetFlow {
 
     if (headers.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(s.failedToFetchSheetHeaders)),
+        SnackBar(
+          content: Text(
+            UserFacingError.isNetwork(fetchError ?? '')
+                ? s.noInternetConnection
+                : s.failedToFetchSheetHeaders,
+          ),
+        ),
       );
       return;
     }

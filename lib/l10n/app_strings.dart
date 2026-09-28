@@ -472,6 +472,7 @@ class AppStrings {
   String get quotationSavedSuccessfully => _t('quotationSavedSuccessfully');
   String get quotationUpdatedSuccessfully => _t('quotationUpdatedSuccessfully');
   String get failedToSaveQuotation => _t('failedToSaveQuotation');
+  String get noInternetConnection => _t('noInternetConnection');
 
   String get ratesUpdatedSuccessfully => _t('ratesUpdatedSuccessfully');
   String get failedToUpdateRates => _t('failedToUpdateRates');
@@ -1326,6 +1327,8 @@ class AppStrings {
       'quotationSavedSuccessfully': 'Quotation saved successfully',
       'quotationUpdatedSuccessfully': 'Quotation updated successfully',
       'failedToSaveQuotation': 'Failed to save quotation',
+      'noInternetConnection':
+          'No internet connection. Please check your internet connection.',
       'ratesUpdatedSuccessfully': 'Rates updated successfully',
       'failedToUpdateRates': 'Failed to update rates',
       'noRatesFound': 'No rates found',
@@ -1845,6 +1848,8 @@ class AppStrings {
       'quotationSavedSuccessfully': 'कोटेशन सफलतापूर्वक सहेजा गया',
       'quotationUpdatedSuccessfully': 'कोटेशन सफलतापूर्वक अपडेट किया गया',
       'failedToSaveQuotation': 'कोटेशन सहेजने में विफल',
+      'noInternetConnection':
+          'इंटरनेट कनेक्शन नहीं है। कृपया अपना इंटरनेट कनेक्शन जांचें।',
       'ratesUpdatedSuccessfully': 'दरें सफलतापूर्वक अपडेट की गईं',
       'failedToUpdateRates': 'दरें अपडेट करने में विफल',
       'noRatesFound': 'कोई दर नहीं मिली',
@@ -2411,6 +2416,8 @@ class AppStrings {
       'quotationSavedSuccessfully': 'تم حفظ عرض السعر بنجاح',
       'quotationUpdatedSuccessfully': 'تم تحديث عرض السعر بنجاح',
       'failedToSaveQuotation': 'فشل في حفظ عرض السعر',
+      'noInternetConnection':
+          'لا يوجد اتصال بالإنترنت. يرجى التحقق من اتصال الإنترنت.',
       'ratesUpdatedSuccessfully': 'تم تحديث الأسعار بنجاح',
       'failedToUpdateRates': 'فشل في تحديث الأسعار',
       'noRatesFound': 'لم يتم العثور على أسعار',

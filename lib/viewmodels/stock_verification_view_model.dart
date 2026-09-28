@@ -7,6 +7,7 @@ import '../services/api_service.dart';
 import '../services/batch_report_export_service.dart';
 import '../services/consolidated_report_export_service.dart';
 import '../services/pref_service.dart';
+import '../utils/user_facing_error.dart';
 
 enum ReportLoadState { idle, loading, success, error }
 
@@ -299,7 +300,7 @@ class StockVerificationViewModel extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       _consolidatedState = ReportLoadState.error;
-      _errorMessage = e.toString();
+      _errorMessage = UserFacingError.of(e);
       notifyListeners();
     }
   }
@@ -405,7 +406,9 @@ class StockVerificationViewModel extends ChangeNotifier {
     _sessionList = null;
     _originalSessions = [];
     _sessionState = ReportLoadState.error;
-    _errorMessage = lastError?.toString() ?? 'No sessions found';
+    _errorMessage = lastError == null
+        ? 'No sessions found'
+        : UserFacingError.of(lastError);
     notifyListeners();
   }
 
@@ -454,7 +457,7 @@ class StockVerificationViewModel extends ChangeNotifier {
       _batchDetailsState = ReportLoadState.success;
     } catch (e) {
       _batchDetailsState = ReportLoadState.error;
-      _errorMessage = e.toString();
+      _errorMessage = UserFacingError.of(e);
     }
     notifyListeners();
   }
@@ -526,7 +529,7 @@ class StockVerificationViewModel extends ChangeNotifier {
       _detailState = ReportLoadState.success;
     } catch (e) {
       _detailState = ReportLoadState.error;
-      _errorMessage = e.toString();
+      _errorMessage = UserFacingError.of(e);
     }
     notifyListeners();
   }
@@ -565,7 +568,7 @@ class StockVerificationViewModel extends ChangeNotifier {
     } catch (e) {
       _isExporting = false;
       notifyListeners();
-      return e.toString();
+      return UserFacingError.of(e);
     }
   }
 
@@ -595,7 +598,7 @@ class StockVerificationViewModel extends ChangeNotifier {
     } catch (e) {
       _isExporting = false;
       notifyListeners();
-      return e.toString();
+      return UserFacingError.of(e);
     }
   }
 
