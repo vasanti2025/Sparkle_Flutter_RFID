@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:rfid_flutter/utils/app_fonts.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
+import '../services/pref_service.dart';
 import '../viewmodels/product_view_model.dart';
 
 /// Joins multi-selected inventory filter names for scan display / DB IN clause.
@@ -41,6 +42,7 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
       return;
     }
     if (key == 'Scan missing Stocks') {
+      if (!context.read<PrefService>().isWholesaleLoginUser()) return;
       Navigator.pushNamed(context, '/scan_missing_stocks');
       return;
     }
@@ -130,9 +132,12 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
     final s = context.s;
     final viewModel = Provider.of<ProductViewModel>(context, listen: false);
 
+    final showMissingStocks =
+        context.read<PrefService>().isWholesaleLoginUser();
     final List<Map<String, dynamic>> menuItems = [
       {'key': 'Scan Display', 'title': s.scanDisplay, 'icon': Icons.qr_code_scanner},
-      {'key': 'Scan missing Stocks', 'title': s.scanMissingStocks, 'icon': Icons.playlist_remove},
+      if (showMissingStocks)
+        {'key': 'Scan missing Stocks', 'title': s.scanMissingStocks, 'icon': Icons.playlist_remove},
       {'key': 'Scan Counter', 'title': s.scanCounter, 'icon': Icons.dns},
       {'key': 'Scan Box', 'title': s.scanBox, 'icon': Icons.all_inbox},
       {'key': 'Scan Branch', 'title': s.scanBranch, 'icon': Icons.store},

@@ -6,6 +6,7 @@ import 'package:rfid_flutter/utils/app_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../l10n/app_strings.dart';
 import '../l10n/l10n_extension.dart';
 import '../models/bulk_item.dart';
 import '../viewmodels/product_view_model.dart';
@@ -19,7 +20,9 @@ import '../services/session_lifecycle.dart';
 import '../utils/product_image.dart';
 import '../utils/scan_key.dart';
 import '../utils/tray_scan_auto_stop.dart';
+import '../utils/app_dropdown.dart';
 import '../utils/user_facing_error.dart';
+import '../models/user_permission.dart';
 import 'search_screen.dart';
 import 'widgets/scan_bottom_bar.dart';
 import 'widgets/scan_display_list_menu.dart';
@@ -226,11 +229,24 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   bool get _isFullStockCatalog =>
       _filterType == 'Scan Display' || _isMissingStocksMode;
   bool get _isScanDisplayHome => _filterType == 'Scan Display';
+  bool get _isScanCounter => _filterType == 'Counter';
+  bool get _isScanBox => _filterType == 'Box';
+  bool get _isScanBranch => _filterType == 'Branch';
+  bool get _isExhibition => _filterType == 'Exhibition';
+  bool get _showsStockTakingFilter => _isScanBranch;
+  bool get _isFilterBranchDropdownScope =>
+      _isScanDisplayHome ||
+      _isScanCounter ||
+      _isScanBox ||
+      _isExhibition;
   DateTime? _stockTakingDate;
+  int? _filterBranchId;
   int _stockTakingReq = 0;
   bool _dateListActive = false;
   bool _dateShowMatched = false;
   bool _dateShowUnmatched = false;
+  List<ScannedBulkItem> _cachedDateMatched = const [];
+  List<ScannedBulkItem> _cachedDateUnmatched = const [];
   final Set<String> _dateBaselineMatchedKeys = {};
   _ScanCatalogSnapshot? _catalogSnapshot;
   bool _isInit = false;
@@ -480,7 +496,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   Future<void> _buildLookupMapsChunked() async {
     _epcToMasterIndex.clear();
-    const chunk = 2000;
+    final chunk = _dateListActive && _scannedItems.length > 20000 ? 6000 : 2000;
     for (int i = 0; i < _scannedItems.length; i++) {
       for (final key in _matchKeysForItem(_scannedItems[i])) {
         _epcToMasterIndex[key] = i;
@@ -593,12 +609,36 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
     if (needListRefresh) {
       _lastListRefreshMs = now;
-      // Copy + sort for display only. Never sort `_scannedItems` in place —
-      // RFID match lookup maps are built from those indices.
-      final filteredItems = List<ScannedBulkItem>.from(_getFilteredScopeItems());
-      filteredItems.sort(_compareInventoryItems);
-      _cachedFilteredItems = filteredItems;
-      _cachedGroupedBuckets = _getGroupedBuckets(filteredItems);
+      if (_dateListActive) {
+        final filteredItems = _getFilteredScopeItems();
+        _cachedFilteredItems = filteredItems;
+        if (_dateShowMatched && _dateShowUnmatched) {
+          final matched = <ScannedBulkItem>[];
+          final unmatched = <ScannedBulkItem>[];
+          for (final item in filteredItems) {
+            if (item.currentScannedStatus == 'Matched') {
+              matched.add(item);
+            } else {
+              unmatched.add(item);
+            }
+          }
+          _cachedDateMatched = matched;
+          _cachedDateUnmatched = unmatched;
+        } else {
+          _cachedDateMatched = const [];
+          _cachedDateUnmatched = const [];
+        }
+        _cachedGroupedBuckets = const [];
+      } else {
+        // Copy + sort for display only. Never sort `_scannedItems` in place —
+        // RFID match lookup maps are built from those indices.
+        final filteredItems = List<ScannedBulkItem>.from(_getFilteredScopeItems());
+        filteredItems.sort(_compareInventoryItems);
+        _cachedFilteredItems = filteredItems;
+        _cachedGroupedBuckets = _getGroupedBuckets(filteredItems);
+        _cachedDateMatched = const [];
+        _cachedDateUnmatched = const [];
+      }
       _cachedViewHash = _viewStateHash();
     }
 
@@ -1198,7 +1238,29 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         }
       }
       if (!mounted) return;
+      final isWholesale = pref.isWholesaleLoginUser();
       final location = _sessionLocation;
+      final assigned = _readPersistedAssignedBranches(pref);
+      var sendBranchId = 0;
+      var sendBranchName = '';
+      if (!isWholesale) {
+        if (_isScanBranch) {
+          sendBranchId = _branchIdFromScanBranchOperation(assigned);
+          if (sendBranchId <= 0) {
+            sendBranchId = await _resolveScanBranchIdFromMaster();
+            if (!mounted) return;
+          }
+          if (sendBranchId <= 0) {
+            setState(() => _isSaving = false);
+            _showToast(context.sRead.pleaseSelectBranch);
+            return;
+          }
+          sendBranchName = _branchNameForId(assigned, sendBranchId);
+        } else {
+          sendBranchId = _loginBranchId();
+          sendBranchName = _loginBranchName();
+        }
+      }
 
       // Single pass: local DB rows + full API payload (no 2000 cap).
       final finalItems = <BulkItem>[];
@@ -1241,14 +1303,14 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
           'DesignName': item.design,
           'PurityName': item.purity,
           'CompanyName': '',
-          'BranchName': item.branchName,
+          'BranchName': isWholesale ? item.branchName : sendBranchName,
           'CounterId': item.counterId,
           'CategoryId': item.categoryId,
           'ProductId': item.productId,
           'DesignId': item.designId,
           'PurityId': 0,
           'CompanyId': 0,
-          'BranchId': item.branchId,
+          'BranchId': isWholesale ? item.branchId : sendBranchId,
         });
 
         // Keep UI responsive on large inventories (2–5L).
@@ -1273,10 +1335,14 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       final uploadFuture = viewModel.uploadVerification(
         clientCode: employee.clientCode!,
         items: uploadItemsPayload,
-        counterId: location?.counterId,
-        counterName: location?.counterName,
-        branchId: location?.branchId,
-        branchName: location?.branchName,
+        counterId: isWholesale ? location?.counterId : null,
+        counterName: isWholesale ? location?.counterName : null,
+        branchId: isWholesale
+            ? location?.branchId
+            : (sendBranchId > 0 ? sendBranchId : null),
+        branchName: isWholesale
+            ? location?.branchName
+            : (sendBranchName.isNotEmpty ? sendBranchName : null),
         deviceCode: deviceCode,
       );
       if (rowsForLocal.isNotEmpty) {
@@ -2128,7 +2194,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                       ),
                     ),
                   ),
-                  if (_isScanDisplayHome)
+                  if (_showsStockTakingFilter)
                     IconButton(
                       tooltip: s.filter,
                       icon: Icon(
@@ -2284,36 +2350,51 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     bool showLoaderOverlay,
   ) {
     final date = _stockTakingDate;
-    final matched = <ScannedBulkItem>[];
-    final unmatched = <ScannedBulkItem>[];
-    for (final item in items) {
-      if (item.currentScannedStatus == 'Matched') {
-        matched.add(item);
-      } else {
-        unmatched.add(item);
-      }
-    }
-    final slots = <Object>[
-      'MATCHED',
-      if (matched.isEmpty) 'EMPTY',
-      if (matched.isNotEmpty) ...matched,
-      'UNMATCHED',
-      if (unmatched.isEmpty) 'EMPTY_UNMATCH',
-      if (unmatched.isNotEmpty) ...unmatched,
-    ];
+    final matched =
+        _cachedDateMatched.isEmpty && _cachedDateUnmatched.isEmpty
+            ? items.where((i) => i.currentScannedStatus == 'Matched').toList()
+            : _cachedDateMatched;
+    final unmatched =
+        _cachedDateMatched.isEmpty && _cachedDateUnmatched.isEmpty
+            ? items.where((i) => i.currentScannedStatus != 'Matched').toList()
+            : _cachedDateUnmatched;
+    final matchedBody = matched.isEmpty ? 1 : matched.length;
+    final unmatchedBody = unmatched.isEmpty ? 1 : unmatched.length;
+    final itemCount = 2 + matchedBody + unmatchedBody;
     return Stack(
       children: [
         ListView.builder(
-          itemCount: slots.length,
+          itemCount: itemCount,
           itemBuilder: (context, index) {
-            final slot = slots[index];
-            if (slot == 'MATCHED' && date != null) {
-              return _dateTitleBar(context.s.match, date);
+            if (index == 0) {
+              return date == null
+                  ? const SizedBox.shrink()
+                  : _dateTitleBar(context.s.match, date);
             }
-            if (slot == 'UNMATCHED' && date != null) {
-              return _dateTitleBar(context.s.unmatch, date);
+            var i = index - 1;
+            if (matched.isEmpty) {
+              if (i == 0) {
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                  child: Text(
+                    context.s.noItems,
+                    style: AppFonts.poppins(fontSize: 13, color: Colors.grey[600]),
+                  ),
+                );
+              }
+              i -= 1;
+            } else if (i < matched.length) {
+              return _buildDesignItemRow(matched[i]);
+            } else {
+              i -= matched.length;
             }
-            if (slot == 'EMPTY' || slot == 'EMPTY_UNMATCH') {
+            if (i == 0) {
+              return date == null
+                  ? const SizedBox.shrink()
+                  : _dateTitleBar(context.s.unmatch, date);
+            }
+            i -= 1;
+            if (unmatched.isEmpty) {
               return Padding(
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
                 child: Text(
@@ -2322,7 +2403,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                 ),
               );
             }
-            return _buildDesignItemRow(slot as ScannedBulkItem);
+            return _buildDesignItemRow(unmatched[i]);
           },
         ),
         if (showLoaderOverlay)
@@ -2357,7 +2438,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   Widget _buildStockTakingTitle() {
     final date = _stockTakingDate;
-    if (!_isScanDisplayHome || date == null || _showBothDateLists) {
+    if (!_showsStockTakingFilter || date == null || _showBothDateLists) {
       return const SizedBox.shrink();
     }
     final s = context.s;
@@ -2383,24 +2464,27 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   }
 
   Future<void> _showStockTakingFilterPopup() async {
-    if (_isLoadingItems && _scannedItems.isEmpty) {
-      _showToast(context.sRead.pleaseWaitItemsLoading);
-      return;
-    }
     final s = context.sRead;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     var showMatch = _stockTakingDate != null ? _dateShowMatched : true;
-    var showUnmatch = _stockTakingDate != null ? _dateShowUnmatched : false;
+    var showUnmatch = _stockTakingDate != null ? _dateShowUnmatched : true;
     var date = _stockTakingDate ?? today;
+    final canClear = _stockTakingDate != null;
 
-    final action = await showAppDialog<String>(
+    final action = await showGeneralDialog<String>(
       context: context,
-      builder: (ctx) {
+      barrierDismissible: true,
+      barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+      useRootNavigator: true,
+      barrierColor: const Color(0x8A000000),
+      transitionDuration: Duration.zero,
+      pageBuilder: (ctx, _, __) {
         return StatefulBuilder(
           builder: (ctx, setLocal) {
             final dateLabel = DateFormat('dd-MM-yyyy').format(date);
-            return AlertDialog(
+            return Center(
+              child: AlertDialog(
               backgroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               title: Text(
@@ -2451,7 +2535,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                 ],
               ),
               actions: [
-                if (_stockTakingDate != null)
+                if (canClear)
                   TextButton(
                     onPressed: () => Navigator.pop(ctx, 'clear'),
                     child: Text(s.clearBtn, style: AppFonts.poppins(color: Colors.grey[700])),
@@ -2470,6 +2554,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                   child: Text(s.filter, style: AppFonts.poppins(color: Colors.white)),
                 ),
               ],
+            ),
             );
           },
         );
@@ -2480,11 +2565,268 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       await _clearStockTakingDate();
       return;
     }
+    final pref = context.read<PrefService>();
+    final assigned = _readPersistedAssignedBranches(pref);
+    var opId = _branchIdFromScanBranchOperation(assigned);
+    if (opId <= 0) {
+      opId = await _resolveScanBranchIdFromMaster();
+    }
+    if (!mounted) return;
+    if (opId <= 0) {
+      _showToast(s.pleaseSelectBranch);
+      return;
+    }
+    _filterBranchId = opId;
     await _loadStockTakingDate(
       date,
       showMatched: showMatch,
       showUnmatched: showUnmatch,
+      branchId: _filterBranchId,
     );
+  }
+
+  String _branchFilterLabel(
+    List<BranchSelection> assigned,
+    int id,
+    AppStrings s,
+  ) {
+    for (final b in assigned) {
+      if (b.id == id) {
+        final n = b.name.trim();
+        return n.isNotEmpty ? n : '$id';
+      }
+    }
+    return s.pleaseSelectBranch;
+  }
+
+  List<BranchSelection> _uniqueAssignedBranches(List<BranchSelection> list) {
+    final seen = <int>{};
+    final out = <BranchSelection>[];
+    for (final b in list) {
+      if (b.id <= 0 || !seen.add(b.id)) continue;
+      out.add(b);
+    }
+    return out;
+  }
+
+  List<BranchSelection> _readPersistedAssignedBranches(PrefService pref) {
+    final named = parseBranchSelectionJson(pref.getAssignedBranchesJson());
+    if (named.isNotEmpty) return _uniqueAssignedBranches(named);
+    return [
+      for (final id in pref.getBranchIds())
+        if (id > 0) BranchSelection(id: id, name: ''),
+    ];
+  }
+
+  Future<List<BranchSelection>> _loadAssignedFilterBranches() async {
+    final pref = context.read<PrefService>();
+    var assigned = await _fetchAssignedBranchesFromPermission();
+    if (!mounted) return assigned;
+    if (assigned.isEmpty) {
+      assigned = _readPersistedAssignedBranches(pref);
+    }
+    if (assigned.isEmpty) {
+      final loginId = _loginBranchId();
+      if (loginId > 0) {
+        final emp = context.read<DashboardViewModel>().employee;
+        assigned = [
+          BranchSelection(
+            id: loginId,
+            name: (emp?.defaultBranch ?? emp?.branchName ?? '').trim(),
+          ),
+        ];
+      }
+    }
+    if (assigned.any((b) => b.name.trim().isEmpty)) {
+      assigned = await _fillAssignedBranchNames(assigned);
+    }
+    if (assigned.isNotEmpty) {
+      unawaited(pref.saveBranchIds(assigned.map((b) => b.id).toList()));
+      unawaited(
+        pref.saveAssignedBranchesJson(encodeBranchSelectionList(assigned)),
+      );
+    }
+    return assigned;
+  }
+
+  Future<List<BranchSelection>> _fetchAssignedBranchesFromPermission() async {
+    try {
+      final emp = context.read<DashboardViewModel>().employee;
+      final clientCode = emp?.clientCode ?? '';
+      if (emp == null || clientCode.isEmpty) return [];
+      final permissions =
+          await context.read<ApiService>().getAllUserPermissionsAll(clientCode);
+      if (!mounted) return [];
+      UserPermission? current;
+      for (final p in permissions) {
+        if (p.userId == emp.id ||
+            p.employeeId == (emp.employeeId ?? -1)) {
+          current = p;
+          break;
+        }
+      }
+      return _uniqueAssignedBranches(
+        parseBranchSelectionJson(current?.branchSelectionJson)
+            .where((b) => b.id > 0)
+            .toList(),
+      );
+    } catch (e) {
+      debugPrint('Filter permission branches: $e');
+      return [];
+    }
+  }
+
+  Future<List<BranchSelection>> _fillAssignedBranchNames(
+    List<BranchSelection> assigned,
+  ) async {
+    if (assigned.isEmpty) return assigned;
+    final names = <int, String>{
+      for (final b in assigned)
+        if (b.name.trim().isNotEmpty) b.id: b.name.trim(),
+    };
+    for (final row in _scannedItems) {
+      final id = row.branchId;
+      if (id <= 0 || names.containsKey(id)) continue;
+      final n = row.branchName.trim();
+      if (n.isNotEmpty) names[id] = n;
+    }
+    try {
+      final clientCode =
+          context.read<DashboardViewModel>().employee?.clientCode ?? '';
+      if (clientCode.isNotEmpty) {
+        final rows = await context.read<ApiService>().getAllBranches(clientCode);
+        if (!mounted) return assigned;
+        for (final row in rows) {
+          if (row is! Map) continue;
+          final map = Map<String, dynamic>.from(row);
+          final id = int.tryParse(
+                '${map['Id'] ?? map['BranchId'] ?? map['id'] ?? ''}',
+              ) ??
+              0;
+          if (id <= 0 || names.containsKey(id)) continue;
+          final n = (map['BranchName'] ?? map['Name'] ?? map['branchName'] ?? '')
+              .toString()
+              .trim();
+          if (n.isNotEmpty) names[id] = n;
+        }
+      }
+    } catch (e) {
+      debugPrint('Assigned branch names: $e');
+    }
+    return [
+      for (final b in assigned)
+        BranchSelection(id: b.id, name: names[b.id] ?? b.name),
+    ];
+  }
+
+  Set<String> _scanBranchFilterNames() {
+    if (!_isScanBranch) return {};
+    return _filterValue
+        .split('\u001F')
+        .map((e) => e.trim().toLowerCase())
+        .where((e) => e.isNotEmpty)
+        .toSet();
+  }
+
+  int _branchIdFromScanBranchOperation(List<BranchSelection> assigned) {
+    if (!_isScanBranch) return 0;
+    if (_filterBranchId != null && _filterBranchId! > 0) return _filterBranchId!;
+    final names = _scanBranchFilterNames();
+    if (names.isNotEmpty) {
+      for (final b in assigned) {
+        if (b.id > 0 && names.contains(b.name.trim().toLowerCase())) {
+          return b.id;
+        }
+      }
+    }
+    for (final row in _scannedItems) {
+      final id = row.branchId;
+      if (id <= 0) continue;
+      if (names.isEmpty || names.contains(row.branchName.trim().toLowerCase())) {
+        return id;
+      }
+    }
+    return 0;
+  }
+
+  Future<int> _resolveScanBranchIdFromMaster() async {
+    final names = _scanBranchFilterNames();
+    if (names.isEmpty) return 0;
+    try {
+      final clientCode =
+          context.read<DashboardViewModel>().employee?.clientCode ?? '';
+      if (clientCode.isEmpty) return 0;
+      final rows = await context.read<ApiService>().getAllBranches(clientCode);
+      if (!mounted) return 0;
+      final matched = <int>{};
+      for (final row in rows) {
+        if (row is! Map) continue;
+        final map = Map<String, dynamic>.from(row);
+        final n = (map['BranchName'] ?? map['Name'] ?? map['branchName'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+        if (!names.contains(n)) continue;
+        final id = int.tryParse(
+              '${map['Id'] ?? map['BranchId'] ?? map['id'] ?? ''}',
+            ) ??
+            0;
+        if (id > 0) matched.add(id);
+      }
+      if (matched.length == 1) return matched.first;
+      if (matched.isNotEmpty) return matched.first;
+    } catch (e) {
+      debugPrint('Scan Branch id resolve: $e');
+    }
+    return 0;
+  }
+
+  int _defaultFilterBranchId(List<BranchSelection> assigned) {
+    if (_filterBranchId != null &&
+        assigned.any((b) => b.id == _filterBranchId)) {
+      return _filterBranchId!;
+    }
+    if (_isScanBranch) {
+      final fromOp = _branchIdFromScanBranchOperation(assigned);
+      if (fromOp > 0) return fromOp;
+    }
+    final loginId = _loginBranchId();
+    if (assigned.any((b) => b.id == loginId)) return loginId;
+    if (assigned.length == 1) return assigned.first.id;
+    return 0;
+  }
+
+  int _branchIdForStockTaking(
+    List<BranchSelection> assigned, [
+    int? selectedInDialog,
+  ]) {
+    if (selectedInDialog != null && selectedInDialog > 0) {
+      return selectedInDialog;
+    }
+    if (_filterBranchId != null && _filterBranchId! > 0) {
+      return _filterBranchId!;
+    }
+    if (_isScanBranch) {
+      return _branchIdFromScanBranchOperation(assigned);
+    }
+    if (assigned.length == 1) return assigned.first.id;
+    return _loginBranchId();
+  }
+
+  String _branchNameForId(List<BranchSelection> assigned, int id) {
+    for (final b in assigned) {
+      if (b.id == id && b.name.trim().isNotEmpty) return b.name.trim();
+    }
+    if (_isScanBranch) {
+      final names = _filterValue
+          .split('\u001F')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+      if (names.length == 1) return names.first;
+    }
+    final emp = context.read<DashboardViewModel>().employee;
+    return (emp?.defaultBranch ?? emp?.branchName ?? '').trim();
   }
 
   /// Branch id saved at login (`DefaultBranchId`).
@@ -2495,29 +2837,44 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     return context.read<DashboardViewModel>().employee?.defaultBranchId ?? 0;
   }
 
-  Future<String?> _resolveStockTakingBranchAddress() async {
+  String _loginBranchName() {
+    final emp = context.read<DashboardViewModel>().employee;
+    return (emp?.defaultBranch ?? emp?.branchName ?? '').trim();
+  }
+
+  Future<String?> _resolveStockTakingBranchAddress({int? branchId}) async {
     final pref = context.read<PrefService>();
     final api = context.read<ApiService>();
     final clientCode =
         context.read<DashboardViewModel>().employee?.clientCode ?? '';
-    var branchId = 0;
+    var resolvedId = 0;
     var branchName = '';
     if (pref.isWholesaleLoginUser()) {
-      if (!await _ensureBranchCounterForWholesale()) return null;
-      if (!mounted) return null;
-      final loc = _sessionLocation;
-      if (loc == null) return null;
-      branchId = loc.branchId;
-      branchName = loc.branchName.trim();
+      if (branchId != null && branchId > 0) {
+        final assigned = _readPersistedAssignedBranches(pref);
+        resolvedId = branchId;
+        branchName = _branchNameForId(assigned, resolvedId);
+      } else {
+        if (!await _ensureBranchCounterForWholesale()) return null;
+        if (!mounted) return null;
+        final loc = _sessionLocation;
+        if (loc == null) return null;
+        resolvedId = loc.branchId;
+        branchName = loc.branchName.trim();
+      }
     } else {
-      final emp = context.read<DashboardViewModel>().employee;
-      branchId = pref.getBranchId();
-      if (branchId <= 0) branchId = emp?.defaultBranchId ?? 0;
-      branchName = (emp?.defaultBranch ?? emp?.branchName ?? '').trim();
+      final assigned = _readPersistedAssignedBranches(pref);
+      resolvedId = _branchIdForStockTaking(assigned, branchId);
+      if (resolvedId <= 0) {
+        final emp = context.read<DashboardViewModel>().employee;
+        resolvedId = pref.getBranchId();
+        if (resolvedId <= 0) resolvedId = emp?.defaultBranchId ?? 0;
+      }
+      branchName = _branchNameForId(assigned, resolvedId);
     }
     final address = await api.resolveStockTakingBranchAddress(
       clientCode: clientCode,
-      branchId: branchId,
+      branchId: resolvedId,
       branchName: branchName,
     );
     if (!mounted) return null;
@@ -2531,7 +2888,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   void _captureCatalogIfNeeded() {
     if (_catalogSnapshot != null) return;
     _catalogSnapshot = _ScanCatalogSnapshot(
-      items: List<ScannedBulkItem>.from(_scannedItems),
+      items: _scannedItems,
       matchedKeys: Set<String>.from(_matchedEpcSet),
       unlabelled: List<String>.from(_unlabelledEpcs),
       selectedMenu: _selectedMenu,
@@ -2554,7 +2911,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     final out = <ScannedBulkItem>[];
     for (final row in raw) {
       if (row is! Map) continue;
-      final item = BulkItem.fromApi(Map<String, dynamic>.from(row));
+      final item = BulkItem.fromStockTaking(row);
       final identity = (item.epc.trim().isNotEmpty
               ? item.epc
               : (item.rfid.trim().isNotEmpty ? item.rfid : item.itemCode))
@@ -2562,6 +2919,34 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
           .toUpperCase();
       if (identity.isEmpty || !seen.add(identity)) continue;
       out.add(ScannedBulkItem(item, status));
+    }
+    return out;
+  }
+
+  Future<List<ScannedBulkItem>> _rowsToScannedChunked(
+    List<dynamic> raw,
+    String status,
+    Set<String> seen,
+  ) async {
+    final out = <ScannedBulkItem>[];
+    const chunk = 2500;
+    for (var i = 0; i < raw.length; i++) {
+      final row = raw[i];
+      if (row is Map) {
+        final item = BulkItem.fromStockTaking(row);
+        final identity = (item.epc.trim().isNotEmpty
+                ? item.epc
+                : (item.rfid.trim().isNotEmpty ? item.rfid : item.itemCode))
+            .trim()
+            .toUpperCase();
+        if (identity.isNotEmpty && seen.add(identity)) {
+          out.add(ScannedBulkItem(item, status));
+        }
+      }
+      if (i > 0 && i % chunk == 0) {
+        await Future<void>.delayed(Duration.zero);
+        if (!mounted) return out;
+      }
     }
     return out;
   }
@@ -2583,7 +2968,6 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     required bool showMatched,
     required bool showUnmatched,
   }) {
-    _seedDateMatches(scanned);
     var unmatched = 0;
     for (final item in scanned) {
       if (item.currentScannedStatus != 'Matched') unmatched++;
@@ -2614,6 +2998,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     });
     scheduleMicrotask(() async {
       if (!mounted || _stockTakingDate == null) return;
+      _seedDateMatches(scanned);
+      if (!mounted || _stockTakingDate == null) return;
       await _buildLookupMapsChunked();
       if (!mounted || _stockTakingDate == null) return;
       await _setFilteredItemsForScanChunked();
@@ -2624,15 +3010,13 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     DateTime day, {
     required bool showMatched,
     required bool showUnmatched,
+    int? branchId,
   }) async {
     if (_isScanning || _scanStartInProgress) {
       await _stopScanning();
       if (!mounted) return;
       _scanEpoch++;
     }
-
-    final branchAddress = await _resolveStockTakingBranchAddress();
-    if (!mounted || branchAddress == null) return;
 
     final clientCode =
         context.read<DashboardViewModel>().employee?.clientCode ?? '';
@@ -2642,10 +3026,29 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     }
     final keepLegacyBranch = clientCode.trim().toUpperCase() ==
         PrefService.wholesaleClientCode;
-    final loginBranchId = _loginBranchId();
-    if (!keepLegacyBranch && loginBranchId <= 0) {
+
+    var stockBranchId = branchId ?? 0;
+    if (stockBranchId <= 0) {
+      final assigned =
+          _readPersistedAssignedBranches(context.read<PrefService>());
+      stockBranchId = _branchIdForStockTaking(assigned, branchId);
+    }
+    if (_isScanBranch && stockBranchId <= 0) {
+      stockBranchId = await _resolveScanBranchIdFromMaster();
+      if (!mounted) return;
+    }
+    if (!keepLegacyBranch && stockBranchId <= 0) {
       _showToast(context.sRead.pleaseSelectBranch);
       return;
+    }
+
+    var branchAddress = '';
+    if (keepLegacyBranch) {
+      final address = await _resolveStockTakingBranchAddress(
+        branchId: stockBranchId,
+      );
+      if (!mounted || address == null) return;
+      branchAddress = address;
     }
 
     final req = ++_stockTakingReq;
@@ -2658,43 +3061,79 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     try {
       final api = context.read<ApiService>();
       final dateStr = DateFormat('yyyy-MM-dd').format(day);
-      final lists = await Future.wait(
-        keepLegacyBranch
-            ? [
-                api.getStockTakingMatchedList(
-                  clientCode: clientCode,
-                  branchAddress: branchAddress,
-                  stockTakingDate: dateStr,
-                ),
-                api.getStockTakingUnmatchedList(
-                  clientCode: clientCode,
-                  branchAddress: branchAddress,
-                  stockTakingDate: dateStr,
-                ),
-              ]
-            : [
-                api.getStockTakingMatchedListByBranchId(
-                  clientCode: clientCode,
-                  branchId: loginBranchId,
-                  stockTakingDate: dateStr,
-                ),
-                api.getStockTakingUnmatchedListByBranchId(
-                  clientCode: clientCode,
-                  branchId: loginBranchId,
-                  stockTakingDate: dateStr,
-                ),
-              ],
-      );
+      List<dynamic> matchedRaw = const [];
+      List<dynamic> unmatchedRaw = const [];
+      if (keepLegacyBranch) {
+        if (showMatched && showUnmatched) {
+          final lists = await Future.wait([
+            api.getStockTakingMatchedList(
+              clientCode: clientCode,
+              branchAddress: branchAddress,
+              stockTakingDate: dateStr,
+            ),
+            api.getStockTakingUnmatchedList(
+              clientCode: clientCode,
+              branchAddress: branchAddress,
+              stockTakingDate: dateStr,
+            ),
+          ]);
+          matchedRaw = lists[0];
+          unmatchedRaw = lists[1];
+        } else if (showMatched) {
+          matchedRaw = await api.getStockTakingMatchedList(
+            clientCode: clientCode,
+            branchAddress: branchAddress,
+            stockTakingDate: dateStr,
+          );
+        } else {
+          unmatchedRaw = await api.getStockTakingUnmatchedList(
+            clientCode: clientCode,
+            branchAddress: branchAddress,
+            stockTakingDate: dateStr,
+          );
+        }
+      } else if (showMatched && showUnmatched) {
+        final lists = await Future.wait([
+          api.getStockTakingMatchedListByBranchId(
+            clientCode: clientCode,
+            branchId: stockBranchId,
+            stockTakingDate: dateStr,
+          ),
+          api.getStockTakingUnmatchedListByBranchId(
+            clientCode: clientCode,
+            branchId: stockBranchId,
+            stockTakingDate: dateStr,
+          ),
+        ]);
+        matchedRaw = lists[0];
+        unmatchedRaw = lists[1];
+      } else if (showMatched) {
+        matchedRaw = await api.getStockTakingMatchedListByBranchId(
+          clientCode: clientCode,
+          branchId: stockBranchId,
+          stockTakingDate: dateStr,
+        );
+      } else {
+        unmatchedRaw = await api.getStockTakingUnmatchedListByBranchId(
+          clientCode: clientCode,
+          branchId: stockBranchId,
+          stockTakingDate: dateStr,
+        );
+      }
       if (!mounted || req != _stockTakingReq) return;
 
       final seen = <String>{};
       final scanned = <ScannedBulkItem>[
-        ..._rowsToScanned(lists[0], 'Matched', seen),
-        ..._rowsToScanned(lists[1], 'Unmatched', seen),
+        ...await _rowsToScannedChunked(matchedRaw, 'Matched', seen),
       ];
+      if (!mounted || req != _stockTakingReq) return;
+      scanned.addAll(
+        await _rowsToScannedChunked(unmatchedRaw, 'Unmatched', seen),
+      );
+      if (!mounted || req != _stockTakingReq) return;
       debugPrint(
-        'Stock taking $dateStr matched=${lists[0].length} '
-        'unmatched=${lists[1].length} shown=${scanned.length}',
+        'Stock taking $dateStr matched=${matchedRaw.length} '
+        'unmatched=${unmatchedRaw.length} shown=${scanned.length}',
       );
       _captureCatalogIfNeeded();
       _installDateItems(
@@ -2727,6 +3166,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     _stockTakingDate = null;
     _dateShowMatched = false;
     _dateShowUnmatched = false;
+    _cachedDateMatched = const [];
+    _cachedDateUnmatched = const [];
     _dateBaselineMatchedKeys.clear();
 
     if (!_dateListActive) {

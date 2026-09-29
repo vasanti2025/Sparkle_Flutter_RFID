@@ -44,6 +44,7 @@ class PrefService {
   static const String keyBackupEmail = 'backup_email';
   static const String keyWebReusableTag = 'web_reusable_tag';
   static const String keyBranchIds = 'branch_ids';
+  static const String keyAssignedBranches = 'assigned_branches';
   static const String keyNotificationsEnabled = 'notifications_enabled';
   static const String keyAppLanguage = 'app_language';
   static const String keyLocationSync = 'location_sync';
@@ -435,6 +436,13 @@ class PrefService {
     await _store.setString(keyBranchIds, jsonEncode(branchIds));
   }
 
+  /// User-permission branches (same list used at Sync Data), with names when known.
+  Future<void> saveAssignedBranchesJson(String json) async {
+    await _store.setString(keyAssignedBranches, json);
+  }
+
+  String getAssignedBranchesJson() => _store.getString(keyAssignedBranches) ?? '';
+
   List<int> getBranchIds() {
     final jsonStr = _store.getString(keyBranchIds);
     if (jsonStr == null) {
@@ -602,6 +610,7 @@ class PrefService {
     await _store.remove('client');
     await _store.remove(_keyBranchId);
     await _store.remove(keyBranchIds);
+    await _store.remove(keyAssignedBranches);
     await _store.remove(_keyUserId);
     await _store.remove(_keySessionStartedAt);
     await _store.remove(_keySessionUsername);

@@ -1,4 +1,5 @@
 {
+  "dart.flutterSdkPath": "C:\\Users\\Admin\\flutter",
   "terminal.integrated.env.windows": {
     "GRADLE_USER_HOME": "E:\\gradle_home",
     "PUB_CACHE": "E:\\pub_cache",

@@ -30,6 +30,12 @@ class BranchSelection {
       );
 }
 
+String encodeBranchSelectionList(List<BranchSelection> branches) {
+  return jsonEncode([
+    for (final b in branches) {'Id': b.id, 'Name': b.name},
+  ]);
+}
+
 List<BranchSelection> parseBranchSelectionJson(String? json) {
   if (json == null || json.trim().isEmpty || json.trim() == 'null') return [];
   try {

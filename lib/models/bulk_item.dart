@@ -388,38 +388,62 @@ class BulkItem {
       return s;
     }
 
-    int number(String key) => int.tryParse(text(key)) ?? 0;
+    String first(List<String> keys) {
+      for (final key in keys) {
+        final s = text(key);
+        if (s.isNotEmpty) return s;
+      }
+      return '';
+    }
 
-    final itemCode = text('ItemCode');
-    final rfidCode = text('RFIDCode');
-    final tidNumber = text('TIDNumber');
+    int number(String key) => int.tryParse(first([key, key.toLowerCase()])) ?? 0;
+
+    final itemCode = first(const ['ItemCode', 'itemCode']);
+    final rfidCode = first(const [
+      'RFIDCode',
+      'RfidCode',
+      'rfidCode',
+      'RFID',
+      'rfid',
+      'RFIDTag',
+    ]);
+    final tidNumber = first(const [
+      'TIDNumber',
+      'TidNumber',
+      'tidNumber',
+      'TID',
+      'tid',
+      'EPC',
+      'Epc',
+      'epc',
+    ]);
     return BulkItem(
-      bulkItemId: number('Id'),
-      productName: text('ProductName'),
+      bulkItemId: int.tryParse(first(const ['Id', 'id'])) ?? 0,
+      productName: first(const ['ProductName', 'productName']),
       itemCode: itemCode,
-      rfid: rfidCode.isNotEmpty ? rfidCode : text('RFIDTag'),
-      grossWeight: text('GrossWeight'),
-      stoneWeight: text('TotalStoneWeight'),
-      diamondWeight: text('TotalDiamondWeight'),
-      netWeight: text('NetWeight'),
-      category: text('CategoryName'),
-      design: text('DesignName'),
-      purity: text('PurityName'),
+      rfid: rfidCode,
+      grossWeight: first(const ['GrossWt', 'GrossWeight', 'grossWt', 'grossWeight']),
+      stoneWeight: first(const ['TotalStoneWeight', 'totalStoneWeight']),
+      diamondWeight: first(const ['TotalDiamondWeight', 'totalDiamondWeight']),
+      netWeight: first(const ['NetWt', 'NetWeight', 'netWt', 'netWeight']),
+      category: first(const ['CategoryName', 'categoryName']),
+      design: first(const ['DesignName', 'designName']),
+      purity: first(const ['PurityName', 'purityName']),
       makingPerGram: '',
       makingPercent: '',
       fixMaking: '',
       fixWastage: '',
       stoneAmount: '',
       diamondAmount: '',
-      sku: text('SKU'),
+      sku: first(const ['SKU', 'sku']),
       epc: tidNumber,
       vendor: '',
       tid: tidNumber,
       box: '',
       designCode: '',
       productCode: '',
-      imageUrl: text('Images'),
-      totalQty: number('Quantity'),
+      imageUrl: first(const ['Images', 'Image', 'images']),
+      totalQty: int.tryParse(first(const ['Quantity', 'quantity'])) ?? 0,
       pcs: 0,
       matchedPcs: 0,
       totalGwt: 0,
@@ -431,26 +455,26 @@ class BulkItem {
       unmatchedQty: 0,
       matchedQty: 0,
       unmatchedGrossWt: 0,
-      mrp: double.tryParse(text('MRP')) ?? 0,
-      counterName: text('CounterName'),
-      counterId: number('CounterId'),
+      mrp: double.tryParse(first(const ['MRP', 'mrp'])) ?? 0,
+      counterName: first(const ['CounterName', 'counterName']),
+      counterId: int.tryParse(first(const ['CounterId', 'counterId'])) ?? 0,
       boxId: 0,
-      boxName: text('BoxName'),
-      branchId: number('BranchId'),
-      branchName: text('BranchName'),
+      boxName: first(const ['BoxName', 'boxName']),
+      branchId: int.tryParse(first(const ['BranchId', 'branchId'])) ?? 0,
+      branchName: first(const ['BranchName', 'branchName']),
       packetId: 0,
       packetName: '',
       scannedStatus: '',
-      categoryId: number('CategoryId'),
-      productId: number('ProductId'),
+      categoryId: int.tryParse(first(const ['CategoryId', 'categoryId'])) ?? 0,
+      productId: int.tryParse(first(const ['ProductId', 'productId'])) ?? 0,
       branchType: '',
-      designId: number('DesignId'),
+      designId: int.tryParse(first(const ['DesignId', 'designId'])) ?? 0,
       isScanned: 0,
       totalWt: 0,
       categoryWt: '',
       skuId: 0,
-      purityId: number('PurityId'),
-      status: text('Status'),
+      purityId: int.tryParse(first(const ['PurityId', 'purityId'])) ?? 0,
+      status: first(const ['Status', 'status']),
     );
   }
 

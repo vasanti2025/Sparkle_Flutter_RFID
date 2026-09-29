@@ -17,7 +17,13 @@ rootProject.layout.buildDirectory.value(newBuildDir)
 
 subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
-    project.layout.buildDirectory.value(newSubprojectBuildDir)
+    // AGP resolves the build directory relative to the project directory, which fails when a
+    // plugin lives in a Pub cache on a different Windows drive than this project.
+    val sameDriveRoot =
+        project.projectDir.toPath().root == newSubprojectBuildDir.asFile.toPath().root
+    if (sameDriveRoot) {
+        project.layout.buildDirectory.value(newSubprojectBuildDir)
+    }
 
     // Force modern compileSdk so ML Kit / CameraX release resources link (lStar, etc.).
     afterEvaluate {

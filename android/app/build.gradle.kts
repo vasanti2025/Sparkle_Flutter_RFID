@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.loyalstring.rfid.rfid_flutter"
-    compileSdk = 36
+    compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

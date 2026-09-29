@@ -328,12 +328,40 @@ class _FaceLoginScreenState extends State<FaceLoginScreen>
           }
         }
         final fromPerm = parseBranchSelectionJson(current?.branchSelectionJson)
-            .map((b) => b.id)
-            .where((id) => id > 0)
+            .where((b) => b.id > 0)
             .toList();
-        await pref.saveBranchIds(fromPerm.isNotEmpty ? fromPerm : (fallback.isEmpty ? [employee.defaultBranchId] : fallback));
+        final assigned = fromPerm.isNotEmpty
+            ? fromPerm
+            : [
+                for (final id in fallback)
+                  if (id > 0)
+                    BranchSelection(
+                      id: id,
+                      name: employee.defaultBranch ?? employee.branchName ?? '',
+                    ),
+              ];
+        final ids = assigned.map((b) => b.id).toList();
+        await pref.saveBranchIds(
+          ids.isNotEmpty
+              ? ids
+              : (fallback.isEmpty ? [employee.defaultBranchId] : fallback),
+        );
+        if (assigned.isNotEmpty) {
+          await pref.saveAssignedBranchesJson(encodeBranchSelectionList(assigned));
+        }
       } else {
-        await pref.saveBranchIds(fallback.isEmpty ? [employee.defaultBranchId] : fallback);
+        final ids = fallback.isEmpty ? [employee.defaultBranchId] : fallback;
+        await pref.saveBranchIds(ids);
+        await pref.saveAssignedBranchesJson(
+          encodeBranchSelectionList([
+            for (final id in ids)
+              if (id > 0)
+                BranchSelection(
+                  id: id,
+                  name: employee.defaultBranch ?? employee.branchName ?? '',
+                ),
+          ]),
+        );
       }
     } catch (_) {
       await pref.saveBranchIds([employee.defaultBranchId]);

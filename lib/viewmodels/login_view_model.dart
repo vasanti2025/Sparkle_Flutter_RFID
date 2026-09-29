@@ -238,7 +238,17 @@ class LoginViewModel extends ChangeNotifier {
     }
 
     // Fallback branches immediately — do not block login on permissions API.
-    await _prefService.saveBranchIds(_fallbackBranchIds(employee));
+    await _persistAssignedBranches(
+      [
+        for (final id in _fallbackBranchIds(employee))
+          if (id > 0)
+            BranchSelection(
+              id: id,
+              name: employee.defaultBranch ?? employee.branchName ?? '',
+            ),
+      ],
+      fallbackIds: _fallbackBranchIds(employee),
+    );
 
     await _prefService.saveLoginCredentials(
       username: username,
@@ -299,7 +309,17 @@ class LoginViewModel extends ChangeNotifier {
       if ((employee.branchNo ?? 0) > 0) employee.branchNo!,
     ].toSet().toList();
     if (clientCode.isEmpty) {
-      await _prefService.saveBranchIds(fallback.isEmpty ? [1] : fallback);
+      await _persistAssignedBranches(
+        [
+          for (final id in fallback)
+            if (id > 0)
+              BranchSelection(
+                id: id,
+                name: employee.defaultBranch ?? employee.branchName ?? '',
+              ),
+        ],
+        fallbackIds: fallback.isEmpty ? [1] : fallback,
+      );
       return;
     }
     try {
@@ -312,14 +332,49 @@ class LoginViewModel extends ChangeNotifier {
         }
       }
       final fromPerm = parseBranchSelectionJson(current?.branchSelectionJson)
-          .map((b) => b.id)
-          .where((id) => id > 0)
+          .where((b) => b.id > 0)
           .toList();
-      final ids = fromPerm.isNotEmpty ? fromPerm : fallback;
-      await _prefService.saveBranchIds(ids.isEmpty ? [employee.defaultBranchId] : ids);
+      final assigned = fromPerm.isNotEmpty
+          ? fromPerm
+          : [
+              for (final id in fallback)
+                if (id > 0)
+                  BranchSelection(
+                    id: id,
+                    name: employee.defaultBranch ?? employee.branchName ?? '',
+                  ),
+            ];
+      await _persistAssignedBranches(
+        assigned,
+        fallbackIds: fallback.isEmpty ? [employee.defaultBranchId] : fallback,
+      );
     } catch (e) {
       debugPrint('_saveBranchIdsForEmployee: $e');
-      await _prefService.saveBranchIds(fallback.isEmpty ? [employee.defaultBranchId] : fallback);
+      await _persistAssignedBranches(
+        [
+          for (final id in fallback)
+            if (id > 0)
+              BranchSelection(
+                id: id,
+                name: employee.defaultBranch ?? employee.branchName ?? '',
+              ),
+        ],
+        fallbackIds: fallback.isEmpty ? [employee.defaultBranchId] : fallback,
+      );
+    }
+  }
+
+  Future<void> _persistAssignedBranches(
+    List<BranchSelection> assigned, {
+    required List<int> fallbackIds,
+  }) async {
+    final ids = assigned.map((b) => b.id).where((id) => id > 0).toList();
+    final use = ids.isNotEmpty ? ids : fallbackIds;
+    await _prefService.saveBranchIds(use.isEmpty ? [1] : use);
+    if (assigned.isNotEmpty) {
+      await _prefService.saveAssignedBranchesJson(
+        encodeBranchSelectionList(assigned),
+      );
     }
   }
 }
