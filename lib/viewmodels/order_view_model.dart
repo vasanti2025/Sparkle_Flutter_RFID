@@ -451,6 +451,8 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
       final makingFixedAmt = double.tryParse(current.makingFixedAmt) ?? 0.0;
       final makingPercent = double.tryParse(wastage.isNotEmpty ? wastage : current.makingPercentage) ?? 0.0;
       final makingFixedWastage = double.tryParse(current.makingFixedWastage) ?? 0.0;
+      final finePercent = double.tryParse(current.finePer) ?? 0.0;
+      final finePlusWt = (netWt * ((finePercent + makingPercent) / 100.0)).toStringAsFixed(3);
 
       final metalAmt = netWt * rate;
       final makingAmt = makingPerGram + makingFixedAmt + ((makingPercent / 100.0) * netWt) + makingFixedWastage;
@@ -472,6 +474,7 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
         orderDate: orderDate.isNotEmpty ? orderDate : current.orderDate,
         deliverDate: deliverDate.isNotEmpty ? deliverDate : current.deliverDate,
         todaysRate: rate.toStringAsFixed(2),
+        finePlusWt: finePlusWt,
         itemAmt: itemAmt.toStringAsFixed(2),
         netAmt: itemAmt.toStringAsFixed(2),
       );
@@ -672,10 +675,13 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
             response = await _apiService.addCustomOrder(enrichedPayload);
           }
           if (response != null) {
-            await _offline.cacheOrdersHistory(
-              clientCode,
+            final saved = mergeOrderResponseForPdf(enrichedPayload, response);
+            _rememberSavedOrder(saved);
+            final serverOrders = _overlaySavedOnList(
               await _apiService.getAllOrders(clientCode),
             );
+            await _offline.cacheOrdersHistory(clientCode, serverOrders);
+            response = saved;
           }
         } catch (e) {
           onlineSubmitError = e.toString();
@@ -768,8 +774,9 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
 
       _isLoading = false;
       notifyListeners();
-      if (response == null) return null;
-      return mergeOrderResponseForPdf(enrichedPayload, response);
+      final saved = mergeOrderResponseForPdf(enrichedPayload, response);
+      _rememberSavedOrder(saved);
+      return saved;
     } catch (e) {
       _isLoading = false;
       _errorMessage = e.toString();
@@ -902,9 +909,33 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
     Map<String, dynamic> response,
   ) {
     final snap = normalizeOrderMap(enrichedPayload);
+    // Update API often echoes the previous order. Keep the values just saved
+    // so print matches the screen.
+    const preferLocal = {
+      'CustomOrderItem',
+      'Customer',
+      'CustomerName',
+      'FirstName',
+      'LastName',
+      'Mobile',
+      'Email',
+      'Remark',
+      'Remarks',
+      'TotalAmount',
+      'TotalNetAmount',
+      'TotalGSTAmount',
+      'Qty',
+      'GrossWt',
+      'NetWt',
+      'OrderDate',
+      'DeliverDate',
+      'GST',
+      'GSTApplied',
+    };
     response.forEach((key, value) {
       if (value == null) return;
       final k = key.toString();
+      if (preferLocal.contains(k)) return;
       if (k == 'Customer' && value is Map && value.isEmpty) return;
       if (k == 'CustomOrderItem' && value is List && value.isEmpty) return;
       snap[k] = value is Map
@@ -919,6 +950,70 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
       snap['CustomOrderId'] = response['CustomOrderId'];
     }
     return snap;
+  }
+
+  Map<String, dynamic>? _savedOrderSnapshot;
+
+  void _rememberSavedOrder(Map<String, dynamic> saved) {
+    _savedOrderSnapshot = normalizeOrderMap(saved);
+    _applySavedOrderToHistory();
+  }
+
+  bool _sameOrder(Map a, Map b) {
+    final idA = int.tryParse('${a['CustomOrderId']}') ?? 0;
+    final idB = int.tryParse('${b['CustomOrderId']}') ?? 0;
+    if (idA > 0 && idA == idB) return true;
+    final noA = a['OrderNo']?.toString().trim() ?? '';
+    final noB = b['OrderNo']?.toString().trim() ?? '';
+    return noA.isNotEmpty && noA != '0' && noA == noB;
+  }
+
+  Map<String, dynamic> _overlaySavedOrder(
+    Map<String, dynamic> server,
+    Map<String, dynamic> saved,
+  ) {
+    final out = normalizeOrderMap(server);
+    const keys = [
+      'CustomOrderItem',
+      'Customer',
+      'CustomerName',
+      'Remark',
+      'Remarks',
+      'TotalAmount',
+      'TotalNetAmount',
+      'TotalGSTAmount',
+      'Qty',
+      'GrossWt',
+      'NetWt',
+      'OrderDate',
+      'DeliverDate',
+    ];
+    for (final key in keys) {
+      final value = saved[key];
+      if (value == null) continue;
+      if (value is List && value.isEmpty) continue;
+      if (value is Map && value.isEmpty) continue;
+      out[key] = value;
+    }
+    return out;
+  }
+
+  void _applySavedOrderToHistory() {
+    final saved = _savedOrderSnapshot;
+    if (saved == null || _ordersHistory.isEmpty) return;
+    _ordersHistory = _ordersHistory.map((order) {
+      if (order is! Map || !_sameOrder(order, saved)) return order;
+      return _overlaySavedOrder(Map<String, dynamic>.from(order), saved);
+    }).toList();
+  }
+
+  List<dynamic> _overlaySavedOnList(List<dynamic> orders) {
+    final saved = _savedOrderSnapshot;
+    if (saved == null) return orders;
+    return orders.map((order) {
+      if (order is! Map || !_sameOrder(order, saved)) return order;
+      return _overlaySavedOrder(Map<String, dynamic>.from(order), saved);
+    }).toList();
   }
 
   Future<void> fetchOrdersHistory({bool syncPendingFirst = true, bool forceNetwork = false}) async {
@@ -945,6 +1040,7 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
           serverOrCached: cached,
           pending: pending,
         );
+        _applySavedOrderToHistory();
         notifyListeners();
       }
     } catch (_) {}
@@ -971,7 +1067,7 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
           await _refreshPendingCount();
         }
 
-        final raw = await _apiService.getAllOrders(clientCode);
+        final raw = _overlaySavedOnList(await _apiService.getAllOrders(clientCode));
         // Drop any pending creates that already exist on server (same OrderNo).
         await _offline.dropPendingCreatesAlreadyOnServer(clientCode, raw);
         final pendingFresh = await _offline.getPendingOrders(clientCode);
@@ -1016,6 +1112,7 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
         }
       }
     } finally {
+      _applySavedOrderToHistory();
       _isHistoryLoading = false;
       _lastHistoryFetchAt = DateTime.now();
       notifyListeners();

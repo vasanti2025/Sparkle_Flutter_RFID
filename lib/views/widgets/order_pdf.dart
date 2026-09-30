@@ -648,9 +648,12 @@ String _orderHeaderRemark(
     'OrderRemark',
   ]);
   if (orderRemark != null) return orderRemark;
-  if (items.length == 1) {
-    return _orderRemark(items.first, orderRes);
+  final parts = <String>[];
+  for (final item in items) {
+    final text = _orderRemark(item, const {});
+    if (text != '-' && !parts.contains(text)) parts.add(text);
   }
+  if (parts.isNotEmpty) return parts.join(', ');
   return '-';
 }
 
@@ -1001,10 +1004,9 @@ String _orderDwt(Map<String, dynamic> item, Map<String, dynamic> orderRes) {
   return _formatDwt(raw);
 }
 
-/// Size ← Description / Size (order response / CustomOrderItem)
+/// Size ← Size / ItemSize / Length. Description is the item remark.
 String _orderSize(Map<String, dynamic> item, Map<String, dynamic> orderRes) {
   final raw = _pickOrderField(item, orderRes, [
-    'Description',
     'Size',
     'ItemSize',
     'Length',
@@ -1012,14 +1014,19 @@ String _orderSize(Map<String, dynamic> item, Map<String, dynamic> orderRes) {
   return raw ?? '-';
 }
 
-/// Remark ← Remark (order response / CustomOrderItem)
+/// Remark ← Remark, else Description when it is not the size text.
 String _orderRemark(Map<String, dynamic> item, Map<String, dynamic> orderRes) {
   final raw = _pickOrderField(item, orderRes, [
     'Remark',
     'Remarks',
     'OrderRemark',
   ]);
-  return raw ?? '-';
+  if (raw != null) return raw;
+  final description = _pickOrderField(item, const {}, ['Description']);
+  if (description == null) return '-';
+  final size = _pickOrderField(item, const {}, ['Size', 'ItemSize']);
+  if (size != null && description == size) return '-';
+  return description;
 }
 
 String _formatPt(dynamic value) {

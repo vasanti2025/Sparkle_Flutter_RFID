@@ -7,6 +7,7 @@ import '../models/bulk_item.dart';
 import '../services/api_service.dart';
 import '../services/db_service.dart';
 import '../services/list_json_cache.dart';
+import '../services/order_payload_builder.dart';
 import '../services/pref_service.dart';
 
 import '../utils/tag_scan_batcher.dart';
@@ -41,6 +42,9 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
 
   final List<OrderItem> _productList = [];
   List<OrderItem> get productList => _productList;
+
+  /// Original API rows kept so update can send item Id / Quotationid back.
+  final List<Map<String, dynamic>> _sourceItems = [];
 
   CustomerModel? _selectedCustomer;
   CustomerModel? get selectedCustomer => _selectedCustomer;
@@ -233,6 +237,7 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
     if (exists) return 'Item already added';
 
     _productList.add(_buildItem(matchedItem));
+    _sourceItems.add(<String, dynamic>{});
     notifyListeners();
     return null;
   }
@@ -256,6 +261,7 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
       if (exists) continue;
 
       _productList.add(_buildItem(matchedItem));
+      _sourceItems.add(<String, dynamic>{});
       addedCount++;
       if (!acceptLiveScan(fromLiveScan)) break;
       if (!fromLiveScan) {
@@ -335,12 +341,14 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
   void deleteItem(int index) {
     if (index >= 0 && index < _productList.length) {
       _productList.removeAt(index);
+      if (index < _sourceItems.length) _sourceItems.removeAt(index);
       notifyListeners();
     }
   }
 
   void clearQuotation() {
     _productList.clear();
+    _sourceItems.clear();
     _selectedCustomer = null;
     notifyListeners();
   }
@@ -356,9 +364,18 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
   double _sum(double Function(OrderItem) sel) => _productList.fold(0.0, (s, it) => s + sel(it));
 
   // ---- Build a quotation item JSON (matches the Kotlin AddQuotation body) --
-  Map<String, dynamic> _quotationItemJson(OrderItem item, String clientCode) {
-    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+  Map<String, dynamic> _quotationItemJson(
+    OrderItem item,
+    String clientCode,
+    Map<String, dynamic>? source,
+  ) {
+    final itemId = _asInt(source?['Id']);
+    final createdOn = OrderPayloadBuilder.toIsoOffsetDateTime(
+      source?['CreatedOn']?.toString(),
+    );
     return {
+      if (itemId > 0) 'Id': itemId,
+      if (_isEditMode && _editingQuotationId > 0) 'Quotationid': _editingQuotationId,
       'ItemCode': item.itemCode,
       'SKU': item.sku,
       'SKUId': item.skuId,
@@ -377,6 +394,7 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
       'NetWt': item.nWt,
       'TotalWt': item.totalWt,
       'StoneWt': item.stoneWt,
+      'TotalStoneWeight': item.stoneWt,
       'DiamondWeight': item.dimondWt,
       'DiamondWt': item.dimondWt,
       'FinePercentage': item.finePer,
@@ -388,6 +406,7 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
       'DiamondAmount': item.diamondAmt,
       'MakingPerGram': item.makingPerGram,
       'MakingFixed': item.makingFixedAmt,
+      'MakingFixedAmt': item.makingFixedAmt,
       'MakingPercentage': item.makingPercentage,
       'MakingFixedWastage': item.makingFixedWastage,
       'HallmarkAmount': item.hallmarkAmt,
@@ -401,11 +420,12 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
       'BranchId': int.tryParse(item.branchId) ?? 0,
       'BranchName': item.branchName,
       'CustomerId': _selectedCustomer?.id ?? 0,
-      'LabelledStockId': 0,
+      'LabelledStockId': _asInt(source?['LabelledStockId']),
       'TIDNumber': item.tid,
       'RFIDCode': item.rfidCode,
       'ClientCode': clientCode,
-      'CreatedOn': today,
+      'CreatedOn': createdOn,
+      'LastUpdated': OrderPayloadBuilder.isoOffsetNow(),
     };
   }
 
@@ -441,19 +461,28 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
 
       final custName =
           '${_selectedCustomer!.firstName ?? ''} ${_selectedCustomer!.lastName ?? ''}'.trim();
-      final items = _productList.map((it) => _quotationItemJson(it, clientCode)).toList();
+      final items = <Map<String, dynamic>>[];
+      for (var i = 0; i < _productList.length; i++) {
+        final source = i < _sourceItems.length ? _sourceItems[i] : null;
+        items.add(_quotationItemJson(_productList[i], clientCode, source));
+      }
       final totalGst = calculateGstAmount();
       // Single quotation date only (list shows QuotationDate).
       // Add → today; Update → keep existing QuotationDate when present.
+      // API Date/CreatedOn are date-time; date-only values return 400 on update.
       final quotationDate = _isEditMode && _editingQuotationDate.isNotEmpty
           ? _editingQuotationDate
           : DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final quotationDateTime = OrderPayloadBuilder.toIsoOffsetDateTime(quotationDate);
+      final createdOn = OrderPayloadBuilder.toIsoOffsetDateTime(
+        _isEditMode ? _editingCreatedOn : null,
+      );
 
       final payload = {
         if (_isEditMode) 'Id': _editingQuotationId,
         'ClientCode': clientCode,
         'BranchId': branchId,
-        'CustomerId': selectedCustId.toString(),
+        'CustomerId': selectedCustId,
         'CustomerName': custName,
         'FirstName': _selectedCustomer!.firstName ?? '',
         'LastName': _selectedCustomer!.lastName ?? '',
@@ -462,8 +491,10 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
         'Email': _selectedCustomer!.email ?? '',
         'QuotationNo': nextNo,
         'QuotationStatus': 'Delivered',
-        'Date': quotationDate,
-        'QuotationDate': quotationDate,
+        'Date': quotationDateTime,
+        'QuotationDate': quotationDateTime,
+        'CreatedOn': createdOn,
+        'LastUpdated': OrderPayloadBuilder.isoOffsetNow(),
         'GST': _isGstChecked ? '3.0' : '0.0',
         'GSTApplied': _isGstChecked ? 'True' : 'False',
         'TotalAmount': getFinalTotal().toStringAsFixed(2),
@@ -491,6 +522,9 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
           'PanNo': _selectedCustomer!.panNo ?? '',
           'ClientCode': _selectedCustomer!.clientCode ?? clientCode,
           'Id': selectedCustId,
+          'CreatedOn': createdOn,
+          'LastUpdated': OrderPayloadBuilder.isoOffsetNow(),
+          'StatusType': true,
         },
         'QuotationItem': items,
       };
@@ -503,15 +537,18 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
       final merged = <String, dynamic>{
         ...payload,
         if (response is Map<String, dynamic>) ...response,
-        'CustomerId': selectedCustId.toString(),
+        'CustomerId': selectedCustId,
         'CustomerName': custName,
         'FirstName': _selectedCustomer!.firstName ?? '',
         'LastName': _selectedCustomer!.lastName ?? '',
         'Customer': payload['Customer'],
         'BranchId': branchId,
-        'Date': quotationDate,
-        'QuotationDate': quotationDate,
-        'QuotationItem': items,
+        'Date': quotationDateTime,
+        'QuotationDate': quotationDateTime,
+        'QuotationItem': _savedQuotationItems(
+          response is Map<String, dynamic> ? response : null,
+          items,
+        ),
         'Remark': payload['Remark'],
       };
 
@@ -528,6 +565,15 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
     }
   }
 
+  List<dynamic> _savedQuotationItems(
+    Map<String, dynamic>? response,
+    List<Map<String, dynamic>> items,
+  ) {
+    final fromApi = response?['QuotationItem'];
+    if (fromApi is List && fromApi.isNotEmpty) return fromApi;
+    return items;
+  }
+
   // ---- Quotation history list + edit state ---------------------------------
   List<dynamic> _quotationsHistory = [];
   List<dynamic> get quotationsHistory => _quotationsHistory;
@@ -542,6 +588,7 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
   int _editingQuotationId = 0;
   String _editingQuotationNo = '';
   String _editingQuotationDate = '';
+  String _editingCreatedOn = '';
 
   String _quotationCacheKey(String clientCode, int branchId) =>
       'quotation_${clientCode}_$branchId';
@@ -707,21 +754,35 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
     return defaultId > 0 ? defaultId : 0;
   }
 
+  static int _asInt(dynamic v) {
+    if (v == null) return 0;
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return int.tryParse(v.toString().trim()) ?? 0;
+  }
+
   void setQuotationForEditing(Map<String, dynamic> quotation) {
     _isEditMode = true;
-    _editingQuotationId = quotation['Id'] as int? ?? 0;
+    _editingQuotationId = _asInt(quotation['Id']);
+    if (_editingQuotationId <= 0) {
+      _editingQuotationId = _asInt(quotation['QuotationId']);
+    }
     _editingQuotationNo = quotation['QuotationNo']?.toString() ?? '';
     final rawDate = (quotation['QuotationDate'] ?? quotation['Date'] ?? quotation['CreatedOn'])
         ?.toString()
         .trim() ??
         '';
-    if (rawDate.length >= 10) {
+    if (rawDate.length >= 10 && rawDate.contains('-') && !rawDate.contains('T')) {
       _editingQuotationDate = rawDate.substring(0, 10);
+    } else if (rawDate.contains('T')) {
+      _editingQuotationDate = rawDate.split('T').first;
     } else {
       _editingQuotationDate = rawDate;
     }
+    _editingCreatedOn = (quotation['CreatedOn'] ?? quotation['Date'] ?? rawDate).toString();
 
-    final custJson = quotation['Customer'] as Map<String, dynamic>?;
+    final custRaw = quotation['Customer'];
+    final custJson = custRaw is Map ? Map<String, dynamic>.from(custRaw) : null;
     if (custJson != null) {
       _selectedCustomer = CustomerModel.fromJson(custJson);
     } else {
@@ -737,9 +798,13 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
         (double.tryParse(quotation['TotalGSTAmount']?.toString() ?? '') ?? 0.0) > 0);
 
     _productList.clear();
+    _sourceItems.clear();
     final itemsList = quotation['QuotationItem'] as List? ?? [];
     for (final itemJson in itemsList) {
-      _productList.add(OrderItem.fromJson(itemJson as Map<String, dynamic>));
+      if (itemJson is! Map) continue;
+      final raw = Map<String, dynamic>.from(itemJson);
+      _sourceItems.add(raw);
+      _productList.add(OrderItem.fromJson(raw));
     }
     notifyListeners();
   }
@@ -749,8 +814,10 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
     _editingQuotationId = 0;
     _editingQuotationNo = '';
     _editingQuotationDate = '';
+    _editingCreatedOn = '';
     _selectedCustomer = null;
     _productList.clear();
+    _sourceItems.clear();
     _isGstChecked = true;
     notifyListeners();
   }

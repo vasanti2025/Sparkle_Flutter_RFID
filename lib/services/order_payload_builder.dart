@@ -10,6 +10,25 @@ class OrderPayloadBuilder {
     return '$startYear-$endShort';
   }
 
+  static String _itemRemark(Map it) {
+    final remark = _s(it['Remark']);
+    if (remark.isNotEmpty) return remark;
+    final description = _s(it['Description']);
+    final size = _s(it['Size']);
+    if (description.isNotEmpty && description != size) return description;
+    return '';
+  }
+
+  static String _joinedItemRemark(List items) {
+    final parts = <String>[];
+    for (final it in items) {
+      if (it is! Map) continue;
+      final text = _itemRemark(it);
+      if (text.isNotEmpty && !parts.contains(text)) parts.add(text);
+    }
+    return parts.join(', ');
+  }
+
   static String _s(dynamic v, [String fallback = '']) {
     if (v == null) return fallback;
     final t = v.toString().trim();
@@ -170,6 +189,7 @@ class OrderPayloadBuilder {
     final categoryId = _i(first?['CategoryId']);
     final categoryName = _s(first?['CategoryName']);
     final qty = srcItems.isEmpty ? '0' : srcItems.length.toString();
+    final orderRemark = _joinedItemRemark(srcItems);
     final employeeName = employee?.firstName ?? employee?.userName ?? '';
     final fallbackBranchId = (employee?.defaultBranchId ?? 0) > 0
         ? employee!.defaultBranchId
@@ -219,7 +239,12 @@ class OrderPayloadBuilder {
         'RatePerGram': _s00(it['RatePerGram']),
         'MakingPerGram': _s00(it['MakingPerGram']),
         'MakingFixed': _s00(it['MakingFixed']),
-        'FixedWt': _s00(it['FixedWt']),
+        'FixedWt': _s(it['FineWastageWt']).isNotEmpty
+            ? _s00(it['FineWastageWt'])
+            : _s00(it['FixedWt']),
+        'FineWastageWt': _s(it['FineWastageWt']).isNotEmpty
+            ? _s00(it['FineWastageWt'])
+            : _s00(it['FixedWt']),
         'MakingPercentage': _s00(it['MakingPercentage']),
         'DiamondPieces': _s0(it['DiamondPieces']),
         'DiamondRate': _s0(it['DiamondRate']),
@@ -255,9 +280,12 @@ class OrderPayloadBuilder {
             ? _s00(it['finalPrice'])
             : _s00(it['Amount']),
         'MakingFixedWastage': _s00(it['MakingFixedWastage']),
-        'Description': _s(it['Description']).isNotEmpty
-            ? _s(it['Description'])
-            : _s(it['Remark']),
+        'Description': () {
+          final remark = _itemRemark(it);
+          if (remark.isNotEmpty) return remark;
+          final existing = _s(it['Description']);
+          return existing.isEmpty ? null : existing;
+        }(),
         'CompanyId': _i(it['CompanyId']),
         'LabelledStockId': _i(it['LabelledStockId']),
         'TotalStoneWeight': _s(it['TotalStoneWeight']).isNotEmpty
@@ -271,7 +299,7 @@ class OrderPayloadBuilder {
         'OrderNo': resolvedOrderNo,
         'OrderStatus': orderStatus,
         'DueDate': null,
-        'Remark': it['Remark'] == null ? null : _s(it['Remark']),
+        'Remark': _itemRemark(it).isEmpty ? null : _itemRemark(it),
         'PurchaseInvoiceNo': null,
         'Purity': _s(it['Purity'], _s(it['PurityName'])),
         'Status': null,
@@ -405,7 +433,7 @@ class OrderPayloadBuilder {
       'GstCheck': gstApplied,
       'Category': categoryName,
       'TDSCheck': 'false',
-      'Remark': null,
+      'Remark': orderRemark.isEmpty ? null : orderRemark,
       'OrderItemId': null,
       'StoneStatus': null,
       'DiamondStatus': null,

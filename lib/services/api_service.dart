@@ -968,11 +968,30 @@ class ApiService {
         try {
           return await _postQuotationUpdate('api/Order/UpadateQuotation', request);
         } on DioException catch (e2) {
-          throw Exception(_keepOrNoInternet(e2, 'Failed to update quotation: ${e2.message}'));
+          throw Exception(_quotationHttpError(e2, 'Failed to update quotation'));
         }
       }
-      throw Exception(_keepOrNoInternet(e, 'Failed to update quotation: ${e.message}'));
+      throw Exception(_quotationHttpError(e, 'Failed to update quotation'));
     }
+  }
+
+  static String _quotationHttpError(DioException e, String fallback) {
+    if (UserFacingError.isNetwork(e)) return UserFacingError.noInternet;
+    final data = e.response?.data;
+    if (data is Map) {
+      final errors = data['errors'] ?? data['Errors'];
+      if (errors != null) return '$fallback: $errors';
+      final msg = data['Message'] ?? data['message'] ?? data['title'];
+      if (msg != null && msg.toString().trim().isNotEmpty) {
+        return '$fallback: $msg';
+      }
+    }
+    if (data is String && data.trim().isNotEmpty && data.length < 400) {
+      return '$fallback: $data';
+    }
+    final status = e.response?.statusCode;
+    if (status != null) return '$fallback ($status)';
+    return '$fallback: ${e.message}';
   }
 
   Future<Map<String, dynamic>?> _postQuotationUpdate(

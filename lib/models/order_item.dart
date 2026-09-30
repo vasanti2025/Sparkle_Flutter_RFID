@@ -247,7 +247,6 @@ class OrderItem {
       'RatePerGram': todaysRate,
       'MakingPerGram': makingPerGram,
       'MakingFixed': makingFixedAmt,
-      'FixedWt': makingFixedWastage,
       'MakingPercentage': makingPercentage,
       'DiamondPieces': '0',
       'DiamondRate': '0.0',
@@ -279,6 +278,8 @@ class OrderItem {
       'totalGstAmount': '0.0',
       'finalPrice': itemAmt,
       'MakingFixedWastage': makingFixedWastage,
+      'FixedWt': finePlusWt ?? '0.000',
+      'FineWastageWt': finePlusWt ?? '0.000',
       'Description': remark,
       'CompanyId': companyId,
       'LabelledStockId': 0,
@@ -303,12 +304,40 @@ class OrderItem {
   }
 
   factory OrderItem.fromJson(Map<String, dynamic> json) {
+    String firstText(List<dynamic> values) {
+      for (final v in values) {
+        final s = v?.toString().trim() ?? '';
+        if (s.isEmpty || s.toLowerCase() == 'null') continue;
+        return s;
+      }
+      return '';
+    }
+    int asInt(dynamic v, [int fallback = 0]) {
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      return int.tryParse(v?.toString() ?? '') ?? fallback;
+    }
+
+    int? asIntOrNull(dynamic v) {
+      if (v == null) return null;
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      return int.tryParse(v.toString());
+    }
+
     return OrderItem(
       rfidCode: json['RFIDCode']?.toString() ?? '',
       branchId: (json['BranchId'] ?? 0).toString(),
       branchName: json['BranchName']?.toString() ?? '',
       exhibition: json['Exhibition']?.toString() ?? '',
-      remark: json['Remark']?.toString() ?? json['Description']?.toString() ?? '',
+      remark: () {
+        final remark = firstText([json['Remark'], json['Remarks']]);
+        if (remark.isNotEmpty) return remark;
+        final description = firstText([json['Description']]);
+        final size = firstText([json['Size']]);
+        if (description.isNotEmpty && description != size) return description;
+        return '';
+      }(),
       purity: json['PurityName']?.toString() ?? json['Purity']?.toString() ?? '',
       size: json['Size']?.toString() ?? '1',
       length: json['Length']?.toString() ?? '',
@@ -324,11 +353,19 @@ class OrderItem {
       grWt: json['GrossWt']?.toString() ?? '0.000',
       nWt: json['NetWt']?.toString() ?? '0.000',
       stoneAmt: json['StoneAmount']?.toString() ?? '0.00',
-      finePlusWt: json['FixedWt']?.toString() ?? '0.000',
+      finePlusWt: () {
+        final fixed = json['FixedWt']?.toString().trim() ?? '';
+        if (fixed.isNotEmpty && fixed.toLowerCase() != 'null') return fixed;
+        final fine = json['FineWastageWt']?.toString().trim() ?? '';
+        if (fine.isNotEmpty && fine.toLowerCase() != 'null') return fine;
+        return '0.000';
+      }(),
       itemAmt: json['Amount']?.toString() ?? json['finalPrice']?.toString() ?? '0.00',
       packingWt: json['PackingWeight']?.toString() ?? '0.000',
       totalWt: json['TotalWt']?.toString() ?? '0.000',
-      stoneWt: json['StoneWt']?.toString() ?? '0.000',
+      stoneWt: json['StoneWt']?.toString() ??
+          json['TotalStoneWeight']?.toString() ??
+          '0.000',
       dimondWt: json['DiamondWt']?.toString() ?? '0.000',
       sku: json['SKU']?.toString() ?? '',
       qty: json['Quantity']?.toString() ?? '1',
@@ -337,22 +374,24 @@ class OrderItem {
       image: json['Image']?.toString() ?? '',
       netAmt: json['Amount']?.toString() ?? '0.00',
       diamondAmt: json['DiamondAmount']?.toString() ?? '0.00',
-      categoryId: json['CategoryId'] as int?,
+      categoryId: asIntOrNull(json['CategoryId']),
       categoryName: json['CategoryName']?.toString() ?? '',
-      productId: json['ProductId'] as int? ?? 0,
+      productId: asInt(json['ProductId']),
       productCode: json['ProductCode']?.toString() ?? '',
-      skuId: json['SKUId'] as int? ?? 0,
-      designid: json['DesignId'] as int? ?? 0,
+      skuId: asInt(json['SKUId']),
+      designid: asInt(json['DesignId']),
       designName: json['DesignName']?.toString() ?? '',
-      purityid: json['PurityId'] as int? ?? 0,
-      counterId: int.tryParse(json['CounterId']?.toString() ?? '0') ?? 0,
+      purityid: asInt(json['PurityId']),
+      counterId: asInt(json['CounterId']),
       counterName: json['CounterName']?.toString() ?? '',
-      companyId: json['CompanyId'] as int? ?? 0,
+      companyId: asInt(json['CompanyId']),
       epc: json['RfidCode']?.toString() ?? '',
       tid: json['TIDNumber']?.toString() ?? '',
       todaysRate: json['RatePerGram']?.toString() ?? '0.0',
       makingPercentage: json['MakingPercentage']?.toString() ?? '0.0',
-      makingFixedAmt: json['MakingFixed']?.toString() ?? '0.0',
+      makingFixedAmt: json['MakingFixedAmt']?.toString() ??
+          json['MakingFixed']?.toString() ??
+          '0.0',
       makingFixedWastage: json['MakingFixedWastage']?.toString() ?? '0.0',
       makingPerGram: json['MakingPerGram']?.toString() ?? '0.0',
       categoryWt: json['WeightCategories']?.toString() ?? '',

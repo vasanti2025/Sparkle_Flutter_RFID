@@ -832,7 +832,12 @@ class _OrderListScreenState extends State<OrderListScreen> {
       sWt += double.tryParse(map['StoneWt']?.toString() ?? '') ?? 0.0;
       dWt += double.tryParse(map['DiamondWt']?.toString() ?? '') ?? 0.0;
       nWt += double.tryParse(map['NetWt']?.toString() ?? '') ?? 0.0;
-      fWt += double.tryParse(map['FixedWt']?.toString() ?? '') ?? 0.0;
+      fWt += double.tryParse(
+            (map['FineWastageWt']?.toString().trim().isNotEmpty ?? false)
+                ? map['FineWastageWt'].toString()
+                : (map['FixedWt']?.toString() ?? ''),
+          ) ??
+          0.0;
     }
     return {'g': gWt, 's': sWt, 'd': dWt, 'n': nWt, 'f': fWt};
   }
