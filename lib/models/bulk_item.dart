@@ -458,7 +458,7 @@ class BulkItem {
       mrp: double.tryParse(first(const ['MRP', 'mrp'])) ?? 0,
       counterName: first(const ['CounterName', 'counterName']),
       counterId: int.tryParse(first(const ['CounterId', 'counterId'])) ?? 0,
-      boxId: 0,
+      boxId: int.tryParse(first(const ['BoxId', 'boxId'])) ?? 0,
       boxName: first(const ['BoxName', 'boxName']),
       branchId: int.tryParse(first(const ['BranchId', 'branchId'])) ?? 0,
       branchName: first(const ['BranchName', 'branchName']),

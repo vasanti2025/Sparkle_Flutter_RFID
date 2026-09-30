@@ -441,31 +441,39 @@ class ApiService {
     );
   }
 
-  /// Matched stock-taking list for a numeric branch id.
+  /// Matched stock-taking list for a numeric branch / counter / box id.
   Future<List<dynamic>> getStockTakingMatchedListByBranchId({
     required String clientCode,
-    required int branchId,
     required String stockTakingDate,
+    int? branchId,
+    int? counterId,
+    int? boxId,
   }) {
     return _getStockTakingList(
       path: 'api/ProductMaster/GetStockTakingMatchedListByBranchId',
       clientCode: clientCode,
       branchId: branchId,
+      counterId: counterId,
+      boxId: boxId,
       stockTakingDate: stockTakingDate,
       failureMessage: 'Failed to load matched stocks',
     );
   }
 
-  /// Unmatched stock-taking list for a numeric branch id.
+  /// Unmatched stock-taking list for a numeric branch / counter / box id.
   Future<List<dynamic>> getStockTakingUnmatchedListByBranchId({
     required String clientCode,
-    required int branchId,
     required String stockTakingDate,
+    int? branchId,
+    int? counterId,
+    int? boxId,
   }) {
     return _getStockTakingList(
       path: 'api/ProductMaster/GetStockTakingUnmatchedListByBranchId',
       clientCode: clientCode,
       branchId: branchId,
+      counterId: counterId,
+      boxId: boxId,
       stockTakingDate: stockTakingDate,
       failureMessage: 'Failed to load missing stocks',
     );
@@ -478,18 +486,23 @@ class ApiService {
     required String failureMessage,
     String branchAddress = '',
     int? branchId,
+    int? counterId,
+    int? boxId,
   }) async {
-    final body = branchId != null
-        ? {
-            'ClientCode': clientCode,
-            'BranchId': branchId,
-            'StockTakingDate': stockTakingDate,
-          }
-        : {
-            'ClientCode': clientCode,
-            'BranchAddress': branchAddress,
-            'StockTakingDate': stockTakingDate,
-          };
+    final body = <String, dynamic>{
+      'ClientCode': clientCode,
+      'StockTakingDate': stockTakingDate,
+    };
+    final hasScopeId = (branchId != null && branchId > 0) ||
+        (counterId != null && counterId > 0) ||
+        (boxId != null && boxId > 0);
+    if (hasScopeId) {
+      if (branchId != null && branchId > 0) body['BranchId'] = branchId;
+      if (counterId != null && counterId > 0) body['CounterId'] = counterId;
+      if (boxId != null && boxId > 0) body['BoxId'] = boxId;
+    } else {
+      body['BranchAddress'] = branchAddress;
+    }
     try {
       final response = await _dio.post(
         path,

@@ -597,6 +597,7 @@ class AppStrings {
   String get pleaseSelectBranch => _t('pleaseSelectBranch');
   String get pleaseAssignBranchFromSettings => _t('pleaseAssignBranchFromSettings');
   String get pleaseSelectCounter => _t('pleaseSelectCounter');
+  String get pleaseSelectBox => _t('pleaseSelectBox');
   String get pleaseEnterDeviceId => _t('pleaseEnterDeviceId');
   String get wholesaleSaved => _t('wholesaleSaved');
   String get wholesaleSaveFailed => _t('wholesaleSaveFailed');
@@ -1407,6 +1408,7 @@ class AppStrings {
       'pleaseSelectBranch': 'Please select a branch.',
       'pleaseAssignBranchFromSettings': 'Please assign a branch from Settings.',
       'pleaseSelectCounter': 'Please select a counter.',
+      'pleaseSelectBox': 'Please select a box.',
       'pleaseEnterDeviceId': 'Please enter a device ID.',
       'wholesaleSaved': 'Wholesale option saved',
       'wholesaleSaveFailed': 'Failed to save wholesale option',
@@ -1944,6 +1946,7 @@ class AppStrings {
       'pleaseSelectBranch': 'कृपया एक शाखा चुनें।',
       'pleaseAssignBranchFromSettings': 'कृपया सेटिंग्स से एक शाखा असाइन करें।',
       'pleaseSelectCounter': 'कृपया एक काउंटर चुनें।',
+      'pleaseSelectBox': 'कृपया एक बॉक्स चुनें।',
       'pleaseEnterDeviceId': 'कृपया डिवाइस ID दर्ज करें।',
       'wholesaleSaved': 'होलसेल विकल्प सेव हो गया',
       'wholesaleSaveFailed': 'होलसेल विकल्प सेव नहीं हो सका',
@@ -2507,6 +2510,7 @@ class AppStrings {
       'pleaseSelectBranch': 'يرجى اختيار فرع.',
       'pleaseAssignBranchFromSettings': 'يرجى تعيين فرع من الإعدادات.',
       'pleaseSelectCounter': 'يرجى اختيار عداد.',
+      'pleaseSelectBox': 'يرجى اختيار صندوق.',
       'pleaseEnterDeviceId': 'يرجى إدخال معرف الجهاز.',
       'wholesaleSaved': 'تم حفظ خيار الجملة',
       'wholesaleSaveFailed': 'فشل حفظ خيار الجملة',
