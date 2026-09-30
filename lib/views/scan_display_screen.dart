@@ -36,6 +36,15 @@ String _normalizeInventoryScanKey(String raw) => normalizeScanKey(raw);
 int _alphaCompare(String a, String b) =>
     a.toLowerCase().trim().compareTo(b.toLowerCase().trim());
 
+/// Same as Sparkle `it.design ?: "Unknown"` so blank category/product/design
+/// still group and stay visible in the Design list.
+const String _kUnknownGroup = 'Unknown';
+
+String _inventoryGroupLabel(String raw) {
+  final t = raw.trim();
+  return t.isEmpty ? _kUnknownGroup : t;
+}
+
 int _compareInventoryItems(ScannedBulkItem a, ScannedBulkItem b) {
   final byName = _alphaCompare(a.productName, b.productName);
   if (byName != 0) return byName;
@@ -1527,19 +1536,19 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     }
 
     if (_selectedCategories.isNotEmpty) {
-      list = list.where((i) => _selectedCategories.contains(i.category.trim())).toList();
-    } else if (_selectedCategory != null) {
-      list = list.where((i) => i.category.trim() == _selectedCategory!.trim()).toList();
+      list = list
+          .where((i) => _selectedCategories.contains(_inventoryGroupLabel(i.category)))
+          .toList();
     }
     if (_selectedProducts.isNotEmpty) {
-      list = list.where((i) => _selectedProducts.contains(i.productName.trim())).toList();
-    } else if (_selectedProduct != null) {
-      list = list.where((i) => i.productName.trim() == _selectedProduct!.trim()).toList();
+      list = list
+          .where((i) => _selectedProducts.contains(_inventoryGroupLabel(i.productName)))
+          .toList();
     }
     if (_selectedDesigns.isNotEmpty) {
-      list = list.where((i) => _selectedDesigns.contains(i.design.trim())).toList();
-    } else if (_selectedDesign != null) {
-      list = list.where((i) => i.design.trim() == _selectedDesign!.trim()).toList();
+      list = list
+          .where((i) => _selectedDesigns.contains(_inventoryGroupLabel(i.design)))
+          .toList();
     }
 
     return list;
@@ -1583,11 +1592,11 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     for (final item in items) {
       String key = '';
       if (_currentLevel == 'Category') {
-        key = item.category.isNotEmpty ? item.category : 'Unknown';
+        key = _inventoryGroupLabel(item.category);
       } else if (_currentLevel == 'Product') {
-        key = item.productName.isNotEmpty ? item.productName : 'Unknown';
+        key = _inventoryGroupLabel(item.productName);
       } else if (_currentLevel == 'Design') {
-        key = item.design.isNotEmpty ? item.design : 'Unknown';
+        key = _inventoryGroupLabel(item.design);
       }
 
       final bucket = grouped.putIfAbsent(key, () => _GroupBucket(key));
@@ -3443,23 +3452,26 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     List<String> selected = [];
 
     final allCategories = _scannedItems
-        .map((i) => i.category.trim())
-        .where((c) => c.isNotEmpty)
+        .map((i) => _inventoryGroupLabel(i.category))
         .toSet()
         .toList();
 
     final allProducts = _scannedItems
-        .where((i) => _selectedCategories.isEmpty || _selectedCategories.contains(i.category.trim()))
-        .map((i) => i.productName.trim())
-        .where((p) => p.isNotEmpty)
+        .where((i) =>
+            _selectedCategories.isEmpty ||
+            _selectedCategories.contains(_inventoryGroupLabel(i.category)))
+        .map((i) => _inventoryGroupLabel(i.productName))
         .toSet()
         .toList();
 
     final allDesigns = _scannedItems
-        .where((i) => _selectedCategories.isEmpty || _selectedCategories.contains(i.category.trim()))
-        .where((i) => _selectedProducts.isEmpty || _selectedProducts.contains(i.productName.trim()))
-        .map((i) => i.design.trim())
-        .where((d) => d.isNotEmpty)
+        .where((i) =>
+            _selectedCategories.isEmpty ||
+            _selectedCategories.contains(_inventoryGroupLabel(i.category)))
+        .where((i) =>
+            _selectedProducts.isEmpty ||
+            _selectedProducts.contains(_inventoryGroupLabel(i.productName)))
+        .map((i) => _inventoryGroupLabel(i.design))
         .toSet()
         .toList();
 
@@ -3626,25 +3638,31 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                           onPressed: () {
                             setState(() {
                               if (filterType == 'Category') {
-                                _selectedCategories.clear();
-                                _selectedCategories.addAll(selected);
+                                _selectedCategories
+                                  ..clear()
+                                  ..addAll(selected);
                                 _selectedProducts.clear();
                                 _selectedDesigns.clear();
+                                _selectedProduct = null;
+                                _selectedDesign = null;
                                 _currentLevel = 'Product';
                                 _selectedCategory = _selectedCategories.isNotEmpty
                                     ? _selectedCategories.first
                                     : null;
                               } else if (filterType == 'Product') {
-                                _selectedProducts.clear();
-                                _selectedProducts.addAll(selected);
+                                _selectedProducts
+                                  ..clear()
+                                  ..addAll(selected);
                                 _selectedDesigns.clear();
+                                _selectedDesign = null;
                                 _currentLevel = 'Design';
                                 _selectedProduct = _selectedProducts.isNotEmpty
                                     ? _selectedProducts.first
                                     : null;
                               } else if (filterType == 'Design') {
-                                _selectedDesigns.clear();
-                                _selectedDesigns.addAll(selected);
+                                _selectedDesigns
+                                  ..clear()
+                                  ..addAll(selected);
                                 _currentLevel = 'DesignItems';
                                 _selectedDesign = _selectedDesigns.isNotEmpty
                                     ? _selectedDesigns.first
@@ -3652,6 +3670,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                               }
                             });
                             _setFilteredItemsForScan();
+                            _refreshDisplayCache(forceListRefresh: true);
                             Navigator.pop(context);
                           },
                           style: ElevatedButton.styleFrom(
@@ -3827,10 +3846,13 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         setState(() {
           if (_currentLevel == 'Category') {
             _selectedCategory = label;
-            _selectedCategories.clear();
-            _selectedCategories.add(label);
+            _selectedCategories
+              ..clear()
+              ..add(label);
             _selectedProducts.clear();
             _selectedDesigns.clear();
+            _selectedProduct = null;
+            _selectedDesign = null;
             _currentLevel = 'Product';
           } else if (_currentLevel == 'Product') {
             _selectedProduct = label;
@@ -3838,6 +3860,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
               _selectedProducts.add(label);
             }
             _selectedDesigns.clear();
+            _selectedDesign = null;
             _currentLevel = 'Design';
           } else if (_currentLevel == 'Design') {
             _selectedDesign = label;
