@@ -4,12 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../app_navigator.dart';
 import '../l10n/l10n_extension.dart';
-import '../services/app_warmup_service.dart';
+import '../services/app_warmup_service.dart' deferred as warmup;
 import '../services/session_lifecycle.dart';
+import '../session_vm_hooks.dart' deferred as vm_hooks;
 import '../viewmodels/dashboard_view_model.dart';
 import '../viewmodels/login_view_model.dart';
-import '../viewmodels/product_view_model.dart';
-import '../viewmodels/stock_transfer_view_model.dart';
 import 'widgets/gradient_icon.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -51,7 +50,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (!mounted) return;
       context.read<DashboardViewModel>().loadUser();
       unawaited(SessionLifecycle.instance.startMonitoring());
-      AppWarmupService.instance.start(appNavigatorKey);
+      unawaited(_startWarmup());
     });
     // Do NOT prefetch all list APIs here — it competes with navigation and
     // freezes/hangs the handheld. Each list screen loads when opened.
@@ -125,10 +124,22 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
-  void _resetStockTransferForm(BuildContext context) {
+  Future<void> _startWarmup() async {
     try {
-      context.read<StockTransferViewModel>().resetTransferForm(notify: false);
+      await warmup.loadLibrary();
+      if (!mounted) return;
+      warmup.AppWarmupService.instance.start(appNavigatorKey);
     } catch (_) {}
+  }
+
+  void _resetStockTransferForm(BuildContext context) {
+    unawaited(() async {
+      try {
+        await vm_hooks.loadLibrary();
+        if (!context.mounted) return;
+        vm_hooks.resetStockTransferForm(context);
+      } catch (_) {}
+    }());
   }
 
   void _navigateByKey(BuildContext context, String key, dynamic s) {
@@ -278,22 +289,14 @@ class _DashboardScreenState extends State<DashboardScreen>
                       if (item['isLogout'] == true) {
                         final dashVm = context.read<DashboardViewModel>();
                         final loginVm = context.read<LoginViewModel>();
-                        ProductViewModel? productVm;
-                        StockTransferViewModel? stockVm;
-                        try {
-                          productVm = context.read<ProductViewModel>();
-                        } catch (_) {}
-                        try {
-                          stockVm = context.read<StockTransferViewModel>();
-                        } catch (_) {}
                         final nav = Navigator.of(context, rootNavigator: true);
                         Navigator.pop(context);
                         SessionLifecycle.instance.stopMonitoring();
                         try {
-                          await productVm?.resetForLogout();
-                        } catch (_) {}
-                        try {
-                          stockVm?.resetSession();
+                          await vm_hooks.loadLibrary();
+                          if (context.mounted) {
+                            await vm_hooks.resetProductAndStockForLogout(context);
+                          }
                         } catch (_) {}
                         await dashVm.logout();
                         loginVm.reloadRememberMe();

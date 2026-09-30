@@ -13,6 +13,12 @@ void resetStockTransferSession(BuildContext context) {
   }, context);
 }
 
+void resetStockTransferForm(BuildContext context, {bool notify = false}) {
+  _retry(() {
+    context.read<StockTransferViewModel>().resetTransferForm(notify: notify);
+  }, context);
+}
+
 void startProductSyncAfterLogin(BuildContext context) {
   _retry(() {
     final productVm = context.read<ProductViewModel>();

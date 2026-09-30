@@ -7,17 +7,91 @@ import 'package:provider/provider.dart';
 import 'app_bootstrap_extended.dart' deferred as extended;
 import 'app_navigator.dart';
 import 'app_warmup.dart' deferred as warmup;
+import 'services/bootstrap_channel.dart';
 import 'services/db_service.dart';
 import 'services/pref_service.dart';
-import 'startup_app.dart' deferred as dash;
 import 'startup_bootstrap.dart';
 import 'utils/app_dialogs.dart';
 import 'utils/fast_page_route.dart';
 import 'viewmodels/dashboard_view_model.dart';
 import 'viewmodels/login_view_model.dart';
+import 'views/dashboard_screen.dart';
 import 'views/login_screen.dart';
 
-/// Login paints on the first Flutter frame — Dashboard/routes load after.
+/// Replaces the first-frame logo with Login or Dashboard.
+void runBootApp({
+  required bool initialLoggedIn,
+  required String savedUsername,
+  required String savedPassword,
+}) {
+  runApp(
+    _BootstrapApp(
+      initialLoggedIn: initialLoggedIn,
+      savedUsername: savedUsername,
+      savedPassword: savedPassword,
+    ),
+  );
+}
+
+class _BootstrapApp extends StatefulWidget {
+  final bool initialLoggedIn;
+  final String savedUsername;
+  final String savedPassword;
+
+  const _BootstrapApp({
+    required this.initialLoggedIn,
+    this.savedUsername = '',
+    this.savedPassword = '',
+  });
+
+  @override
+  State<_BootstrapApp> createState() => _BootstrapAppState();
+}
+
+class _BootstrapAppState extends State<_BootstrapApp> {
+  late final PrefService _prefService;
+  late bool _sessionLoggedIn;
+
+  @override
+  void initState() {
+    super.initState();
+    _sessionLoggedIn = widget.initialLoggedIn;
+    _prefService = PrefService.bootstrapQuick(
+      loggedIn: widget.initialLoggedIn,
+      username: widget.savedUsername,
+      password: widget.savedPassword,
+    );
+    unawaited(_applySnapshot());
+    unawaited(PrefService.init());
+  }
+
+  Future<void> _applySnapshot() async {
+    try {
+      final snapshot = await BootstrapChannel.getSnapshot();
+      if (snapshot != null && snapshot.isNotEmpty) {
+        _prefService.applyNativeSnapshot(snapshot);
+        if (!mounted) return;
+        setState(() => _sessionLoggedIn = _prefService.hasValidSession());
+      }
+    } catch (e) {
+      debugPrint('STARTUP snapshot failed: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return buildLoginApp(
+      prefService: _prefService,
+      loggedIn: _sessionLoggedIn,
+      onSessionResolved: (loggedIn) {
+        if (!mounted || _sessionLoggedIn == loggedIn) return;
+        setState(() => _sessionLoggedIn = loggedIn);
+      },
+    );
+  }
+}
+
+/// Login or Dashboard after the native/logo first frame.
 Widget buildLoginApp({
   required PrefService prefService,
   required bool loggedIn,
@@ -50,42 +124,26 @@ class _LoginAppRoot extends StatefulWidget {
 }
 
 class _LoginAppRootState extends State<_LoginAppRoot> {
-  bool _dashReady = false;
   bool _extendedReady = false;
+  bool _extendedLoading = false;
   bool _warmScheduled = false;
   Route<dynamic>? Function(RouteSettings settings)? _routeGenerator;
 
   @override
   void initState() {
     super.initState();
+    unawaited(_hydrateInBackground());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      unawaited(_hydrateInBackground());
-      if (widget.prefService.hasValidSession()) {
-        unawaited(_loadDashboardLib());
-      }
+      unawaited(Future<void>.delayed(const Duration(milliseconds: 400), () {
+        if (mounted) unawaited(_loadExtended());
+      }));
     });
   }
 
-  @override
-  void didUpdateWidget(covariant _LoginAppRoot oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.loggedIn && !_dashReady && widget.prefService.hasValidSession()) {
-      unawaited(_loadDashboardLib());
-    }
-  }
-
-  Future<void> _loadDashboardLib() async {
-    try {
-      await dash.loadLibrary();
-      if (mounted) setState(() => _dashReady = true);
-    } catch (e, st) {
-      debugPrint('Dashboard lib load failed: $e\n$st');
-      if (mounted) setState(() {});
-    }
-  }
-
   Future<void> _loadExtended() async {
+    if (_extendedReady || _extendedLoading) return;
+    _extendedLoading = true;
     try {
       await extended.loadLibrary();
       if (!mounted) return;
@@ -94,28 +152,24 @@ class _LoginAppRootState extends State<_LoginAppRoot> {
         _routeGenerator = extended.routeGenerator;
       });
     } catch (e, st) {
+      _extendedLoading = false;
       debugPrint('Extended load failed: $e\n$st');
     }
   }
 
   Future<void> _hydrateInBackground() async {
     try {
+      if (widget.prefService.hasValidSession() || widget.loggedIn) {
+        widget.onSessionResolved(widget.prefService.hasValidSession() || widget.loggedIn);
+        if (mounted) setState(() {});
+      }
+
       await PrefService.init();
       if (!mounted) return;
       final resolvedLoggedIn = widget.prefService.hasValidSession();
       widget.onSessionResolved(resolvedLoggedIn);
       if (mounted) setState(() {});
       _refreshViewModelsAfterHydrate();
-
-      if (resolvedLoggedIn && !_dashReady) {
-        unawaited(_loadDashboardLib());
-      }
-
-      // Routes/VMs after Login or Dashboard has painted — loading them on
-      // splash skipped 100+ frames and froze the first screen.
-      unawaited(Future<void>.delayed(const Duration(milliseconds: 400), () {
-        if (mounted) unawaited(_loadExtended());
-      }));
 
       if (!_warmScheduled) {
         _warmScheduled = true;
@@ -153,7 +207,7 @@ class _LoginAppRootState extends State<_LoginAppRoot> {
   Widget build(BuildContext context) {
     final localeService = context.watchLocale();
     final sessionOk = widget.prefService.hasValidSession();
-    final showDashboard = sessionOk && _dashReady;
+    final showDashboard = sessionOk || widget.loggedIn;
 
     final app = MaterialApp(
       navigatorKey: appNavigatorKey,
@@ -191,10 +245,8 @@ class _LoginAppRootState extends State<_LoginAppRoot> {
         );
       },
       home: showDashboard
-          ? dash.buildDashboardPage()
-          : sessionOk
-              ? const _HoldSplash()
-              : const LoginScreen(),
+          ? const DashboardScreen()
+          : const LoginScreen(),
       onGenerateRoute: (settings) {
         final generator = _routeGenerator;
         if (generator != null) {
@@ -210,7 +262,7 @@ class _LoginAppRootState extends State<_LoginAppRoot> {
           case '/dashboard':
             return FastPageRoute(
               settings: settings,
-              child: _DeferredDashboard(ensureLoaded: _loadDashboardLib),
+              child: const DashboardScreen(),
             );
           default:
             return FastPageRoute(
@@ -226,63 +278,6 @@ class _LoginAppRootState extends State<_LoginAppRoot> {
 
     if (!_extendedReady) return app;
     return extended.ExtendedProvidersScope(child: app);
-  }
-}
-
-class _HoldSplash extends StatelessWidget {
-  const _HoldSplash();
-
-  @override
-  Widget build(BuildContext context) {
-    return const ColoredBox(
-      color: Colors.white,
-      child: Center(
-        child: FractionallySizedBox(
-          widthFactor: 0.5,
-          child: Image(
-            image: AssetImage('assets/branding/splash_logo.png'),
-            fit: BoxFit.contain,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DeferredDashboard extends StatefulWidget {
-  final Future<void> Function() ensureLoaded;
-
-  const _DeferredDashboard({required this.ensureLoaded});
-
-  @override
-  State<_DeferredDashboard> createState() => _DeferredDashboardState();
-}
-
-class _DeferredDashboardState extends State<_DeferredDashboard> {
-  bool _ready = false;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_open());
-  }
-
-  Future<void> _open() async {
-    await widget.ensureLoaded();
-    if (mounted) setState(() => _ready = true);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_ready) {
-      return const ColoredBox(
-        color: Colors.white,
-        child: Center(
-          child: CircularProgressIndicator(color: Color(0xFF5231A7)),
-        ),
-      );
-    }
-    return dash.buildDashboardPage();
   }
 }
 
