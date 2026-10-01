@@ -161,6 +161,20 @@ class RfidService {
     return _isSupported;
   }
 
+  /// Gun trigger starts the item-code imager only when this is true.
+  /// Order turns it off so the same button runs GScan only.
+  Future<void> setBarcodeHardwareKeyEnabled(bool enabled) async {
+    await ensureReady();
+    if (!_isSupported) return;
+    try {
+      await _methodChannel.invokeMethod('setBarcodeHardwareKeyEnabled', {
+        'enabled': enabled,
+      });
+    } catch (e) {
+      debugPrint('setBarcodeHardwareKeyEnabled error: $e');
+    }
+  }
+
   /// Open Chainway barcode decoder (idempotent).
   Future<bool> openBarcode() async {
     await ensureReady();

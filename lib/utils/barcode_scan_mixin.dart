@@ -18,7 +18,13 @@ mixin BarcodeScanMixin<T extends StatefulWidget> on State<T> {
   void onBarcodeScanned(String code);
 
   /// Wire listeners. Call from initState after other setup.
-  void bindBarcodeScanner({bool openDecoder = true}) {
+  ///
+  /// [hardwareKeyStartsBarcode] is false on Order: the gun trigger is GScan
+  /// only. The item-code icon still calls [startBarcodeFromIcon].
+  void bindBarcodeScanner({
+    bool openDecoder = true,
+    bool hardwareKeyStartsBarcode = true,
+  }) {
     if (openDecoder) {
       unawaited(barcodeRfid.openBarcode());
     }
@@ -28,6 +34,7 @@ mixin BarcodeScanMixin<T extends StatefulWidget> on State<T> {
       if (trimmed.isEmpty) return;
       onBarcodeScanned(trimmed);
     });
+    if (!hardwareKeyStartsBarcode) return;
     _barcodeTriggerSub = barcodeRfid.barcodeTriggerStream.listen((_) {
       // Native already starts decode on key 139; keep Flutter path for icon parity.
       if (!mounted) return;

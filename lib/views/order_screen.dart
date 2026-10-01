@@ -113,13 +113,15 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
     });
 
     _triggerSubscription = _rfidService.triggerStream.listen((_) {
-      if (mounted) {
-        _isSingleScan = false;
-        _toggleGscan(context.read<OrderViewModel>());
-      }
+      if (!mounted) return;
+      // Gun button is GScan only — drop any item-code imager that raced in.
+      unawaited(_rfidService.stopBarcodeScan());
+      _isSingleScan = false;
+      _toggleGscan(context.read<OrderViewModel>());
     });
 
-    bindBarcodeScanner();
+    bindBarcodeScanner(openDecoder: false, hardwareKeyStartsBarcode: false);
+    unawaited(_rfidService.setBarcodeHardwareKeyEnabled(false));
 
     // Keep the data rows and the fixed action column vertically aligned.
     _dataVScroll.addListener(() => _syncVScroll(_dataVScroll, _actionVScroll));
@@ -172,6 +174,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
 
   @override
   void dispose() {
+    unawaited(_rfidService.setBarcodeHardwareKeyEnabled(true));
     unbindBarcodeScanner();
     _tagBatcher.dispose();
     _suggestTimer?.cancel();

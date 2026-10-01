@@ -45,6 +45,8 @@ class HardwareControllerImpl(
     private var isScanning = false
     private var executorService: ExecutorService? = null
     private var lastBarcodeKeyMs = 0L
+    /** Order screen: gun trigger is GScan only. Item-code scan stays on the icon. */
+    @Volatile private var barcodeHardwareKeyEnabled = true
 
     private var soundPool: SoundPool? = null
     private val soundMap = HashMap<Int, Int>()
@@ -239,7 +241,20 @@ class HardwareControllerImpl(
         eventSink = sink
     }
 
+    fun setBarcodeHardwareKeyEnabled(enabled: Boolean) {
+        barcodeHardwareKeyEnabled = enabled
+        if (!enabled) {
+            try {
+                ensureManagers()
+                barcodeManager.stopScan()
+                barcodeManager.close()
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
     override fun onBarcodeHardwareKey() {
+        if (!barcodeHardwareKeyEnabled) return
         val now = SystemClock.elapsedRealtime()
         if (now - lastBarcodeKeyMs < 300L) return
         lastBarcodeKeyMs = now
@@ -507,6 +522,10 @@ class HardwareControllerImpl(
             }
             "getTrayStatus" -> result.success(trayStatusMap())
             "getR6Status" -> result.success(r6StatusMap())
+            "setBarcodeHardwareKeyEnabled" -> {
+                setBarcodeHardwareKeyEnabled(call.argument<Boolean>("enabled") ?: true)
+                result.success(true)
+            }
             "openBarcode" -> result.success(barcodeManager.openIfNeeded())
             "startBarcodeScan" -> result.success(barcodeManager.startScan())
             "stopBarcodeScan" -> {
@@ -538,6 +557,13 @@ class HardwareControllerImpl(
             barcodeManager.setOnScanned { data ->
                 activity.runOnUiThread {
                     eventSink?.success("BARCODE:$data")
+                    if (!barcodeHardwareKeyEnabled) {
+                        try {
+                            barcodeManager.stopScan()
+                            barcodeManager.close()
+                        } catch (_: Throwable) {
+                        }
+                    }
                 }
             }
         }
