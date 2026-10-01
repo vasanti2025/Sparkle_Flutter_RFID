@@ -15,12 +15,12 @@ import 'package:sqflite/sqflite.dart';
 /// - HashSet EPC tracking, smaller SQLite cache (avoid OOM)
 /// - Insert maps directly (no BulkItem per row)
 class SyncIsolate {
-  static const int _batchSize = 8000;
-  static const int _rfidBatchSize = 2000;
+  static const int _batchSize = 10000;
+  static const int _rfidBatchSize = 2500;
   static const int _maxSkipped = 1000;
   static const int _progressIntervalMs = 1000;
-  static const int _sqlChunkRows = 120;
-  static const int _sqlChunkChars = 350000;
+  static const int _sqlChunkRows = 200;
+  static const int _sqlChunkChars = 480000;
 
   static const String _createBulkItemsSql = '''
 CREATE TABLE IF NOT EXISTS bulk_items (
@@ -119,6 +119,8 @@ CREATE TABLE IF NOT EXISTS rfid_tags (
 
     Database? db;
     HttpClient? httpClient;
+    File? stockFile;
+    Future<Map<String, String>>? rfidFuture;
 
     void sendProgress({
       required String status,
@@ -154,8 +156,13 @@ CREATE TABLE IF NOT EXISTS rfid_tags (
       httpClient.autoUncompress = true;
       httpClient.maxConnectionsPerHost = 8;
 
-      // Start labelled-stock POST while RFID downloads so the server can
-      // generate the big payload in parallel (socket backpressure avoids OOM).
+      // Labelled stock is the data the user is waiting on. Start that
+      // download first and keep reading it to disk while RFID runs, so the
+      // stock body is not stuck behind the RFID request.
+      sendPort.send({
+        'status': 'downloading',
+        'message': 'Downloading stock...',
+      });
       final stockResponseFuture = _postStockSearch(
         httpClient: httpClient,
         baseUrl: baseUrl,
@@ -164,9 +171,7 @@ CREATE TABLE IF NOT EXISTS rfid_tags (
         branchIds: branchIds,
         token: token,
       );
-
-      sendPort.send({'status': 'rfid', 'message': 'Syncing RFID tags...'});
-      final rfidByBarcode = await _syncRfidTagsFromServer(
+      rfidFuture = _syncRfidTagsFromServer(
         httpClient: httpClient,
         baseUrl: baseUrl,
         clientCode: clientCode,
@@ -174,19 +179,42 @@ CREATE TABLE IF NOT EXISTS rfid_tags (
         db: db,
       );
 
-      sendPort.send({'status': 'rfid', 'message': 'Loading RFID lookup...'});
+      final stockResponse = await stockResponseFuture;
+      if (stockResponse.statusCode != 200) {
+        await stockResponse.drain<void>();
+        throw Exception('Stock API returned status: ${stockResponse.statusCode}');
+      }
+
+      final file = File(_stockBodyPath(dbPath));
+      stockFile = file;
+      if (await file.exists()) {
+        await file.delete();
+      }
+      final stockSaved = stockResponse.pipe(file.openWrite());
+      Object? downloadError;
+      Map<String, String>? rfidByBarcode;
+      try {
+        rfidByBarcode = await rfidFuture;
+      } catch (e) {
+        downloadError = e;
+      }
+      try {
+        await stockSaved;
+      } catch (e) {
+        downloadError ??= e;
+      }
+      if (downloadError != null || rfidByBarcode == null) {
+        throw downloadError ?? Exception('RFID sync failed');
+      }
+      final rfidLookup = rfidByBarcode;
+
       sendPort.send({'status': 'init', 'message': 'Preparing database...'});
       await _resetBulkItemsTable(db);
 
       sendPort.send({
         'status': 'downloading',
-        'message': 'Connecting to stock API...',
+        'message': 'Saving stock...',
       });
-
-      final stockResponse = await stockResponseFuture;
-      if (stockResponse.statusCode != 200) {
-        throw Exception('Stock API returned status: ${stockResponse.statusCode}');
-      }
 
       int totalCount = 0;
       int processedCount = 0;
@@ -236,7 +264,7 @@ CREATE TABLE IF NOT EXISTS rfid_tags (
             jsonView.reset(itemJson);
             final mapped = _mapServerItemToRow(
               view: jsonView,
-              rfidByBarcode: rfidByBarcode,
+              rfidByBarcode: rfidLookup,
               isWebReusable: isWebReusable,
               allowSingleAndWebReusable: allowSingleAndWebReusable,
               usedEpcSet: usedEpcSet,
@@ -257,9 +285,13 @@ CREATE TABLE IF NOT EXISTS rfid_tags (
         flush: kickInsert,
       );
 
-      await for (final chunk in stockResponse.transform(utf8.decoder)) {
+      await for (final chunk in file.openRead().transform(utf8.decoder)) {
         await parser.addChunk(chunk);
       }
+      try {
+        await file.delete();
+        stockFile = null;
+      } catch (_) {}
 
       await kickInsert(force: true);
       if (inflightInsert != null) {
@@ -299,7 +331,17 @@ CREATE TABLE IF NOT EXISTS rfid_tags (
         'message': e.toString().replaceFirst('Exception: ', ''),
       });
     } finally {
+      if (rfidFuture != null) {
+        try {
+          await rfidFuture;
+        } catch (_) {}
+      }
       httpClient?.close(force: true);
+      if (stockFile != null) {
+        try {
+          await stockFile.delete();
+        } catch (_) {}
+      }
       if (db != null) {
         try {
           await db.close();
@@ -311,14 +353,16 @@ CREATE TABLE IF NOT EXISTS rfid_tags (
   static Future<void> _configureBulkInsertPragmas(Database db) async {
     await db.rawQuery('PRAGMA synchronous = OFF');
     await db.rawQuery('PRAGMA temp_store = MEMORY');
-    // 64MB cache — 200MB was a crash source on 5L rows + RFID maps.
-    await db.rawQuery('PRAGMA cache_size = -65536');
+    await db.rawQuery('PRAGMA cache_size = -131072');
     await db.rawQuery('PRAGMA locking_mode = EXCLUSIVE');
     try {
       await db.rawQuery('PRAGMA journal_mode = OFF');
     } catch (_) {}
     try {
-      await db.rawQuery('PRAGMA mmap_size = 67108864');
+      await db.rawQuery('PRAGMA mmap_size = 134217728');
+    } catch (_) {}
+    try {
+      await db.rawQuery('PRAGMA threads = 4');
     } catch (_) {}
   }
 
@@ -330,6 +374,13 @@ CREATE TABLE IF NOT EXISTS rfid_tags (
     try {
       await db.rawQuery('PRAGMA locking_mode = NORMAL');
     } catch (_) {}
+  }
+
+  static String _stockBodyPath(String dbPath) {
+    final sep = Platform.pathSeparator;
+    final slash = dbPath.lastIndexOf(sep);
+    final dir = slash >= 0 ? dbPath.substring(0, slash) : '.';
+    return '$dir${sep}stock_sync_body.json';
   }
 
   static Future<HttpClientResponse> _postStockSearch({
@@ -424,7 +475,9 @@ CREATE TABLE IF NOT EXISTS rfid_tags (
       if (v.isNaN || v.isInfinite) return '0';
       return v.toString();
     }
-    return "'${v.toString().replaceAll("'", "''")}'";
+    final s = v.toString();
+    if (!s.contains("'")) return "'$s'";
+    return "'${s.replaceAll("'", "''")}'";
   }
 
   /// Multi-row INSERT via SQL literals: stays under Android Binder ~1MB limit
