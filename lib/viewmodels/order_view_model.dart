@@ -330,7 +330,9 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
       dimondWt: matchedItem.diamondWeight,
       sku: matchedItem.sku,
       qty: '1',
-      hallmarkAmt: '0.0',
+      hallmarkAmt: matchedItem.usableHallmarkAmount.isNotEmpty
+          ? matchedItem.usableHallmarkAmount
+          : '0.0',
       mrp: matchedItem.mrp.toString(),
       image: matchedItem.imageUrl,
       netAmt: itemAmt.toStringAsFixed(2),
@@ -354,6 +356,7 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
       makingFixedWastage: matchedItem.fixWastage,
       makingPerGram: matchedItem.makingPerGram,
       categoryWt: matchedItem.categoryWt,
+      labelledStockId: matchedItem.bulkItemId,
     );
   }
 
@@ -901,7 +904,75 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
       }
     }
 
+    await _fillHallmarkFromStock(normalized);
     return enrichOrderForPdf(normalized, customers);
+  }
+
+  /// Customer-order PDF PT is the hallmark charge. Older orders stored 0
+  /// because the scan did not copy the labelled-stock hallmark. Fill that
+  /// from stock when the line itself has no charge.
+  Future<void> _fillHallmarkFromStock(Map<String, dynamic> order) async {
+    final items = order['CustomOrderItem'];
+    if (items is! List) return;
+
+    for (var i = 0; i < items.length; i++) {
+      final raw = items[i];
+      if (raw is! Map) continue;
+      final item = Map<String, dynamic>.from(raw);
+      if (BulkItem.readHallmarkAmount(item).isNotEmpty) {
+        items[i] = item;
+        continue;
+      }
+
+      final stock = await _stockForOrderLine(item);
+      final hallmark = stock?.usableHallmarkAmount ?? '';
+      if (hallmark.isEmpty) {
+        items[i] = item;
+        continue;
+      }
+      item['HallmarkAmount'] = hallmark;
+      items[i] = item;
+    }
+  }
+
+  Future<BulkItem?> _stockForOrderLine(Map<String, dynamic> item) async {
+    final stockId = int.tryParse(
+          '${item['LabelledStockId'] ?? item['BulkItemId'] ?? item['StockId'] ?? ''}',
+        ) ??
+        0;
+    if (stockId > 0) {
+      final byId = await _dbService.findBulkItemByBulkItemId(stockId);
+      if (byId != null && byId.usableHallmarkAmount.isNotEmpty) return byId;
+    }
+
+    const keys = [
+      'RFIDCode',
+      'RfidCode',
+      'RFID',
+      'Rfid',
+      'TIDNumber',
+      'TidNumber',
+      'EPC',
+      'ItemCode',
+      'ProductCode',
+      'Barcode',
+      'BarCode',
+      'SKU',
+    ];
+    BulkItem? withoutHallmark;
+    for (final key in keys) {
+      final raw = item[key]?.toString().trim() ?? '';
+      if (raw.isEmpty || raw == '-' || raw.toLowerCase() == 'null') continue;
+      final found = _dbService.findBulkItemByScanKeySync(raw) ??
+          await _dbService.findBulkItemByScanKey(raw);
+      if (found == null) continue;
+      if (found.usableHallmarkAmount.isNotEmpty) return found;
+      withoutHallmark ??= found;
+    }
+    if (stockId > 0) {
+      return await _dbService.findBulkItemByBulkItemId(stockId) ?? withoutHallmark;
+    }
+    return withoutHallmark;
   }
 
   Map<String, dynamic> mergeOrderResponseForPdf(

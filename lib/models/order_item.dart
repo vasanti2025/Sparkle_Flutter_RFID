@@ -1,3 +1,5 @@
+import 'bulk_item.dart';
+
 class OrderItem {
   final String rfidCode;
   final String branchId;
@@ -51,6 +53,8 @@ class OrderItem {
   final String makingFixedWastage;
   final String makingPerGram;
   final String categoryWt;
+  /// Labelled-stock id. Used to recover hallmark (PDF PT) for older orders.
+  final int labelledStockId;
 
   OrderItem({
     required this.rfidCode,
@@ -105,6 +109,7 @@ class OrderItem {
     required this.makingFixedWastage,
     required this.makingPerGram,
     required this.categoryWt,
+    this.labelledStockId = 0,
   });
 
   OrderItem copyWith({
@@ -160,6 +165,7 @@ class OrderItem {
     String? makingFixedWastage,
     String? makingPerGram,
     String? categoryWt,
+    int? labelledStockId,
   }) {
     return OrderItem(
       rfidCode: rfidCode ?? this.rfidCode,
@@ -214,6 +220,7 @@ class OrderItem {
       makingFixedWastage: makingFixedWastage ?? this.makingFixedWastage,
       makingPerGram: makingPerGram ?? this.makingPerGram,
       categoryWt: categoryWt ?? this.categoryWt,
+      labelledStockId: labelledStockId ?? this.labelledStockId,
     );
   }
 
@@ -282,7 +289,7 @@ class OrderItem {
       'FineWastageWt': finePlusWt ?? '0.000',
       'Description': remark,
       'CompanyId': companyId,
-      'LabelledStockId': 0,
+      'LabelledStockId': labelledStockId,
       'TotalStoneWeight': stoneWt,
       'BranchId': int.tryParse(branchId) ?? 0,
       'BranchName': branchName,
@@ -369,7 +376,10 @@ class OrderItem {
       dimondWt: json['DiamondWt']?.toString() ?? '0.000',
       sku: json['SKU']?.toString() ?? '',
       qty: json['Quantity']?.toString() ?? '1',
-      hallmarkAmt: json['HallmarkAmount']?.toString() ?? '0.00',
+      hallmarkAmt: () {
+        final found = BulkItem.readHallmarkAmount(json);
+        return found.isNotEmpty ? found : '0.00';
+      }(),
       mrp: json['MRP']?.toString() ?? '0.00',
       image: json['Image']?.toString() ?? '',
       netAmt: json['Amount']?.toString() ?? '0.00',
@@ -395,6 +405,7 @@ class OrderItem {
       makingFixedWastage: json['MakingFixedWastage']?.toString() ?? '0.0',
       makingPerGram: json['MakingPerGram']?.toString() ?? '0.0',
       categoryWt: json['WeightCategories']?.toString() ?? '',
+      labelledStockId: asInt(json['LabelledStockId']),
     );
   }
 }

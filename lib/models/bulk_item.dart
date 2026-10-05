@@ -67,6 +67,8 @@ class BulkItem {
   final int skuId;
   final int purityId;
   final String status;
+  /// Labelled-stock hallmark charge. Customer-order PDF prints this as PT.
+  final String hallmarkAmount;
 
   BulkItem({
     this.id,
@@ -127,7 +129,78 @@ class BulkItem {
     required this.skuId,
     required this.purityId,
     required this.status,
+    this.hallmarkAmount = '',
   });
+
+  /// Non-zero hallmark charge. Blank when the stock row has no hallmark.
+  String get usableHallmarkAmount => positiveHallmarkText(hallmarkAmount);
+
+  /// First non-zero hallmark charge on a stock or order map.
+  /// A placeholder 0 does not hide a real charge stored under another key.
+  static String readHallmarkAmount(Map<dynamic, dynamic>? json) {
+    if (json == null || json.isEmpty) return '';
+    const keys = [
+      'HallmarkAmount',
+      'HallmarkAmt',
+      'HallMarkAmount',
+      'HallmarkCharges',
+      'HallmarkCharge',
+      'HallmarkingAmount',
+      'HallmarkingCharges',
+      'TotalHallmarkAmount',
+    ];
+    final direct = _firstPositive(json, keys);
+    if (direct.isNotEmpty) return direct;
+
+    for (final entry in json.entries) {
+      final key = entry.key.toString().toLowerCase();
+      final looksLikeCharge = key.contains('hallmark') || key.contains('hallmarking');
+      if (!looksLikeCharge) continue;
+      if (key.contains('huid') ||
+          key.contains('code') ||
+          key.contains('date') ||
+          key.endsWith('no')) {
+        continue;
+      }
+      final hit = positiveHallmarkText(entry.value);
+      if (hit.isNotEmpty) return hit;
+      if (entry.value is Map) {
+        final nested = _firstPositive(entry.value as Map, keys);
+        if (nested.isNotEmpty) return nested;
+      }
+    }
+    return '';
+  }
+
+  static String _firstPositive(Map<dynamic, dynamic> json, List<String> keys) {
+    for (final key in keys) {
+      if (json.containsKey(key)) {
+        final hit = positiveHallmarkText(json[key]);
+        if (hit.isNotEmpty) return hit;
+      }
+    }
+    final lower = <String, dynamic>{
+      for (final e in json.entries) e.key.toString().toLowerCase(): e.value,
+    };
+    for (final key in keys) {
+      final hit = positiveHallmarkText(lower[key.toLowerCase()]);
+      if (hit.isNotEmpty) return hit;
+    }
+    return '';
+  }
+
+  static String positiveHallmarkText(dynamic raw) {
+    if (raw == null) return '';
+    final text = raw.toString().trim();
+    if (text.isEmpty || text.toLowerCase() == 'null') return '';
+    var numeric = text.replaceAll(',', '');
+    if (numeric.toUpperCase().endsWith('PT')) {
+      numeric = numeric.substring(0, numeric.length - 2).trim();
+    }
+    final n = double.tryParse(numeric);
+    if (n != null && n == 0) return '';
+    return text;
+  }
 
   // Map representation to store in SQLite
   Map<String, dynamic> toMap() {
@@ -191,6 +264,7 @@ class BulkItem {
       'skuId': skuId,
       'purityId': purityId,
       'status': status,
+      'hallmarkAmount': hallmarkAmount,
     };
   }
 
@@ -255,6 +329,7 @@ class BulkItem {
       skuId: map['skuId'] as int? ?? 0,
       purityId: map['purityId'] as int? ?? 0,
       status: map['status'] as String? ?? '',
+      hallmarkAmount: map['hallmarkAmount']?.toString() ?? '',
     );
   }
 
@@ -374,6 +449,7 @@ class BulkItem {
       skuId: int.tryParse(json['SKUId']?.toString() ?? '') ?? 0,
       purityId: int.tryParse(json['PurityId']?.toString() ?? '') ?? 0,
       status: apiString(json, ['Status', 'status']),
+      hallmarkAmount: readHallmarkAmount(json),
     );
   }
 
@@ -475,6 +551,7 @@ class BulkItem {
       skuId: 0,
       purityId: int.tryParse(first(const ['PurityId', 'purityId'])) ?? 0,
       status: first(const ['Status', 'status']),
+      hallmarkAmount: readHallmarkAmount(json),
     );
   }
 

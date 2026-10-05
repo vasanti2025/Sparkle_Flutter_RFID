@@ -563,7 +563,7 @@ class ProductViewModel extends ChangeNotifier {
         'TotalDiamondAmount': updatedItem.diamondAmount,
         'Featured': '',
         'Pieces': updatedItem.pcs.toString(),
-        'HallmarkAmount': '',
+        'HallmarkAmount': updatedItem.hallmarkAmount,
         'HUIDCode': '',
         'MRP': updatedItem.mrp.toString(),
         'VendorId': 1,

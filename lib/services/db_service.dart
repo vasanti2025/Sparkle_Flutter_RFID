@@ -49,7 +49,30 @@ class DbService {
     if (key.isEmpty) return null;
     final cached = findBulkItemByScanKeySync(raw);
     if (cached != null) return cached;
-    return _queryBulkItemByScanKeyIndexed(key);
+    final exact = await _queryBulkItemByScanKeyIndexed(key);
+    if (exact != null) return exact;
+    final trimmed = raw.trim();
+    if (trimmed.isNotEmpty && trimmed != key) {
+      return _queryBulkItemByScanKeyIndexed(trimmed);
+    }
+    return null;
+  }
+
+  Future<BulkItem?> findBulkItemByBulkItemId(int bulkItemId) async {
+    if (bulkItemId <= 0) return null;
+    final db = await database;
+    final maps = await db.query(
+      'bulk_items',
+      where: 'bulkItemId = ?',
+      whereArgs: [bulkItemId],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    try {
+      return BulkItem.fromMap(maps.first);
+    } catch (_) {
+      return null;
+    }
   }
 
   BulkItem? findBulkItemByScanKeySync(String raw) {
@@ -233,7 +256,7 @@ END
 
     return await openDatabase(
       path,
-      version: 10,
+      version: 11,
       onConfigure: (db) async {
         await db.rawQuery('PRAGMA journal_mode=WAL;');
         await db.rawQuery('PRAGMA cache_size=-2048');
@@ -300,7 +323,8 @@ END
             categoryWt TEXT,
             skuId INTEGER,
             purityId INTEGER,
-            status TEXT
+            status TEXT,
+            hallmarkAmount TEXT
           )
         ''');
 
@@ -416,6 +440,11 @@ END
         }
         if (oldVersion < 10) {
           await _createHeldSampleStockTable(db);
+        }
+        if (oldVersion < 11) {
+          await db.execute(
+            'ALTER TABLE bulk_items ADD COLUMN hallmarkAmount TEXT',
+          );
         }
       },
     );

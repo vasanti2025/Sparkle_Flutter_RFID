@@ -5,6 +5,8 @@ import 'dart:isolate';
 import 'package:flutter/services.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../models/bulk_item.dart';
+
 /// Background isolate entry for large labelled-stock sync (5–8L+ rows).
 ///
 /// Mapping / skip / EPC-uniqueness rules are unchanged vs Sparkle.
@@ -81,7 +83,8 @@ CREATE TABLE IF NOT EXISTS bulk_items (
   categoryWt TEXT,
   skuId INTEGER,
   purityId INTEGER,
-  status TEXT
+  status TEXT,
+  hallmarkAmount TEXT
 )''';
 
   static const String _createRfidTagsSql = '''
@@ -435,7 +438,7 @@ CREATE TABLE IF NOT EXISTS rfid_tags (
   ) async {
     if (items.isEmpty) return;
     const prefix =
-        'INSERT INTO bulk_items (bulkItemId,productName,itemCode,rfid,grossWeight,stoneWeight,diamondWeight,netWeight,category,design,purity,makingPerGram,makingPercent,fixMaking,fixWastage,stoneAmount,diamondAmount,sku,epc,vendor,tid,box,designCode,productCode,imageUrl,totalQty,pcs,matchedPcs,totalGwt,matchGwt,totalStoneWt,matchStoneWt,totalNetWt,matchNetWt,unmatchedQty,matchedQty,unmatchedGrossWt,mrp,counterName,counterId,boxId,boxName,branchId,branchName,packetId,packetName,scannedStatus,categoryId,productId,branchType,designId,isScanned,totalWt,categoryWt,skuId,purityId,status) VALUES ';
+        'INSERT INTO bulk_items (bulkItemId,productName,itemCode,rfid,grossWeight,stoneWeight,diamondWeight,netWeight,category,design,purity,makingPerGram,makingPercent,fixMaking,fixWastage,stoneAmount,diamondAmount,sku,epc,vendor,tid,box,designCode,productCode,imageUrl,totalQty,pcs,matchedPcs,totalGwt,matchGwt,totalStoneWt,matchStoneWt,totalNetWt,matchNetWt,unmatchedQty,matchedQty,unmatchedGrossWt,mrp,counterName,counterId,boxId,boxName,branchId,branchName,packetId,packetName,scannedStatus,categoryId,productId,branchType,designId,isScanned,totalWt,categoryWt,skuId,purityId,status,hallmarkAmount) VALUES ';
     await db.transaction((txn) async {
       final buf = StringBuffer();
       var rowsInStmt = 0;
@@ -775,6 +778,7 @@ CREATE TABLE IF NOT EXISTS rfid_tags (
       view.rawInt('SKUId'),
       view.rawInt('PurityId'),
       status,
+      BulkItem.readHallmarkAmount(view.raw),
     ];
   }
 

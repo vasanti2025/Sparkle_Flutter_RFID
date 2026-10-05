@@ -6,6 +6,7 @@ import 'package:image/image.dart' as img;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../../models/bulk_item.dart';
 import '../../models/customer.dart';
 import '../../utils/pdf_open_util.dart';
 
@@ -980,16 +981,14 @@ String? _pickOrderField(
   return null;
 }
 
-/// PT ← HallmarkAmount (order response / CustomOrderItem)
+/// PT ← hallmark charge on the order line. A stored 0 is ignored so it does
+/// not hide the labelled-stock hallmark copied in before print.
 String _orderPt(Map<String, dynamic> item, Map<String, dynamic> orderRes) {
-  final raw = _pickOrderField(item, orderRes, [
-    'HallmarkAmount',
-    'HallmarkAmt',
-    'HallMarkAmount',
-    'PT',
-  ]);
-  if (raw == null) return '-';
-  return _formatPt(raw);
+  final raw = BulkItem.readHallmarkAmount(item);
+  if (raw.isNotEmpty) return _formatPt(raw);
+  final header = BulkItem.readHallmarkAmount(orderRes);
+  if (header.isNotEmpty) return _formatPt(header);
+  return '-';
 }
 
 /// DWT ← DiamondWt / DiamondWeight (order response / CustomOrderItem)

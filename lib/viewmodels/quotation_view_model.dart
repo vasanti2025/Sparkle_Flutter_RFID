@@ -190,7 +190,9 @@ class QuotationViewModel extends ChangeNotifier with LiveScanGate {
       dimondWt: matchedItem.diamondWeight,
       sku: matchedItem.sku,
       qty: '1',
-      hallmarkAmt: '0.0',
+      hallmarkAmt: matchedItem.usableHallmarkAmount.isNotEmpty
+          ? matchedItem.usableHallmarkAmount
+          : '0.0',
       mrp: matchedItem.mrp.toString(),
       image: matchedItem.imageUrl,
       netAmt: itemAmt.toStringAsFixed(2),
