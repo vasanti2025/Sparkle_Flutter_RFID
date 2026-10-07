@@ -77,7 +77,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     super.initState();
     _selectedPower = context.read<PrefService>().productPower;
     _tagBatcher = TagScanBatcher(
-      flushInterval: const Duration(milliseconds: 150),
+      flushInterval: const Duration(milliseconds: 40),
       onFlush: (tags) => _processTagBatch(tags),
     );
     _initDeviceAndServer();
@@ -93,9 +93,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     _tagsSubscription = _rfidService.tagsStream.listen((tag) {
       if (!_rfidService.isScanning && !_isScanning) return;
       _tagBatcher.add(tag);
-      if (_isSingleScan) {
-        _tagBatcher.flushNow();
-      }
+      _tagBatcher.flushNow();
     });
     
     // Subscribe to gun key triggers
@@ -247,16 +245,16 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     }
   }
 
-  Future<void> _processTagBatch(List<String> tags) async {
+  void _processTagBatch(List<String> tags) {
     if (tags.isEmpty || !mounted) return;
 
-    if (_isSingleScan) {
-      if (_tagScannedInSession) return;
-      _tagScannedInSession = true;
-    }
+    if (_isSingleScan && _tagScannedInSession) return;
 
     final db = context.read<DbService>();
     final existing = _desktopScans.map((t) => t.epc).toSet();
+    for (final pending in _pendingTags) {
+      existing.add(pending.epc);
+    }
     final toAdd = <DesktopTag>[];
 
     for (final raw in tags) {
@@ -265,17 +263,14 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
 
       String mappedRfid = '';
       if (epc.startsWith('E')) {
-        try {
-          mappedRfid = await db.lookupRfidForTid(epc);
-        } catch (e) {
-          debugPrint('Error querying tag mapping from local DB: $e');
-        }
+        mappedRfid = db.findBulkItemByScanKeySync(epc)?.rfid ?? '';
       } else {
         mappedRfid = hexToAscii(epc);
       }
 
       toAdd.add(DesktopTag(epc: epc, rfidCode: mappedRfid));
       existing.add(epc);
+      if (_isSingleScan) break;
     }
 
     if (toAdd.isEmpty) {
@@ -283,22 +278,45 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
       return;
     }
 
+    if (_isSingleScan) _tagScannedInSession = true;
+
     _pendingTags.addAll(toAdd);
-    _scheduleUiFlush();
+    _flushPendingTagsNow();
 
     if (_isSingleScan) {
       unawaited(_stopScanning());
     }
+
+    unawaited(_fillRfidCodes(toAdd));
   }
 
-  void _scheduleUiFlush() {
-    _uiFlushTimer ??= Timer(const Duration(milliseconds: 100), () {
-      _uiFlushTimer = null;
-      if (!mounted || _pendingTags.isEmpty) return;
-      setState(() {
-        _desktopScans.addAll(_pendingTags);
-        _pendingTags.clear();
-      });
+  Future<void> _fillRfidCodes(List<DesktopTag> tags) async {
+    if (!mounted) return;
+    final db = context.read<DbService>();
+    var changed = false;
+    for (final tag in tags) {
+      if (tag.rfidCode.trim().isNotEmpty) continue;
+      if (!tag.epc.startsWith('E')) continue;
+      try {
+        final rfid = await db.lookupRfidForTid(tag.epc);
+        if (rfid.isNotEmpty && tag.rfidCode.trim().isEmpty) {
+          tag.rfidCode = rfid;
+          changed = true;
+        }
+      } catch (e) {
+        debugPrint('Error querying tag mapping from local DB: $e');
+      }
+    }
+    if (changed && mounted) setState(() {});
+  }
+
+  void _flushPendingTagsNow() {
+    _uiFlushTimer?.cancel();
+    _uiFlushTimer = null;
+    if (!mounted || _pendingTags.isEmpty) return;
+    setState(() {
+      _desktopScans.addAll(_pendingTags);
+      _pendingTags.clear();
     });
   }
 
@@ -327,10 +345,17 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
         await _rfidService.haltScan();
       }
 
-      final started = await _rfidService.startScanning(power: _selectedPower);
+      await _rfidService.clearSearchTags();
+      await _rfidService.clearMatchEpcs();
+      final started = await _rfidService.startScanning(
+        power: _selectedPower,
+        inventory: false,
+        playStartSound: true,
+      );
       if (gen != _scanGeneration) {
         if (started) {
           await _rfidService.stopScanning();
+          await _rfidService.stopInventorySound();
           await _rfidService.haltScan();
         }
         return;
@@ -379,10 +404,17 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
         await _rfidService.haltScan();
       }
 
-      final started = await _rfidService.startScanning(power: _selectedPower);
+      await _rfidService.clearSearchTags();
+      await _rfidService.clearMatchEpcs();
+      final started = await _rfidService.startScanning(
+        power: _selectedPower,
+        inventory: true,
+        playStartSound: false,
+      );
       if (gen != _scanGeneration) {
         if (started) {
           await _rfidService.stopScanning();
+          await _rfidService.stopInventorySound();
           await _rfidService.haltScan();
         }
         return;
@@ -400,7 +432,10 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
   Future<void> _stopScanning() async {
     _scanGeneration++;
     _singleScanTimer?.cancel();
+    _tagBatcher.flushNow();
+    _flushPendingTagsNow();
     if (!_isScanning && !_rfidService.isScanning) {
+      await _rfidService.stopInventorySound();
       await _rfidService.haltScan();
       return;
     }
@@ -411,7 +446,10 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
       });
     }
     await _rfidService.stopScanning();
+    await _rfidService.stopInventorySound();
     await _rfidService.haltScan();
+    _tagBatcher.flushNow();
+    _flushPendingTagsNow();
   }
 
   void _handleHardwareTrigger() {

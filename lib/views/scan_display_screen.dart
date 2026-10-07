@@ -316,6 +316,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   final Set<String> _matchedEpcSet = {};
   Set<String> _filteredDbEpcSet = {};
   bool _lookupMapsReady = false;
+  /// First reports while maps are still building — replay so a tag is not
+  /// lost until the reader speaks again (can be ~1 min on session inventory).
+  final List<String> _pendingWarmTags = [];
   int _lastScanUiUpdateMs = 0;
   int _lastTriggerMs = 0;
   int _lastBeepMs = 0;
@@ -429,6 +432,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       _unlabelledItemCache.clear();
       _epcToMasterIndex.clear();
       _filteredDbEpcSet = {};
+      _pendingWarmTags.clear();
       _scannedItems = scanned;
       _isLoadingItems = false;
       _lookupMapsReady = false;
@@ -443,6 +447,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       if (!mounted) return;
       await _setFilteredItemsForScanChunked();
       if (!mounted) return;
+      _replayPendingWarmTags();
       // Warm UART while user reviews the list — first Scan tap starts faster.
       unawaited(_rfidService.prepareForScan());
     });
@@ -519,6 +524,20 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       }
     }
     _lookupMapsReady = true;
+    _replayPendingWarmTags();
+  }
+
+  void _replayPendingWarmTags() {
+    if (_pendingWarmTags.isEmpty) return;
+    if (!_isScanning) {
+      _pendingWarmTags.clear();
+      return;
+    }
+    final pending = List<String>.from(_pendingWarmTags);
+    _pendingWarmTags.clear();
+    for (final tag in pending) {
+      _onTagScanned(tag);
+    }
   }
 
   /// Same as Kotlin setFilteredItems(displayItems) — scope tag keys for matching.
@@ -548,6 +567,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       }
     }
     _filteredDbEpcSet = next;
+    _replayPendingWarmTags();
   }
 
   int _viewStateHash() {
@@ -828,7 +848,13 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       }
 
       // Don't classify unknown tags as unlabelled until lookup maps are ready.
-      if (mapsWarming) return;
+      // Keep the first read — the gun may not report that EPC again for ~1 min.
+      if (mapsWarming) {
+        if (_pendingWarmTags.length < 4000) {
+          _pendingWarmTags.add(scannedEpc);
+        }
+        return;
+      }
 
       if (_unlabelledEpcSet.length >= 20000) return;
       if (_unlabelledEpcSet.add(scannedEpc)) {
@@ -964,6 +990,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       }
       _scanStartInProgress = false;
       _trayScanSession.reset();
+      _pendingWarmTags.clear();
       await _rfidService.stopScanning();
       await _rfidService.haltScan();
       _scanUiFlushTimer?.cancel();

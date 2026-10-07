@@ -889,6 +889,8 @@ class HardwareControllerImpl(
             if (inventory) {
                 uhf().prepareScan(power)
                 startInventoryLoopSound()
+                isScanning = true
+                attachInventoryTagCallback()
             } else {
                 // Stop leftover inventory so LED Tag mode + filter apply cleanly.
                 try {
@@ -919,6 +921,7 @@ class HardwareControllerImpl(
                 }
                 if (inventory) {
                     uhf().prepareScan(power)
+                    attachInventoryTagCallback()
                 } else {
                     prepareSearchRadio(power)
                     attachSearchLedTagCallback()
@@ -931,6 +934,7 @@ class HardwareControllerImpl(
                 if (uhf().recoverHardware()) {
                     if (inventory) {
                         uhf().prepareScan(power)
+                        attachInventoryTagCallback()
                     } else {
                         prepareSearchRadio(power)
                         attachSearchLedTagCallback()
@@ -1443,6 +1447,22 @@ class HardwareControllerImpl(
      * Demo Tag LED Inventory delivers tags on [UhfFacade.setInventoryCallback],
      * not readTagFromBuffer. Keep RSSI/sound/progress alive after LED blink mode.
      */
+    /** Inventory tags also arrive on setInventoryCallback — do not treat as Search. */
+    private fun attachInventoryTagCallback() {
+        try {
+            uhf().setInventoryCallback { epc, rssi ->
+                if (!scanningPermitted) return@setInventoryCallback
+                val cleanEpc = normalizeScanKey(epc)
+                if (cleanEpc.isEmpty()) return@setInventoryCallback
+                handleTagRead(cleanEpc, rssi, inventory = true)
+            }
+            searchLedCallbackAttached = true
+        } catch (e: Throwable) {
+            searchLedCallbackAttached = false
+            Log.w(TAG, "Inventory tag callback failed: ${e.message}")
+        }
+    }
+
     private fun attachSearchLedTagCallback() {
         try {
             uhf().setInventoryCallback { epc, rssi ->
@@ -1698,7 +1718,8 @@ class HardwareControllerImpl(
         if (!shouldEmitTagToFlutter(emitEpc, rssiOut)) {
             return
         }
-        queueTagEvent(emitEpc, rssiOut, flushNow = searchHit)
+        val firstInventory = inventory && sessionUniqueEpcs.add(cleanEpc)
+        queueTagEvent(emitEpc, rssiOut, flushNow = searchHit || firstInventory)
     }
 
     /** Matches Flutter SearchScreen.convertRssiToProximity (abs RSSI → 0–100). */
@@ -1752,16 +1773,29 @@ class HardwareControllerImpl(
 
     private fun queueTagEvent(cleanEpc: String, rssi: String, flushNow: Boolean = false) {
         synchronized(pendingTagLock) {
+            val packed = "$cleanEpc,$rssi"
+            val prefix = "$cleanEpc,"
+            for (i in pendingTagEvents.indices.reversed()) {
+                if (pendingTagEvents[i].startsWith(prefix)) {
+                    pendingTagEvents[i] = packed
+                    if (flushNow && !tagFlushScheduled) {
+                        tagFlushScheduled = true
+                        mainHandler.post { flushQueuedTagEvents() }
+                    }
+                    return
+                }
+            }
             // Cap batch size so unmatched floods cannot blow the Flutter event binder.
-            // Never drop a matched search tag — Pushpa HashMap never misses a hit.
+            // Never drop a matched search tag or a new inventory EPC (those
+            // chips may stay quiet ~1 min after the first read).
             if (pendingTagEvents.size >= 300) {
-                if (matchesSearchTag(cleanEpc)) {
+                if (matchesSearchTag(cleanEpc) || inventoryScanMode) {
                     pendingTagEvents.removeAt(0)
                 } else {
                     return
                 }
             }
-            pendingTagEvents.add("$cleanEpc,$rssi")
+            pendingTagEvents.add(packed)
             if (!tagFlushScheduled) {
                 tagFlushScheduled = true
                 val delay = if (flushNow) 0L else tagFlushDelayMs
