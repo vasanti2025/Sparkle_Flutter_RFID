@@ -288,33 +288,30 @@ Future<void> _appendOrderPagesToPdf({
   final detailItems = <Map<String, dynamic>>[];
 
   if (itemsList is List) {
-    for (var i = 0; i < itemsList.length; i++) {
-      final raw = itemsList[i];
+    for (final raw in itemsList) {
       if (raw is! Map) continue;
-      final item = Map<String, dynamic>.from(raw);
-      detailItems.add(item);
-
-      final image = await _loadPdfThumbnail(
-        _orderImagePath(item),
-        baseUrl,
-        large: false,
-      );
-
-      tableRows.add(
-        _OrderPdfRow(
-          srNo: '${i + 1}',
-          barCode: _orderBarCode(item),
-          item: _orderItemName(item),
-          image: image,
-          colour: _orderColour(item),
-          pt: _orderPt(item, orderRes),
-          dwt: _orderDwt(item, orderRes),
-          size: _orderSize(item, orderRes),
-          netWt: _displayWt(item['NetWt']),
-          remarks: _orderRemark(item, orderRes),
-        ),
-      );
+      detailItems.add(Map<String, dynamic>.from(raw));
     }
+  }
+
+  final images = await _loadOrderItemImages(detailItems, baseUrl);
+
+  for (var i = 0; i < detailItems.length; i++) {
+    final item = detailItems[i];
+    tableRows.add(
+      _OrderPdfRow(
+        srNo: '${i + 1}',
+        barCode: _orderBarCode(item),
+        item: _orderItemName(item),
+        image: images[i].thumb,
+        colour: _orderColour(item),
+        pt: _orderPt(item, orderRes),
+        dwt: _orderDwt(item, orderRes),
+        size: _orderSize(item, orderRes),
+        netWt: _displayWt(item['NetWt']),
+        remarks: _orderRemark(item, orderRes),
+      ),
+    );
   }
 
   if (tableRows.isEmpty) {
@@ -345,18 +342,13 @@ Future<void> _appendOrderPagesToPdf({
 
   for (var i = 0; i < detailItems.length; i++) {
     final item = detailItems[i];
-    final largeImage = await _loadPdfThumbnail(
-      _orderImagePath(item),
-      baseUrl,
-      large: true,
-    );
     _addItemDetailPage(
       pdf: pdf,
       orderRes: orderRes,
       custName: custName,
       orderNo: _itemOrderNo(orderRes, item),
       item: item,
-      image: largeImage,
+      image: images[i].large,
       itemIndex: i + 1,
       totalItems: detailItems.length,
     );
@@ -841,37 +833,90 @@ String _resolveImageUrl(String path, String baseUrl) {
   return '$base$lastImg';
 }
 
-Future<pw.MemoryImage?> _loadPdfThumbnail(
-  String rawImage,
-  String baseUrl, {
-  required bool large,
-}) async {
-  if (rawImage.isEmpty) return null;
-  final url = _resolveImageUrl(rawImage, baseUrl);
-  if (url.isEmpty) return null;
+class _OrderPdfImages {
+  final pw.MemoryImage? thumb;
+  final pw.MemoryImage? large;
 
+  const _OrderPdfImages({this.thumb, this.large});
+}
+
+/// One download per image URL. Thumbnail and detail sizes are resized from
+/// the same bytes, and duplicate URLs in one order share that download.
+Future<List<_OrderPdfImages>> _loadOrderItemImages(
+  List<Map<String, dynamic>> items,
+  String baseUrl,
+) async {
+  if (items.isEmpty) return const [];
+
+  final inflight = <String, Future<_OrderPdfImages>>{};
+  final results = List<_OrderPdfImages>.filled(
+    items.length,
+    const _OrderPdfImages(),
+  );
+
+  Future<_OrderPdfImages> load(String path) {
+    final url = _resolveImageUrl(path, baseUrl);
+    if (url.isEmpty) return Future.value(const _OrderPdfImages());
+    return inflight.putIfAbsent(url, () => _decodePdfImages(url));
+  }
+
+  const concurrency = 4;
+  var next = 0;
+
+  Future<void> worker() async {
+    while (true) {
+      final index = next;
+      if (index >= items.length) return;
+      next++;
+      results[index] = await load(_orderImagePath(items[index]));
+    }
+  }
+
+  final workers = items.length < concurrency ? items.length : concurrency;
+  await Future.wait(List.generate(workers, (_) => worker()));
+  return results;
+}
+
+Future<_OrderPdfImages> _decodePdfImages(String url) async {
   try {
-    final res = await http
-        .get(Uri.parse(url))
-        .timeout(const Duration(seconds: 10));
-    if (res.statusCode != 200 || res.bodyBytes.isEmpty) return null;
+    final res = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
+    if (res.statusCode != 200 || res.bodyBytes.isEmpty) {
+      return const _OrderPdfImages();
+    }
 
     final decoded = img.decodeImage(res.bodyBytes);
-    if (decoded == null) return null;
+    if (decoded == null) return const _OrderPdfImages();
 
-    final target = large ? 480 : 72;
-    final thumb = img.copyResize(
-      decoded,
-      width: target,
-      height: target,
-      interpolation: img.Interpolation.linear,
+    pw.MemoryImage encode(int maxSide, int quality) {
+      final resized = _resizeMaxSide(decoded, maxSide);
+      final jpg = Uint8List.fromList(img.encodeJpg(resized, quality: quality));
+      return pw.MemoryImage(jpg);
+    }
+
+    return _OrderPdfImages(
+      thumb: encode(72, 70),
+      large: encode(480, 82),
     );
-    final jpg = Uint8List.fromList(img.encodeJpg(thumb, quality: large ? 82 : 70));
-    return pw.MemoryImage(jpg);
   } catch (e) {
     debugPrint('Order PDF image skipped ($url): $e');
-    return null;
+    return const _OrderPdfImages();
   }
+}
+
+/// Shrinks the longer side to [maxSide] and keeps the original aspect ratio.
+img.Image _resizeMaxSide(img.Image source, int maxSide) {
+  final longest = source.width > source.height ? source.width : source.height;
+  if (longest <= maxSide) return source;
+
+  final scale = maxSide / longest;
+  final width = (source.width * scale).round().clamp(1, maxSide);
+  final height = (source.height * scale).round().clamp(1, maxSide);
+  return img.copyResize(
+    source,
+    width: width,
+    height: height,
+    interpolation: img.Interpolation.linear,
+  );
 }
 
 class _OrderPdfRow {
