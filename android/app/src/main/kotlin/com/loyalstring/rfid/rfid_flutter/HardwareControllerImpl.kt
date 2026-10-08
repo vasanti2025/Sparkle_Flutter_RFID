@@ -87,6 +87,11 @@ class HardwareControllerImpl(
     @Volatile private var lastSearchHitAt = 0L
     /** filter = Global LED chips only; all = Unmatched demo Tag LED; epc = Global normal tags. */
     @Volatile private var searchRadioMode = SEARCH_RADIO_EPC
+    /**
+     * LED Tag solid was applied by LedTagSolid (rfid_flutter_plugin) before start.
+     * Do not setEPCMode or blink-revert — that turns the solid light off.
+     */
+    @Volatile private var holdLedSolid = false
     /** One UART queue — start/stop/LED must not overlap (that fails startInventory). */
     private val uartExecutor = Executors.newSingleThreadExecutor()
     @Volatile private var uartPollPaused = false
@@ -310,6 +315,9 @@ class HardwareControllerImpl(
                         "all" -> SEARCH_RADIO_ALL
                         else -> SEARCH_RADIO_EPC
                     }
+                    holdLedSolid = call.argument<Boolean>("holdLedSolid") == true
+                } else {
+                    holdLedSolid = false
                 }
                 // Set before the UART queue runs. A previous stop on that queue
                 // used to clear this flag and make Start return false.
@@ -832,6 +840,7 @@ class HardwareControllerImpl(
 
     private fun haltScan() {
         scanningPermitted = false
+        holdLedSolid = false
         inventoryScanMode = false
         inventoryScopeEpcs.clear()
         sessionUniqueEpcs.clear()
@@ -844,6 +853,8 @@ class HardwareControllerImpl(
         if (isScanning) {
             // Leftover LED/inventory session would keep an old EPC filter and
             // miss the new Global Search item. Restart Search at the requested power.
+            // stopRfidInventory clears holdLedSolid; this start already asked to keep it.
+            val keepSolid = holdLedSolid
             if (trayModeEnabled || r6ModeEnabled) {
                 if (trayManager.isReallyConnected() && pollerActive) {
                     return true
@@ -852,7 +863,8 @@ class HardwareControllerImpl(
                 isScanning = false
                 stopPollingThread()
             } else if (!inventory) {
-                stopRfidInventory()
+                stopRfidInventory(restoreEpc = !keepSolid)
+                holdLedSolid = keepSolid
             } else {
                 return true
             }
@@ -1240,6 +1252,16 @@ class HardwareControllerImpl(
      */
     private fun prepareSearchRadio(power: Int) {
         uhf().setPower(power)
+        if (holdLedSolid) {
+            // Filter + MODE_LED_TAG (solid) already set by the plugin class.
+            Log.i(TAG, "Search LED held solid (plugin) mode=$searchRadioMode")
+            searchLedAppliedKey = ""
+            searchLedPhase = SEARCH_LED_BLINK
+            searchLedPhaseUntil = 0L
+            foundLedGatherUntil = 0L
+            foundLedGatherDeadline = 0L
+            return
+        }
         if (searchRadioMode == SEARCH_RADIO_ALL) {
             val ok = uhf().applyLedBlinkInventoryNoFilter()
             Log.i(TAG, "Unmatched Tag LED Inventory Solid (LED+normal) => $ok")
@@ -1307,6 +1329,8 @@ class HardwareControllerImpl(
     }
 
     private fun tickSearchLedBlink() {
+        // Plugin solid stays on. Revert-to-EPC turns the light off.
+        if (holdLedSolid) return
         // Unmatched stays unfiltered Tag LED for the whole scan.
         if (searchRadioMode != SEARCH_RADIO_FILTER) return
         if (searchLedApplyBusy || uartPollPaused) return
@@ -1559,7 +1583,7 @@ class HardwareControllerImpl(
         foundLedGatherDeadline = foundLedGatherUntil
     }
 
-    private fun stopUartInventoryNow(useBle: Boolean) {
+    private fun stopUartInventoryNow(useBle: Boolean, restoreEpc: Boolean = true) {
         for (attempt in 0 until 3) {
             var stopped = false
             try {
@@ -1576,7 +1600,7 @@ class HardwareControllerImpl(
             } catch (_: InterruptedException) {
             }
         }
-        if (!useBle) {
+        if (!useBle && restoreEpc) {
             try {
                 uhfFacade?.restoreEpcInventoryMode()
             } catch (_: Throwable) {
@@ -1584,7 +1608,7 @@ class HardwareControllerImpl(
         }
     }
 
-    private fun stopRfidInventory(): Boolean {
+    private fun stopRfidInventory(restoreEpc: Boolean = true): Boolean {
         inventoryScanMode = false
         inventoryScopeEpcs.clear()
         sessionUniqueEpcs.clear()
@@ -1595,6 +1619,7 @@ class HardwareControllerImpl(
         stopInventoryLoopSound()
 
         isScanning = false
+        holdLedSolid = false
         activeInventorySession = false
         uartPollPaused = true
         searchLedApplyBusy = false
@@ -1610,7 +1635,7 @@ class HardwareControllerImpl(
             recentEmitProx.clear()
         }
         clearSearchLedTagCallback()
-        stopUartInventoryNow(useBleReader())
+        stopUartInventoryNow(useBleReader(), restoreEpc)
         uartPollPaused = false
         return true
     }

@@ -604,9 +604,9 @@ class _SearchScreenState extends State<SearchScreen> {
 
       final unmatchedWide = _isLargeUnmatched && _searchQuery.trim().isEmpty;
       final ledEpcs = unmatchedWide ? const <String>[] : _collectSearchLedEpcs();
-      // Unmatched: demo Tag LED, no filter (LED + normal).
-      // Global: filter to searched EPCs only so other LED tags stay dark.
-      final ledMode = unmatchedWide ? 'all' : 'filter';
+      // Unmatched, and Home Search with no chip id: solid on every LED tag.
+      // Home Search with chip EPCs: solid only on those tags.
+      final ledMode = (unmatchedWide || ledEpcs.isEmpty) ? 'all' : 'filter';
       final started = await _rfidService.startSearchScanning(
         power: _selectedPower.clamp(1, 30),
         searchTags: tagsToSend,

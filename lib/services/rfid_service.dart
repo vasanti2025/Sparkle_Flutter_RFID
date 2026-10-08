@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../utils/bluetooth_permission_util.dart';
 import 'db_service.dart';
+import 'led_tag_solid.dart';
 import 'pref_service.dart';
 
 class RfidService {
@@ -848,6 +849,8 @@ class RfidService {
       }
       await prepareForScan();
       await setInventoryScanMode(inventory);
+      // Find / single scans use the same solid LED as Search. Inventory counts stay EPC-only.
+      final usePluginLed = !inventory && !_trayModeEnabled && !_r6ModeEnabled;
 
       for (var attempt = 0; attempt < 2; attempt++) {
         if (attempt > 0) {
@@ -855,11 +858,16 @@ class RfidService {
           await prepareForScan();
         }
 
+        final holdLedSolid = usePluginLed
+            ? await _holdLedSolid(ledMode: 'all')
+            : false;
         _isScanning = true;
         final started = await _methodChannel.invokeMethod<bool>('startScanning', {
               'power': power,
               'inventory': inventory,
               'playStartSound': playStartSound,
+              if (usePluginLed) 'ledMode': holdLedSolid ? 'all' : 'epc',
+              'holdLedSolid': holdLedSolid,
             }) ??
             false;
         if (started) {
@@ -918,12 +926,19 @@ class RfidService {
           await Future<void>.delayed(Duration(milliseconds: 150 * attempt));
           await prepareForScan();
         }
+        // Solid LED before inventory starts. The plugin command is ignored
+        // while inventory is already running.
+        final holdLedSolid = await _holdLedSolid(
+          ledMode: ledMode,
+          ledEpcs: ledEpcs,
+        );
         _isScanning = true;
         final started = await _methodChannel.invokeMethod<bool>('startScanning', {
               'power': power,
               'inventory': false,
               'playStartSound': false,
-              'ledMode': ledMode,
+              'ledMode': holdLedSolid ? ledMode : 'epc',
+              'holdLedSolid': holdLedSolid,
             }) ??
             false;
         if (started) return true;
@@ -935,6 +950,22 @@ class RfidService {
       _isScanning = false;
       return false;
     }
+  }
+
+  /// Solid LED Tag via [LedTagSolid] only. Tray/R6 and inventory counts skip this.
+  /// Filter lights the searched chips. Empty filter, or a failed filter, lights
+  /// every LED tag solid so Home Search still turns the light on.
+  Future<bool> _holdLedSolid({
+    required String ledMode,
+    List<String>? ledEpcs,
+  }) async {
+    if (_trayModeEnabled || _r6ModeEnabled) return false;
+    if (ledMode != 'all' && ledMode != 'filter') return false;
+    if (ledMode == 'filter' && (ledEpcs?.isNotEmpty ?? false)) {
+      final filtered = await LedTagSolid.instance.turnSolid(ledEpcs!);
+      if (filtered) return true;
+    }
+    return LedTagSolid.instance.turnSolid(const []);
   }
 
   /// Scan Display inventory start — minimal handoff (mirrors Sparkle).

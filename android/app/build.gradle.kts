@@ -60,6 +60,11 @@ flutter {
     source = "../.."
 }
 
+// Plugin ships its own DeviceAPI. Keep the app AAR so the existing reader is unchanged.
+configurations.configureEach {
+    exclude(group = "com.rscja.deviceapi", module = "DeviceAPI")
+}
+
 dependencies {
     implementation(files("libs/DeviceAPI_V2.0.3_20260313.aar"))
     // Xprinter POSConnect Bluetooth thermal printer (Delivery Challan) — same as Sparkle Kotlin

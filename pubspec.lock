@@ -893,6 +893,23 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.6.0"
+  rfid_flutter_android:
+    dependency: "direct main"
+    description:
+      path: rfid_flutter_android
+      ref: main
+      resolved-ref: "9196ba2e5a67c2852d1cc58d3a39b190ec39ebd2"
+      url: "https://github.com/RFID-Devs/rfid_flutter_plugin.git"
+    source: git
+    version: "0.2.0"
+  rfid_flutter_core:
+    dependency: transitive
+    description:
+      name: rfid_flutter_core
+      sha256: e164725380c3df8102de2d81696a98abafb9d6618b1f1bc2eb75abe8c1e21ae1
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.3.0"
   share_plus:
     dependency: "direct main"
     description:
