@@ -1472,19 +1472,34 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildProgressCell(int proximity, int flex) {
     final value = proximity / 100.0;
+    final isMatched = proximity >= 80;
     return Expanded(
       flex: flex,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 4.0),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: value,
-            minHeight: 10,
-            backgroundColor: Colors.grey[200],
-            valueColor: AlwaysStoppedAnimation<Color>(getColorByPercentage(proximity)),
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4.0),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: value,
+                  minHeight: 10,
+                  backgroundColor: Colors.grey[200],
+                  valueColor: AlwaysStoppedAnimation<Color>(getColorByPercentage(proximity)),
+                ),
+              ),
+            ),
           ),
-        ),
+          if (isMatched) ...[
+            const SizedBox(width: 4),
+            const Icon(
+              Icons.check_circle,
+              color: Colors.green,
+              size: 16,
+            ),
+          ],
+        ],
       ),
     );
   }

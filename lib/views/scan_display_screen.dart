@@ -1300,6 +1300,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     if (_isSaving) return;
     setState(() => _isSaving = true);
     _stopScanning();
+    _syncMatchedFromUnmatchedSearch();
     _syncItemStatusesFromMatchedSet();
 
     final viewModel = Provider.of<ProductViewModel>(context, listen: false);
@@ -1466,7 +1467,11 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   void _bindUnmatchedSearchActions() {
     final catalog = UnmatchedSearchCatalog.instance;
-    catalog.onSave = _saveScanResults;
+    catalog.onSave = () {
+      if (!mounted) return;
+      _syncMatchedFromUnmatchedSearch();
+      _saveScanResults();
+    };
     catalog.onEmail = (dialogContext) {
       if (!mounted) return;
       _openEmailReport(dialogContext);
@@ -1589,9 +1594,42 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       }
     }
     if (!mounted) return;
-    navigator.pushNamed('/search', arguments: {
+    await navigator.pushNamed('/search', arguments: {
       'listKey': 'unmatchedItems',
     });
+    if (mounted) {
+      setState(() {
+        _syncMatchedFromUnmatchedSearch();
+      });
+    }
+  }
+
+  void _syncMatchedFromUnmatchedSearch() {
+    final catalog = UnmatchedSearchCatalog.instance;
+    if (catalog.items.isEmpty) return;
+    bool anyAdded = false;
+    for (final searchItem in catalog.items) {
+      if (searchItem.proximityPercent >= 80) {
+        for (final rawKey in [
+          searchItem.epc,
+          searchItem.rfid,
+          searchItem.itemCode,
+          searchItem.tid,
+          searchItem.hex
+        ]) {
+          if (rawKey.trim().isEmpty) continue;
+          final norm = _normalizeInventoryScanKey(rawKey);
+          if (norm.isNotEmpty && _matchedEpcSet.add(norm)) anyAdded = true;
+          final stripped = stripScanKey00(norm);
+          if (stripped.isNotEmpty && _matchedEpcSet.add(stripped)) anyAdded = true;
+        }
+      }
+    }
+    if (anyAdded) {
+      _syncItemStatusesFromMatchedSet();
+      _recalculateScopeCounts();
+      _refreshDisplayCache(forceListRefresh: true);
+    }
   }
 
 
