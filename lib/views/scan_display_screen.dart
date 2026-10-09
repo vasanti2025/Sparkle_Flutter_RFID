@@ -477,6 +477,13 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       if (_scopeUnmatchedRemaining > 0) _scopeUnmatchedRemaining--;
       if (_allUnmatchedCount > 0) _allUnmatchedCount--;
       _needsAutoStopCheck = true;
+      // RFID handheld: cut loop sound the instant the last visible/filtered scope item matches.
+      if (_isUartRfidHandheld &&
+          _allCatalogItemsMatched()) {
+        _silenceScanAudio();
+        _checkAutoStopScan();
+        return;
+      }
       final now = DateTime.now().millisecondsSinceEpoch;
       if (now - _lastBeepMs >= 40) {
         _lastBeepMs = now;
@@ -716,6 +723,23 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     }
   }
 
+  bool get _isUartRfidHandheld => _rfidService.uartRfidHandheldActive;
+
+  void _silenceScanAudio() {
+    unawaited(_rfidService.stopInventorySound());
+    unawaited(_rfidService.stopSound());
+  }
+
+  /// Active visible/filtered catalog for this screen (Display / Counter / Branch / Box / Exhibition / Filter).
+  bool _allCatalogItemsMatched() {
+    final scope = _getDisplayScopeItems();
+    if (scope.isEmpty || _selectedMenu == 'UNLABELLED') return false;
+    for (final item in scope) {
+      if (item.currentScannedStatus != 'Matched') return false;
+    }
+    return true;
+  }
+
   void _checkAutoStopScan() {
     if (!_isScanning) return;
     if (!mounted) return;
@@ -730,15 +754,29 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       return;
     }
 
+    // R6: keep existing scope-complete auto-stop + message.
+    if (_rfidService.r6ReaderActive) {
+      if (!_needsAutoStopCheck) return;
+      if (_scopeUnmatchedRemaining > 0) {
+        _needsAutoStopCheck = false;
+        return;
+      }
+      _needsAutoStopCheck = false;
+      if (_scannedItems.isEmpty) return;
+      _stopScanning();
+      _showToast(context.sRead.allItemsMatchedScanStopped);
+      return;
+    }
+
+    // RFID handheld: stop + message only when every catalog item is matched.
     if (!_needsAutoStopCheck) return;
-    if (_scopeUnmatchedRemaining > 0) {
+    if (!_allCatalogItemsMatched()) {
       _needsAutoStopCheck = false;
       return;
     }
     _needsAutoStopCheck = false;
-    if (_scannedItems.isEmpty) return;
-
-    _stopScanning();
+    _silenceScanAudio();
+    unawaited(_stopScanning());
     _showToast(context.sRead.allItemsMatchedScanStopped);
   }
 
@@ -816,7 +854,13 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         if (_rfidService.trayReaderActive && hitSet(_filteredDbEpcSet)) {
           _trayScanSession.recordInScope(scannedEpc, _filteredDbEpcSet);
           _scheduleScanUiUpdate();
-        } else if (_scopeUnmatchedRemaining <= 0 &&
+        } else if (_isUartRfidHandheld &&
+            _allCatalogItemsMatched()) {
+          _silenceScanAudio();
+          _needsAutoStopCheck = true;
+          _checkAutoStopScan();
+        } else if (!_isUartRfidHandheld &&
+            _scopeUnmatchedRemaining <= 0 &&
             _scannedItems.isNotEmpty &&
             _selectedMenu != 'UNLABELLED') {
           _needsAutoStopCheck = true;
@@ -925,6 +969,11 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       _showToast(context.sRead.noItemsInCurrentScope);
       return;
     }
+    // RFID handheld only — Tray / R6 keep their existing start path.
+    if (_isUartRfidHandheld && _allCatalogItemsMatched()) {
+      _showToast(context.sRead.allItemsMatchedScanStopped);
+      return;
+    }
 
     _scanStartInProgress = true;
     // Claim session immediately so trigger cannot double-start.
@@ -991,6 +1040,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       _scanStartInProgress = false;
       _trayScanSession.reset();
       _pendingWarmTags.clear();
+      await _rfidService.stopInventorySound();
+      await _rfidService.stopSound();
       await _rfidService.stopScanning();
       await _rfidService.haltScan();
       _scanUiFlushTimer?.cancel();
