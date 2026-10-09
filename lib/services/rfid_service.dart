@@ -50,6 +50,12 @@ class RfidService {
   /// BLE tray reader only (not R6 handheld sled).
   bool get trayReaderActive => _trayModeEnabled && _trayConnected;
 
+  /// Connected R6 sled only (not UART RFID handheld, not tray).
+  bool get r6ReaderActive => _r6ModeEnabled && _r6Connected;
+
+  /// Built-in / UART RFID gun — not Tray and not R6.
+  bool get uartRfidHandheldActive => !trayReaderActive && !r6ReaderActive;
+
   int _power = 5;
   int get power => _power;
 
