@@ -892,6 +892,7 @@ class RfidService {
     List<String>? searchTags,
     List<String>? ledEpcs,
     String ledMode = 'epc',
+    bool strictLed = false,
   }) async {
     _power = power;
     await ensureReady();
@@ -910,9 +911,9 @@ class RfidService {
         await Future<void>.delayed(const Duration(milliseconds: 80));
       }
       await autoAttachSystemBluetoothReader();
-      if (searchTags != null &&
-          searchTags.isNotEmpty &&
-          searchTags.length <= 2000) {
+      if (searchTags != null && searchTags.isNotEmpty) {
+        // Replace any preloaded unmatched catalog so a typed search cannot
+        // light tags that are no longer in the list.
         await setSearchTags(searchTags);
       }
       await setSearchLedEpcs(ledEpcs ?? const <String>[]);
@@ -926,18 +927,20 @@ class RfidService {
           await Future<void>.delayed(Duration(milliseconds: 150 * attempt));
           await prepareForScan();
         }
-        // Solid LED before inventory starts. The plugin command is ignored
-        // while inventory is already running.
-        final holdLedSolid = await _holdLedSolid(
-          ledMode: ledMode,
-          ledEpcs: ledEpcs,
-        );
+        // Home Search locks one chip on the app reader (ledMode filter).
+        // The plugin hold path was skipping that, so the light never came on.
+        final holdLedSolid = strictLed
+            ? false
+            : await _holdLedSolid(
+                ledMode: ledMode,
+                ledEpcs: ledEpcs,
+              );
         _isScanning = true;
         final started = await _methodChannel.invokeMethod<bool>('startScanning', {
               'power': power,
               'inventory': false,
               'playStartSound': false,
-              'ledMode': holdLedSolid ? ledMode : 'epc',
+              'ledMode': strictLed ? ledMode : (holdLedSolid ? ledMode : 'epc'),
               'holdLedSolid': holdLedSolid,
             }) ??
             false;
@@ -955,16 +958,17 @@ class RfidService {
   /// Solid LED Tag via [LedTagSolid] only. Tray/R6 and inventory counts skip this.
   /// Filter lights the searched chips. Empty filter, or a failed filter, lights
   /// every LED tag solid so Home Search still turns the light on.
+  /// [strict] keeps Home Search on those chips only and never lights the rest.
   Future<bool> _holdLedSolid({
     required String ledMode,
     List<String>? ledEpcs,
+    bool strict = false,
   }) async {
     if (_trayModeEnabled || _r6ModeEnabled) return false;
-    if (ledMode != 'all' && ledMode != 'filter') return false;
     if (ledMode == 'filter' && (ledEpcs?.isNotEmpty ?? false)) {
-      final filtered = await LedTagSolid.instance.turnSolid(ledEpcs!);
-      if (filtered) return true;
+      return LedTagSolid.instance.turnSolid(ledEpcs!);
     }
+    if (strict || ledMode != 'all') return false;
     return LedTagSolid.instance.turnSolid(const []);
   }
 

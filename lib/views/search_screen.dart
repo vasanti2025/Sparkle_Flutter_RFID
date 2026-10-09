@@ -173,6 +173,14 @@ class _SearchScreenState extends State<SearchScreen> {
   bool get _isLargeUnmatched =>
       _listKey == 'unmatchedItems' && _searchItems.length >= 500;
 
+  bool get _isHomeSearch => _listKey == 'normal';
+
+  /// Home Search scan accepts only this row, so nearby tags are ignored.
+  int? _homeScanOnlyIndex;
+
+  /// True after a typed Scan Display search replaced the full unmatched tag set.
+  bool _nativeTagsNarrowed = false;
+
   @override
   void initState() {
     super.initState();
@@ -418,6 +426,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _scanBusy = true;
     try {
       _stopProximityDecay();
+      _homeScanOnlyIndex = null;
       await _rfidService.stopScanning();
       await _rfidService.stopInventorySound();
       await _rfidService.stopSound();
@@ -532,6 +541,7 @@ class _SearchScreenState extends State<SearchScreen> {
         index = _tagIndexMap['00$epc'];
       }
       if (index == null || index < 0 || index >= _searchItems.length) return;
+      if (_homeScanOnlyIndex != null && index != _homeScanOnlyIndex) return;
 
       _lastRssiUpdateMs[index] = now;
       final item = _searchItems[index];
@@ -602,16 +612,63 @@ class _SearchScreenState extends State<SearchScreen> {
       _displayIndexValid = false;
       _startProximityDecay();
 
-      final unmatchedWide = _isLargeUnmatched && _searchQuery.trim().isEmpty;
-      final ledEpcs = unmatchedWide ? const <String>[] : _collectSearchLedEpcs();
-      // Unmatched, and Home Search with no chip id: solid on every LED tag.
-      // Home Search with chip EPCs: solid only on those tags.
-      final ledMode = (unmatchedWide || ledEpcs.isEmpty) ? 'all' : 'filter';
+      final List<String> ledEpcs;
+      final String ledMode;
+      final homeItem = _singleHomeSearchItem();
+      if (homeItem != null) {
+        final onlyIndex = _searchItems.indexOf(homeItem);
+        _homeScanOnlyIndex = onlyIndex >= 0 ? onlyIndex : null;
+        final onlyTags = _tagsForOneItem(homeItem);
+        if (onlyTags.isEmpty) {
+          _homeScanOnlyIndex = null;
+          _stopProximityDecay();
+          if (mounted) setState(() => _isScanning = false);
+          _showToast(context.sRead.noSearchableIdentifiersFound);
+          return;
+        }
+        tagsToSend = onlyTags;
+        // RFID code is what the gun reads. The epc column is often TID, and
+        // filtering that as EPC leaves the searched tag dark.
+        final chip = _oneChipEpc(homeItem);
+        ledEpcs = chip == null ? const <String>[] : <String>[chip];
+        // Always filter mode so a live hit can still turn this one LED solid.
+        ledMode = 'filter';
+      } else {
+        final listed = _particularListedItem();
+        if (listed != null) {
+          final onlyIndex = _searchItems.indexOf(listed);
+          _homeScanOnlyIndex = onlyIndex >= 0 ? onlyIndex : null;
+          final onlyTags = _tagsForOneItem(listed);
+          if (onlyTags.isEmpty) {
+            _homeScanOnlyIndex = null;
+            _stopProximityDecay();
+            if (mounted) setState(() => _isScanning = false);
+            _showToast(context.sRead.noSearchableIdentifiersFound);
+            return;
+          }
+          tagsToSend = onlyTags;
+          _nativeTagsNarrowed = true;
+          final chip = _oneChipEpc(listed);
+          ledEpcs = chip == null ? const <String>[] : <String>[chip];
+          ledMode = 'filter';
+        } else {
+          // The open list only. Never 'all' — that lights every tag in range.
+          _homeScanOnlyIndex = null;
+          final narrowed = _searchQuery.trim().isNotEmpty;
+          if (narrowed || _nativeTagsNarrowed || !_isLargeUnmatched) {
+            tagsToSend = _collectSearchTags();
+          }
+          _nativeTagsNarrowed = narrowed;
+          ledEpcs = const <String>[];
+          ledMode = 'list';
+        }
+      }
       final started = await _rfidService.startSearchScanning(
         power: _selectedPower.clamp(1, 30),
         searchTags: tagsToSend,
         ledEpcs: ledEpcs,
         ledMode: ledMode,
+        strictLed: true,
       );
 
       if (!mounted) return;
@@ -789,6 +846,80 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
+  /// Scan Display Search: one visible row when the query names a single tag.
+  SearchItem? _particularListedItem() {
+    if (_isHomeSearch || _searchQuery.trim().isEmpty || _searchItems.isEmpty) {
+      return null;
+    }
+    if (!_displayIndexValid) _rebuildDisplayIndices();
+    if (_filteredCount == 1) return _tryDisplayItemAt(0);
+    final query = _normScanKey(_searchQuery);
+    SearchItem? hit;
+    for (final item in _searchItems) {
+      if (item.normItemCode == query ||
+          item.normRfid == query ||
+          item.normEpc == query ||
+          item.normTid == query ||
+          item.normHex == query) {
+        if (hit != null) return null;
+        hit = item;
+      }
+    }
+    return hit;
+  }
+
+  /// Home Search: the one row the user typed (for example item code SP24).
+  SearchItem? _singleHomeSearchItem() {
+    if (!_isHomeSearch || _searchItems.isEmpty) return null;
+    final query = _normScanKey(_searchQuery);
+    if (query.isNotEmpty) {
+      for (final item in _searchItems) {
+        if (item.normItemCode == query ||
+            item.normRfid == query ||
+            item.normEpc == query ||
+            item.normTid == query ||
+            item.normHex == query) {
+          return item;
+        }
+      }
+    }
+    return _searchItems.first;
+  }
+
+  List<String> _tagsForOneItem(SearchItem item) {
+    final tags = <String>{};
+    addScanKeyVariants(item.epc, tags.add);
+    addScanKeyVariants(item.rfid, tags.add);
+    addScanKeyVariants(item.itemCode, tags.add);
+    addScanKeyVariants(item.tid, tags.add);
+    addScanKeyVariants(item.hex, tags.add);
+    return tags.toList(growable: false);
+  }
+
+  /// One 24/32-bit chip so the reader filter cannot light a second LED.
+  String? _oneChipEpc(SearchItem item) {
+    String? chipOf(String raw) {
+      final key = normalizeScanKey(raw);
+      if (key.isEmpty) return null;
+      if (isChipEpcHex(key)) return key;
+      final stripped = stripScanKey00(key);
+      if (isChipEpcHex(stripped)) return stripped;
+      if (key.length >= 32 && isChipEpcHex(key.substring(0, 32))) {
+        return key.substring(0, 32);
+      }
+      if (key.length >= 24 && isChipEpcHex(key.substring(0, 24))) {
+        return key.substring(0, 24);
+      }
+      return null;
+    }
+
+    for (final raw in [item.rfid, item.epc, item.tid, item.hex]) {
+      final chip = chipOf(raw);
+      if (chip != null) return chip;
+    }
+    return null;
+  }
+
   List<String> _collectSearchTags() {
     final tags = <String>{};
     void addItem(SearchItem item) {
@@ -801,12 +932,6 @@ class _SearchScreenState extends State<SearchScreen> {
 
     if (_searchQuery.trim().isEmpty && _tagIndexMap.isNotEmpty) {
       return _tagIndexMap.keys.toList(growable: false);
-    }
-    if (_isLargeUnmatched) {
-      for (final item in _searchItems) {
-        addItem(item);
-      }
-      return tags.toList(growable: false);
     }
     if (!_displayIndexValid) _rebuildDisplayIndices();
     for (var i = 0; i < _filteredCount; i++) {

@@ -29,6 +29,11 @@ interface UhfFacade {
     /** Re-assert Select LED Tag solid (mode 14). Does not change the EPC filter. */
     fun applyLedTagSolidMode(): Boolean
     /**
+     * startInventoryTag can clear user mode. If solid (14) dropped, stop, set it
+     * again, and start. No-op when mode 14 is already active.
+     */
+    fun reassertLedSolidIfCleared(): Boolean
+    /**
      * Demo Tag LED first pass: setFilter(empty list) + Solid (MODE_LED_TAG).
      * LED tags and normal tags both inventory. Lock to searched EPCs after a hit.
      */
@@ -245,6 +250,8 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
                 }.thenByDescending { it.length },
             )
             val filterEpcs = if (selected.size <= 8) selected else ArrayList(selected.take(8))
+            // setFilter / setEPCAndTIDUserMode are ignored while inventory is running.
+            stopInventoryQuiet(r)
             // Demo Tag LED checked rows: offset 32 only. Offset 0 lights other chips.
             if (!installEpcFilterStrict(r, filterEpcs)) {
                 android.util.Log.w("UhfUartFacade", "Search LED strict setFilter(${filterEpcs.size}) failed")
@@ -256,6 +263,38 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
         } catch (e: Throwable) {
             android.util.Log.w("UhfUartFacade", "applyLedTagBlinkMode failed: ${e.message}")
             false
+        }
+    }
+
+    override fun reassertLedSolidIfCleared(): Boolean {
+        return try {
+            val r = reader ?: return false
+            val mode = try {
+                r.getEPCAndTIDUserMode()?.getMode()
+            } catch (_: Throwable) {
+                null
+            }
+            if (mode == null || mode == com.rscja.deviceapi.entity.InventoryModeEntity.MODE_LED_TAG) {
+                return true
+            }
+            android.util.Log.w("UhfUartFacade", "LED mode dropped to $mode — restarting solid")
+            stopInventoryQuiet(r)
+            if (!setLedTagSolid(r)) return false
+            r.startInventoryTag()
+        } catch (e: Throwable) {
+            android.util.Log.w("UhfUartFacade", "reassert LED solid failed: ${e.message}")
+            false
+        }
+    }
+
+    private fun stopInventoryQuiet(r: com.rscja.deviceapi.RFIDWithUHFUART) {
+        try {
+            r.stopInventory()
+        } catch (_: Throwable) {
+        }
+        try {
+            Thread.sleep(80L)
+        } catch (_: InterruptedException) {
         }
     }
 
@@ -305,7 +344,10 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
         val unique = LinkedHashSet<String>()
         for (raw in epcs) {
             val epc = raw.trim().uppercase()
-            if (epc.length != 24 && epc.length != 32) continue
+            // Item-code tags (SP24 → 53503234) are shorter than 24/32 and still
+            // need Bank_EPC offset 32. Length is epc.length * 4 bits.
+            val n = epc.length
+            if (n < 8 || n > 64 || n % 2 != 0) continue
             if (epc.any { ch -> ch !in '0'..'9' && ch !in 'A'..'F' }) continue
             unique.add(epc)
         }

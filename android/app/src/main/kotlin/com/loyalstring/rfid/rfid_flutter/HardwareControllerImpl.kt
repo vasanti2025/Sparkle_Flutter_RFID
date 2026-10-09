@@ -85,8 +85,10 @@ class HardwareControllerImpl(
     /** Tamper-proof EPCs that must stay in EPC mode (LED lock hid their reads). */
     private val searchEpcOnly = HashSet<String>()
     @Volatile private var lastSearchHitAt = 0L
-    /** filter = Global LED chips only; all = Unmatched demo Tag LED; epc = Global normal tags. */
+    /** filter = one searched chip; list = only the open list; all = every LED; epc = no LED. */
     @Volatile private var searchRadioMode = SEARCH_RADIO_EPC
+    /** List search keeps adding found list chips (max 8). One-tag search locks the first. */
+    @Volatile private var searchLedMulti = false
     /**
      * LED Tag solid was applied by LedTagSolid (rfid_flutter_plugin) before start.
      * Do not setEPCMode or blink-revert — that turns the solid light off.
@@ -310,14 +312,17 @@ class HardwareControllerImpl(
                 val playStartSound = call.argument<Boolean>("playStartSound") ?: true
                 lastScanPower = power
                 if (!inventory) {
-                    searchRadioMode = when (call.argument<String>("ledMode")?.trim()?.lowercase()) {
-                        "filter" -> SEARCH_RADIO_FILTER
+                    val ledMode = call.argument<String>("ledMode")?.trim()?.lowercase()
+                    searchLedMulti = ledMode == "list"
+                    searchRadioMode = when (ledMode) {
+                        "filter", "list" -> SEARCH_RADIO_FILTER
                         "all" -> SEARCH_RADIO_ALL
                         else -> SEARCH_RADIO_EPC
                     }
                     holdLedSolid = call.argument<Boolean>("holdLedSolid") == true
                 } else {
                     holdLedSolid = false
+                    searchLedMulti = false
                 }
                 // Set before the UART queue runs. A previous stop on that queue
                 // used to clear this flag and make Start return false.
@@ -1275,9 +1280,8 @@ class HardwareControllerImpl(
             foundLedGatherDeadline = 0L
             return
         }
-        // EPC-only first: tamper-proof tags get % / sound and extra LEDs stay dark.
-        // After a search hit, tick applies Tag LED + strict offset-32 filter to
-        // that live chip only. If reads stop, revert to EPC (tamper-proof).
+        // Home Search: EPC first so the gun reads the real chip (item code SP24
+        // is not an EPC). The hit path then locks solid LED on that live EPC only.
         uhf().prepareScan(power)
         searchLedAppliedKey = ""
         searchLedPhase = SEARCH_LED_DISCOVER
@@ -1290,20 +1294,20 @@ class HardwareControllerImpl(
     private fun searchLedKey(epcs: Collection<String>): String =
         epcs.sorted().joinToString(",")
 
-    /** Live 24/32 chip EPC for Tag LED setFilter. Loose hex matches light other tags. */
+    /** Live chip the gun just read. Short item-code hex (SP24) is valid too. */
     private fun ledEpcOf(cleanEpc: String): String? {
         if (resolveSearchEpc(cleanEpc) == null) return null
-        if (isChipEpcHex(cleanEpc)) return cleanEpc
+        if (isLedFilterHex(cleanEpc)) return cleanEpc
         if (cleanEpc.length > 32) {
             val p32 = cleanEpc.substring(0, 32)
-            if (isChipEpcHex(p32) && matchesSearchTag(p32)) return p32
+            if (isLedFilterHex(p32) && matchesSearchTag(p32)) return p32
         }
         if (cleanEpc.length > 24) {
             val p24 = cleanEpc.substring(0, 24)
-            if (isChipEpcHex(p24) && matchesSearchTag(p24)) return p24
+            if (isLedFilterHex(p24) && matchesSearchTag(p24)) return p24
         }
         val resolved = resolveSearchEpc(cleanEpc) ?: return null
-        return if (isChipEpcHex(resolved)) resolved else null
+        return if (isLedFilterHex(resolved)) resolved else null
     }
 
     /** When a search tag is matched (progress/%), queue that live chip EPC for LED. */
@@ -1320,9 +1324,15 @@ class HardwareControllerImpl(
                 foundLedEpcs.remove(oldest)
             }
             if (isNew) {
-                foundLedGatherUntil = now + SEARCH_LED_GATHER_MS
+                // One tag locks on this read. A list waits so several list chips
+                // share one filter, and later hits can still join (max 8).
+                foundLedGatherUntil = if (searchLedMulti) now + SEARCH_LED_GATHER_MS else now
                 if (foundLedGatherDeadline == 0L) {
-                    foundLedGatherDeadline = now + SEARCH_LED_GATHER_MAX_MS
+                    foundLedGatherDeadline = if (searchLedMulti) {
+                        now + SEARCH_LED_GATHER_MAX_MS
+                    } else {
+                        now
+                    }
                 }
             }
         }
@@ -1331,17 +1341,20 @@ class HardwareControllerImpl(
     private fun tickSearchLedBlink() {
         // Plugin solid stays on. Revert-to-EPC turns the light off.
         if (holdLedSolid) return
+        // One searched tag stays locked. A list keeps updating as more list chips are read.
+        if (!searchLedMulti &&
+            searchRadioMode == SEARCH_RADIO_FILTER &&
+            searchLedPhase == SEARCH_LED_BLINK &&
+            searchLedAppliedKey.isNotEmpty()
+        ) {
+            return
+        }
         // Unmatched stays unfiltered Tag LED for the whole scan.
         if (searchRadioMode != SEARCH_RADIO_FILTER) return
         if (searchLedApplyBusy || uartPollPaused) return
         if (!isScanning || activeInventorySession || trayModeEnabled || r6ModeEnabled) return
         val now = SystemClock.elapsedRealtime()
-        if (searchLedPhase == SEARCH_LED_BLINK && lastSearchHitAt > 0L &&
-            now - lastSearchHitAt > SEARCH_LED_HIT_TIMEOUT_MS
-        ) {
-            requestGlobalEpcRevert()
-            return
-        }
+        // Keep the searched tag's solid LED on. Revert-to-EPC turns it off.
         val found = synchronized(foundLedLock) {
             foundLedEpcs.keys.filter { it !in searchEpcOnly }
         }
@@ -1533,6 +1546,7 @@ class HardwareControllerImpl(
             attachSearchLedTagCallback()
             resumeSearchInventoryRunning()
             if (filtered && isScanning) {
+                uhf().reassertLedSolidIfCleared()
                 searchLedAppliedKey = searchLedKey(epcs)
                 searchLedPhase = SEARCH_LED_BLINK
                 searchLedDidDiscover = false
