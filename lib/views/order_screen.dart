@@ -274,14 +274,19 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
   }
 
   // Dialog to Edit single item properties and trigger amount recalculations
-  void _showItemEditDialog(OrderItem item, int index) {
+  Future<void> _showItemEditDialog(OrderItem item, int index) async {
     final vm = context.read<OrderViewModel>();
+    if (vm.purities.isEmpty) {
+      await vm.ensurePurities();
+    }
+    if (!mounted) return;
     showAppDialog(
       context: context,
       builder: (context) => OrderDetailsDialog(
         item: item,
         branches: vm.branches,
         dailyRates: vm.dailyRates,
+        purities: vm.purities,
         onSave: (updated) {
           vm.updateItem(index, updated);
         },
@@ -327,11 +332,11 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
   }
 
   // PDF invoice view launcher
-  Future<void> _generateAndShowPdf(Map<String, dynamic> orderRes) async {
+  Future<bool> _generateAndShowPdf(Map<String, dynamic> orderRes) async {
     final vm = context.read<OrderViewModel>();
     final enriched = await vm.orderForPdf(orderRes);
-    if (!mounted) return;
-    await printCustomOrderPdf(
+    if (!mounted) return false;
+    return printCustomOrderPdf(
       context: context,
       orderRes: enriched,
       baseUrl: vm.baseUrl,
@@ -752,11 +757,11 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
 
   // ---- Custom dark product table (header + rows + totals footer) ----------
   static const double _cellWidth = 70;
-  static const double _actionWidth = 45;
+  static const double _actionWidth = 72;
   static const double _rowHeight = 34;
   static const double _headerHeight = 30;
   static const double _footerHeight = 34;
-  static const int _dataColCount = 9;
+  static const int _dataColCount = 10;
 
   Widget _tableCell(String text,
       {Color color = Colors.black54, FontWeight weight = FontWeight.normal, double width = _cellWidth}) {
@@ -777,7 +782,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
   Widget _buildProductTable(OrderViewModel vm) {
     final items = vm.productList;
     final s = context.s;
-    final headers = [s.headerPName, s.itemcode, s.headerGwt, s.headerNwt, s.headerFwWt, s.colStoneAmt, s.colDiamondAmt, s.itemAmt, s.fieldRfidCode];
+    final headers = [s.headerPName, s.itemcode, s.colSku, s.headerGwt, s.headerNwt, s.headerFwWt, s.colStoneAmt, s.colDiamondAmt, s.itemAmt, s.fieldRfidCode];
 
     // Footer totals aligned to the same columns as the rows.
     double sum(String? Function(OrderItem) sel) =>
@@ -796,6 +801,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
     final totals = [
       s.total,
       '$totalCount',
+      '',
       totalGross.toStringAsFixed(3),
       totalNet.toStringAsFixed(3),
       totalFine.toStringAsFixed(3),
@@ -863,13 +869,14 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
                                           children: [
                                             cell(item.productName, 0),
                                             cell(item.itemCode, 1),
-                                            cell(item.grWt ?? '', 2),
-                                            cell(item.nWt ?? '', 3),
-                                            cell(item.finePlusWt ?? '', 4),
-                                            cell(item.stoneAmt ?? '', 5),
-                                            cell(item.diamondAmt, 6),
-                                            cell(item.itemAmt ?? '', 7),
-                                            cell(item.rfidCode, 8),
+                                            cell(item.sku, 2),
+                                            cell(item.grWt ?? '', 3),
+                                            cell(item.nWt ?? '', 4),
+                                            cell(item.finePlusWt ?? '', 5),
+                                            cell(item.stoneAmt ?? '', 6),
+                                            cell(item.diamondAmt, 7),
+                                            cell(item.itemAmt ?? '', 8),
+                                            cell(item.rfidCode, 9),
                                           ],
                                         ),
                                       ),
@@ -899,7 +906,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
                     Container(
                       height: _headerHeight,
                       color: const Color(0xFF2E2E2E),
-                      alignment: Alignment.centerLeft,
+                      alignment: Alignment.center,
                       padding: const EdgeInsets.symmetric(horizontal: 2),
                       child: Text(s.action,
                           style: GoogleFonts.poppins(
@@ -917,9 +924,24 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
                                   height: _rowHeight,
                                   color: idx % 2 == 0 ? const Color(0xFFF4F4F4) : Colors.white,
                                   alignment: Alignment.center,
-                                  child: InkWell(
-                                    onTap: () => _confirmDelete(vm, idx),
-                                    child: const Icon(Icons.delete, color: Colors.red, size: 18),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      InkWell(
+                                        onTap: () => vm.duplicateItem(idx),
+                                        child: const Padding(
+                                          padding: EdgeInsets.all(4),
+                                          child: Icon(Icons.add_circle_outline, color: Color(0xFF5231A7), size: 18),
+                                        ),
+                                      ),
+                                      InkWell(
+                                        onTap: () => _confirmDelete(vm, idx),
+                                        child: const Padding(
+                                          padding: EdgeInsets.all(4),
+                                          child: Icon(Icons.delete, color: Colors.red, size: 18),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 );
                               },
@@ -1053,8 +1075,12 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
         // "Gscan" button shows Stop for a continuous (bulk) scan.
         isScanning: _rfidService.isScanning && _isSingleScan,
         isBulkScanning: _rfidService.isScanning && !_isSingleScan,
+        isEditMode: vm.isEditMode,
         onSave: () async {
           final s = context.sRead;
+          final updating = vm.isEditMode;
+          // Root messenger stays after this screen closes, so the toast remains visible.
+          final messenger = ScaffoldMessenger.of(context);
           try {
             final res = await vm.submitCustomOrder();
             if (res != null) {
@@ -1063,25 +1089,38 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
                   ? (vm.errorMessage != null && vm.errorMessage!.isNotEmpty
                       ? '${s.orderSavedOffline}\n${vm.errorMessage}'
                       : s.orderSavedOffline)
-                  : s.orderSavedSuccessfully;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(msg),
-                  duration: Duration(seconds: offline ? 6 : 3),
-                  backgroundColor: offline ? Colors.orange.shade800 : null,
-                ),
-              );
-              
-              // Open invoice preview
-              await _generateAndShowPdf(res);
+                  : (updating ? s.orderUpdatedSuccessfully : s.orderSavedSuccessfully);
+              SnackBar savedBar() => SnackBar(
+                    content: Text(msg),
+                    duration: Duration(seconds: offline ? 6 : 4),
+                    backgroundColor: offline ? Colors.orange.shade800 : null,
+                  );
+              messenger.showSnackBar(savedBar());
 
-              // Reset screen state
-              vm.clearOrder();
-              vm.clearEditMode();
-              _customerSearchCtrl.clear();
-              Navigator.pop(context);
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              var pdfOpened = false;
+              if (mounted) {
+                pdfOpened = await _generateAndShowPdf(res);
+              }
+
+              if (mounted) {
+                vm.clearOrder();
+                vm.clearEditMode();
+                _customerSearchCtrl.clear();
+                Navigator.pop(context);
+              }
+              // Keep the toast on the screen underneath, after the invoice opens.
+              final shown = pdfOpened ? msg : '$msg\nCould not open the order PDF';
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                messenger
+                  ..hideCurrentSnackBar()
+                  ..showSnackBar(SnackBar(
+                    content: Text(shown),
+                    duration: const Duration(seconds: 6),
+                    backgroundColor: offline ? Colors.orange.shade800 : null,
+                  ));
+              });
+            } else if (mounted) {
+              messenger.showSnackBar(SnackBar(
                   content: Text(UserFacingError.fromMessage(
                 vm.errorMessage,
                 fallback: s.failedToSaveOrder,
@@ -1089,7 +1128,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
               ))));
             }
           } catch (e) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            messenger.showSnackBar(SnackBar(
                 content: Text(UserFacingError.of(
               e,
               noInternetMessage: s.noInternetConnection,

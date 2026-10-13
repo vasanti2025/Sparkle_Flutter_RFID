@@ -65,6 +65,10 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
   List<dynamic> _dailyRates = [];
   List<dynamic> get dailyRates => _dailyRates;
 
+  /// Purity master (GetAllPurity). The item dialog filters this by category.
+  List<dynamic> _purities = [];
+  List<dynamic> get purities => _purities;
+
   List<dynamic> _branches = [];
   List<dynamic> get branches => _branches;
 
@@ -121,6 +125,9 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
         final rawCustomers = await _apiService.getAllCustomers(code);
         _customers = rawCustomers.map((c) => CustomerModel.fromJson(c as Map<String, dynamic>)).toList();
         _dailyRates = await _apiService.getDailyRates(code);
+        try {
+          _purities = await _apiService.getAllPurity(code);
+        } catch (_) {}
         _branches = await _apiService.getAllBranches(code);
         final orderNoRes = await _apiService.getLastOrderNo(code);
         final lastUsed = OrderOfflineService.parseLastOrderNoResponse(orderNoRes);
@@ -153,6 +160,19 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  /// Loads the purity master when the item dialog opens and it is not cached yet.
+  Future<void> ensurePurities() async {
+    if (_purities.isNotEmpty) return;
+    final code = _prefService.getEmployee()?.clientCode ?? '';
+    if (code.isEmpty) return;
+    try {
+      final list = await _apiService.getAllPurity(code);
+      if (list.isEmpty) return;
+      _purities = list;
+      notifyListeners();
+    } catch (_) {}
   }
 
   Future<void> _loadMasterFromCache(String code) async {
@@ -324,7 +344,8 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
       stoneAmt: matchedItem.stoneAmount,
       finePlusWt: fineWt.toStringAsFixed(3),
       itemAmt: itemAmt.toStringAsFixed(2),
-      packingWt: matchedItem.netWeight,
+      // Labelled stock has no packing weight. Do not copy net weight into it.
+      packingWt: '',
       totalWt: matchedItem.labelledTotalWt,
       stoneWt: matchedItem.totalStoneWt.toString(),
       dimondWt: matchedItem.diamondWeight,
@@ -485,6 +506,14 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
     notifyListeners();
   }
 
+  /// Adds another line with the same item details, placed just under the tapped row.
+  /// Scan and typed search still reject duplicates; this is the explicit add.
+  void duplicateItem(int index) {
+    if (index < 0 || index >= _productList.length) return;
+    _productList.insert(index + 1, _productList[index].copyWith());
+    notifyListeners();
+  }
+
   // Delete item from list
   void deleteItem(int index) {
     if (index >= 0 && index < _productList.length) {
@@ -555,9 +584,17 @@ class OrderViewModel extends ChangeNotifier with LiveScanGate {
         itemMap['ClientCode'] = clientCode;
         itemMap['EmployeeId'] = employee?.id ?? 0;
         itemMap['OrderNo'] = orderNoForPayload;
-        itemMap['OrderDate'] = itemMap['OrderDate']?.toString().isNotEmpty == true
-            ? itemMap['OrderDate']
-            : orderDateStr;
+        // Date-only, then the payload builder adds T00:00:00 with the local offset.
+        itemMap['OrderDate'] = OrderPayloadBuilder.toIsoLocalDate(
+          itemMap['OrderDate']?.toString().isNotEmpty == true
+              ? itemMap['OrderDate']?.toString()
+              : orderDateStr,
+        );
+        // Blank packing stays blank on screen and is sent as 0.0, not net weight.
+        final packingRaw = itemMap['PackingWeight']?.toString().trim() ?? '';
+        if (packingRaw.isEmpty || double.tryParse(packingRaw) == null) {
+          itemMap['PackingWeight'] = '0.0';
+        }
         itemMap['totalGstAmount'] = totalGst.toStringAsFixed(2);
         itemMap['Stones'] = itemMap['Stones'] ?? [];
         itemMap['Diamond'] = itemMap['Diamond'] ?? [];

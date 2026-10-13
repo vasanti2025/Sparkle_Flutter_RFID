@@ -502,24 +502,28 @@ class _OrderListScreenState extends State<OrderListScreen> {
                 child: InkWell(
                   onTap: onTap,
                   borderRadius: BorderRadius.circular(8),
-                  child: InputDecorator(
-                    decoration: InputDecoration(
-                      hintText: 'dd-mm-yyyy',
-                      hintStyle: AppFonts.poppins(fontSize: 13, color: Colors.grey[400]),
-                      suffixIcon: Icon(Icons.calendar_today, size: 18, color: Colors.grey[500]),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: Colors.grey.shade300),
-                      ),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey.shade300),
                     ),
-                    child: Text(
-                      value == null ? 'dd-mm-yyyy' : DateFormat('dd-MM-yyyy').format(value),
-                      style: AppFonts.poppins(
-                        fontSize: 13,
-                        color: value == null ? Colors.grey[400] : Colors.black87,
-                      ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            value == null ? 'dd-mm-yyyy' : DateFormat('dd-MM-yyyy').format(value),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppFonts.poppins(
+                              fontSize: 13,
+                              color: value == null ? Colors.grey[400] : Colors.black87,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(Icons.calendar_today, size: 16, color: Colors.grey[500]),
+                      ],
                     ),
                   ),
                 ),
@@ -793,11 +797,18 @@ class _OrderListScreenState extends State<OrderListScreen> {
 
   String _formatDate(dynamic raw) {
     if (raw == null) return '';
-    try {
-      return DateFormat('dd-MM-yyyy').format(DateTime.parse(raw.toString()));
-    } catch (_) {
-      return raw.toString();
+    final text = raw.toString().trim();
+    if (text.isEmpty || text.toLowerCase() == 'null') return '';
+    if (!text.contains('T')) {
+      final written = RegExp(r'^(\d{4})-(\d{2})-(\d{2})').firstMatch(text);
+      if (written != null) {
+        return '${written.group(3)}-${written.group(2)}-${written.group(1)}';
+      }
     }
+    final parsed = DateTime.tryParse(text);
+    if (parsed == null) return text;
+    final local = parsed.toLocal();
+    return DateFormat('dd-MM-yyyy').format(DateTime(local.year, local.month, local.day));
   }
 
   String _resolveOrderDate(Map<String, dynamic> order) {

@@ -12,6 +12,8 @@ class OrderDetailsDialog extends StatefulWidget {
   final OrderItem item;
   final List<dynamic> branches;
   final List<dynamic> dailyRates;
+  /// Purity master rows (GetAllPurity). Empty falls back to [dailyRates].
+  final List<dynamic> purities;
   final Function(OrderItem) onSave;
   /// Dialog header title. Defaults to Custom Order Fields.
   final String? title;
@@ -25,6 +27,7 @@ class OrderDetailsDialog extends StatefulWidget {
     required this.item,
     required this.branches,
     required this.dailyRates,
+    this.purities = const [],
     required this.onSave,
     this.title,
     this.defaultDeliverOffsetDays = 7,
@@ -57,6 +60,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 
   // Dropdown States
   late String _purity;
+  late int _purityId;
   late String _branchId;
   late String _branchName;
   late String _typeOfColor;
@@ -70,11 +74,13 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
   String _finePlusWt = '0.000';
   String _itemAmt = '0.00';
   bool _grossHasFocus = false;
+  bool _suppressGrossListener = false;
 
   /// Read-only product image from item / local DB (not editable).
   String _imageUrl = '';
 
   final FocusNode _grossFocusNode = FocusNode();
+  final FocusNode _packingFocusNode = FocusNode();
 
   @override
   void initState() {
@@ -85,7 +91,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 
     // Initialize text values
     _totalWtCtrl = TextEditingController(text: item.totalWt);
-    _packingWtCtrl = TextEditingController(text: item.packingWt);
+    _packingWtCtrl = TextEditingController(text: _packingOrZero(item.packingWt));
     _grossWtCtrl = TextEditingController(text: item.grWt ?? '0.000');
     _stoneWtCtrl = TextEditingController(text: item.stoneWt);
     _dimondWtCtrl = TextEditingController(text: item.dimondWt);
@@ -104,14 +110,17 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 
     // Initial dropdown setups
     _purity = item.purity;
+    _purityId = item.purityid;
     _branchId = item.branchId;
     _branchName = item.branchName;
     _typeOfColor = item.typeOfColor.isEmpty ? 'Yellow Gold' : item.typeOfColor;
     _screwType = item.screwType.isEmpty ? 'Type 1' : item.screwType;
     _polishType = item.polishType.isEmpty ? 'High Polish' : item.polishType;
 
-    // Dates setup
-    _orderDate = item.orderDate.isEmpty ? DateFormat('yyyy-MM-dd').format(DateTime.now()) : item.orderDate;
+    // Dates setup. Add Order starts on today's local date.
+    final today = _localToday();
+    final existingOrderDate = _localDateOnly(item.orderDate);
+    _orderDate = existingOrderDate.isEmpty ? today : existingOrderDate;
     _deliverDate = item.deliverDate.isEmpty
         ? DateFormat('yyyy-MM-dd').format(
             DateTime.now().add(Duration(days: widget.defaultDeliverOffsetDays)),
@@ -121,7 +130,10 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
     // Add recalculation listeners
     _totalWtCtrl.addListener(_onFieldChanged);
     _packingWtCtrl.addListener(_onFieldChanged);
-    _grossWtCtrl.addListener(_onFieldChanged);
+    _grossWtCtrl.addListener(() {
+      if (_suppressGrossListener) return;
+      _onFieldChanged();
+    });
     _stoneWtCtrl.addListener(_onFieldChanged);
     _dimondWtCtrl.addListener(_onFieldChanged);
     _ratePerGramCtrl.addListener(_onFieldChanged);
@@ -132,14 +144,30 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
     _hallmarkAmtCtrl.addListener(_onFieldChanged);
     _mrpCtrl.addListener(_onFieldChanged);
 
+    _packingFocusNode.addListener(() {
+      if (_packingFocusNode.hasFocus) return;
+      final text = _packingWtCtrl.text.trim();
+      if (text.isEmpty || double.tryParse(text) == null) {
+        if (_packingWtCtrl.text != '0.0') {
+          _packingWtCtrl.text = '0.0';
+        }
+      }
+      recalcAll();
+    });
+
     _grossFocusNode.addListener(() {
-      setState(() {
-        _grossHasFocus = _grossFocusNode.hasFocus;
-      });
-      if (!_grossFocusNode.hasFocus) {
+      _grossHasFocus = _grossFocusNode.hasFocus;
+      if (!_grossHasFocus) {
         final parsed = double.tryParse(_grossWtCtrl.text) ?? 0.0;
-        _grossWtCtrl.text = parsed.toStringAsFixed(3);
+        final formatted = parsed.toStringAsFixed(3);
+        if (_grossWtCtrl.text != formatted) {
+          _suppressGrossListener = true;
+          _grossWtCtrl.text = formatted;
+          _suppressGrossListener = false;
+        }
         recalcAll();
+      } else if (mounted) {
+        setState(() {});
       }
     });
 
@@ -222,22 +250,41 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
     _hallmarkAmtCtrl.dispose();
     _mrpCtrl.dispose();
     _grossFocusNode.dispose();
+    _packingFocusNode.dispose();
     super.dispose();
   }
 
+  /// Empty packing is 0.0. A real packing weight is kept as entered.
+  String _packingOrZero(String raw) {
+    final text = raw.trim();
+    if (text.isEmpty || text.toLowerCase() == 'null') return '0.0';
+    final value = double.tryParse(text);
+    if (value == null || value == 0) return '0.0';
+    return text;
+  }
+
   void recalcAll() {
-    final double? totalParsed = double.tryParse(_totalWtCtrl.text.trim());
-    final double packing = double.tryParse(_packingWtCtrl.text.trim()) ?? 0.0;
+    final totalText = _totalWtCtrl.text.trim();
+    final packingText = _packingWtCtrl.text.trim();
+    final double? totalParsed = double.tryParse(totalText);
+    final double? packingParsed = double.tryParse(packingText);
     final double grossInput = double.tryParse(_grossWtCtrl.text.trim()) ?? 0.0;
 
-    final bool autoGross = (totalParsed != null && totalParsed > 0.0 && !_grossHasFocus);
-
-    final double gross = autoGross ? (totalParsed - packing).clamp(0.0, double.infinity) : grossInput.clamp(0.0, double.infinity);
+    // No packing means 0.0, so gross = total − 0.0. A typed packing is subtracted.
+    final bool autoGross = totalParsed != null &&
+        totalParsed > 0.0 &&
+        !_grossHasFocus;
+    final double packing = packingParsed ?? 0.0;
+    final double gross = autoGross
+        ? (totalParsed - packing).clamp(0.0, double.infinity)
+        : grossInput.clamp(0.0, double.infinity);
 
     if (autoGross) {
       final newGrossStr = gross.toStringAsFixed(3);
       if (_grossWtCtrl.text != newGrossStr) {
+        _suppressGrossListener = true;
         _grossWtCtrl.text = newGrossStr;
+        _suppressGrossListener = false;
       }
     }
 
@@ -267,8 +314,35 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
     }
   }
 
+  String _localToday() {
+    final now = DateTime.now();
+    return DateFormat('yyyy-MM-dd').format(DateTime(now.year, now.month, now.day));
+  }
+
+  /// Calendar day in local time. A date-only value stays as written.
+  String _localDateOnly(String value) {
+    final raw = value.trim();
+    if (raw.isEmpty || raw.toLowerCase() == 'null') return '';
+    if (!raw.contains('T')) {
+      final written = RegExp(r'^(\d{4}-\d{2}-\d{2})').firstMatch(raw);
+      if (written != null) return written.group(1)!;
+    }
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return '';
+    final local = parsed.toLocal();
+    return DateFormat('yyyy-MM-dd').format(DateTime(local.year, local.month, local.day));
+  }
+
   Future<void> _selectDate(BuildContext context, bool isOrderDate) async {
-    final initialDate = DateTime.tryParse(isOrderDate ? _orderDate : _deliverDate) ?? DateTime.now();
+    final parsed = _localDateOnly(isOrderDate ? _orderDate : _deliverDate);
+    final parts = parsed.split('-');
+    final initialDate = parts.length == 3
+        ? DateTime(
+            int.tryParse(parts[0]) ?? DateTime.now().year,
+            int.tryParse(parts[1]) ?? DateTime.now().month,
+            int.tryParse(parts[2]) ?? DateTime.now().day,
+          )
+        : DateTime.now();
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: initialDate,
@@ -288,15 +362,23 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
   }
 
   void _onPurityChanged(String newPurity) {
+    final picked = _findPurityRow(newPurity);
     setState(() {
       _purity = newPurity;
+      final id = int.tryParse('${picked?['Id'] ?? picked?['PurityId'] ?? ''}');
+      if (id != null && id > 0) _purityId = id;
     });
 
     // Check rate in dailyRates list
-    final match = widget.dailyRates.firstWhere(
-      (r) => (r['PurityName'] as String? ?? '').trim().toUpperCase() == newPurity.trim().toUpperCase(),
-      orElse: () => null,
-    );
+    Map? match;
+    for (final raw in widget.dailyRates) {
+      if (raw is! Map) continue;
+      final name = (raw['PurityName'] ?? raw['purityName'] ?? '').toString().trim();
+      if (name.toUpperCase() == newPurity.trim().toUpperCase()) {
+        match = raw;
+        break;
+      }
+    }
     if (match != null) {
       final rateStr = match['Rate']?.toString() ?? '0.0';
       _ratePerGramCtrl.text = rateStr;
@@ -307,12 +389,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
   @override
   Widget build(BuildContext context) {
     final s = context.s;
-    // Extract unique Purity list
-    final purityNames = widget.dailyRates
-        .map((r) => (r['PurityName'] as String? ?? '').trim())
-        .where((name) => name.isNotEmpty)
-        .toSet()
-        .toList();
+    final purityNames = _purityOptionNames();
 
     // Dropdown constants
     final colorsList = ["Yellow Gold", "White Gold", "Rose Gold", "Green Gold", "Black Gold", "Blue Gold", "Purple Gold"];
@@ -390,7 +467,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                     _buildDisplayRow(s.itemCode, widget.item.itemCode),
 
                     _buildFieldRow(s.totalWeight, _totalWtCtrl),
-                    _buildFieldRow(s.packingWt, _packingWtCtrl),
+                    _buildFieldRow(s.packingWt, _packingWtCtrl, focusNode: _packingFocusNode),
                     _buildFieldRow(s.colGrossWt, _grossWtCtrl, focusNode: _grossFocusNode),
                     _buildFieldRow(s.colStoneWt, _stoneWtCtrl),
                     _buildFieldRow(s.colDiamondWt, _dimondWtCtrl),
@@ -405,14 +482,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 
                     _buildDisplayRow(s.skuCode, widget.item.sku),
 
-                    // Purity Dropdown
-                    _buildDropdownRow(
-                      label: s.purity,
-                      options: purityNames,
-                      selectedValue: _purity,
-                      getOptionLabel: (p) => p,
-                      onSelected: _onPurityChanged,
-                    ),
+                    _buildPurityPicker(s.purity, purityNames),
 
                     _buildFieldRow(s.size, _sizeCtrl, keyboardType: TextInputType.text),
                     _buildFieldRow(s.length, _lengthCtrl, keyboardType: TextInputType.text),
@@ -501,6 +571,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                             exhibition: _exhibitionCtrl.text.trim(),
                             remark: _remarkCtrl.text.trim(),
                             purity: _purity,
+                            purityid: _purityId,
                             size: _sizeCtrl.text.trim(),
                             length: _lengthCtrl.text.trim(),
                             typeOfColor: _typeOfColor,
@@ -624,6 +695,121 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
     );
   }
 
+  String _textOf(dynamic raw, List<String> keys) {
+    if (raw is! Map) return '';
+    for (final key in keys) {
+      final value = raw[key]?.toString().trim() ?? '';
+      if (value.isNotEmpty && value.toLowerCase() != 'null') return value;
+    }
+    return '';
+  }
+
+  int _categoryOf(dynamic raw) {
+    if (raw is! Map) return 0;
+    return int.tryParse('${raw['CategoryId'] ?? raw['categoryId'] ?? 0}') ?? 0;
+  }
+
+  Map? _findPurityRow(String name) {
+    final target = name.trim().toLowerCase();
+    if (target.isEmpty) return null;
+    final categoryId = widget.item.categoryId ?? 0;
+    Map? any;
+    for (final raw in widget.purities) {
+      if (raw is! Map) continue;
+      if (_textOf(raw, const ['PurityName', 'purityName']).toLowerCase() != target) continue;
+      any ??= raw;
+      if (categoryId > 0 && _categoryOf(raw) == categoryId) return raw;
+    }
+    return any;
+  }
+
+  /// Purity names for this item's category, then the full master, then daily rates.
+  List<String> _purityOptionNames() {
+    final names = <String>[];
+    void addName(String raw) {
+      final name = raw.trim();
+      if (name.isEmpty) return;
+      if (names.any((e) => e.toLowerCase() == name.toLowerCase())) return;
+      names.add(name);
+    }
+
+    final categoryId = widget.item.categoryId ?? 0;
+    if (categoryId > 0) {
+      for (final raw in widget.purities) {
+        if (_categoryOf(raw) == categoryId) {
+          addName(_textOf(raw, const ['PurityName', 'purityName']));
+        }
+      }
+    }
+    if (names.isEmpty) {
+      final source = widget.purities.isNotEmpty ? widget.purities : widget.dailyRates;
+      for (final raw in source) {
+        addName(_textOf(raw, const ['PurityName', 'purityName', 'Purity']));
+      }
+    }
+    addName(_purity);
+    addName(widget.item.purity);
+    return names;
+  }
+
+  Widget _buildPurityPicker(String label, List<String> options) {
+    final hasValue = _purity.trim().isNotEmpty;
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F5F5),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: InkWell(
+        onTap: options.isEmpty
+            ? null
+            : () async {
+                final picked = await showScrollableOptionSheet<String>(
+                  context: context,
+                  options: options,
+                  labelOf: (name) => name,
+                  title: label,
+                  useRootNavigator: true,
+                );
+                if (!mounted || picked == null || picked.isEmpty) return;
+                _onPurityChanged(picked);
+              },
+        child: Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: Text(
+                label,
+                style: GoogleFonts.poppins(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500),
+              ),
+            ),
+            Expanded(
+              flex: 3,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      hasValue ? _purity : context.s.selectOption(label),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.poppins(
+                        fontSize: 13,
+                        color: hasValue ? Colors.black : Colors.black54,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  const Icon(Icons.arrow_drop_down, color: Colors.black87),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildDropdownRow<T>({
     required String label,
     required List<T> options,
@@ -685,7 +871,10 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
     );
   }
 
+  String _shortDate(String value) => _localDateOnly(value);
+
   Widget _buildDateRow(String label, String value, VoidCallback onPick) {
+    final display = _shortDate(value);
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -699,6 +888,8 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
             flex: 2,
             child: Text(
               label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: GoogleFonts.poppins(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500),
             ),
           ),
@@ -707,12 +898,16 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
             child: GestureDetector(
               onTap: onPick,
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    value.isEmpty ? 'Select Date' : value,
-                    style: GoogleFonts.poppins(fontSize: 13, color: Colors.black, fontWeight: FontWeight.w500),
+                  Expanded(
+                    child: Text(
+                      display.isEmpty ? 'Select Date' : display,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.poppins(fontSize: 13, color: Colors.black, fontWeight: FontWeight.w500),
+                    ),
                   ),
+                  const SizedBox(width: 6),
                   const Icon(Icons.calendar_today, size: 16, color: Colors.black54),
                 ],
               ),

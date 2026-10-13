@@ -200,12 +200,12 @@ String _normalizePersonName(String value) {
 
 /// Customer order PDF — summary table + per-item detail pages.
 /// Used from Order save and Order list print.
-Future<void> printCustomOrderPdf({
+Future<bool> printCustomOrderPdf({
   required BuildContext context,
   required Map<String, dynamic> orderRes,
   required String baseUrl,
-}) async {
-  await openOrdersPdf(
+}) {
+  return openOrdersPdf(
     context: context,
     orders: [orderRes],
     baseUrl: baseUrl,
@@ -220,24 +220,28 @@ String _singleOrderPdfFileName(Map<String, dynamic> orderRes) {
 }
 
 /// Opens one combined PDF for multiple orders (filtered list download).
-Future<void> openOrdersPdf({
+Future<bool> openOrdersPdf({
   required BuildContext context,
   required List<Map<String, dynamic>> orders,
   required String baseUrl,
   required String fileName,
 }) async {
-  if (!context.mounted || orders.isEmpty) return;
+  if (!context.mounted || orders.isEmpty) return false;
 
-  showDialog<void>(
+  // Close only this loader. A root pop can remove the order screen instead,
+  // which hides the success message and the PDF.
+  final navigator = Navigator.of(context, rootNavigator: true);
+  final loader = DialogRoute<void>(
     context: context,
     barrierDismissible: false,
     builder: (_) => const Center(child: CircularProgressIndicator()),
   );
+  navigator.push(loader);
 
   try {
     final bytes = await buildOrdersPdfBytes(orders: orders, baseUrl: baseUrl);
-    if (context.mounted) {
-      Navigator.of(context, rootNavigator: true).pop();
+    if (loader.isActive) {
+      navigator.removeRoute(loader);
     }
 
     final ok = await PdfOpenUtil.openPdfBytes(
@@ -249,14 +253,18 @@ Future<void> openOrdersPdf({
         const SnackBar(content: Text('No PDF viewer installed')),
       );
     }
+    return ok;
   } catch (e, st) {
     debugPrint('Order PDF failed: $e\n$st');
+    if (loader.isActive) {
+      navigator.removeRoute(loader);
+    }
     if (context.mounted) {
-      Navigator.of(context, rootNavigator: true).pop();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to generate PDF: $e')),
       );
     }
+    return false;
   }
 }
 

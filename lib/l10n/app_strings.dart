@@ -441,6 +441,7 @@ class AppStrings {
   String get gstLabel => _t('gstLabel');
   String get totalAmount => _t('totalAmount');
   String get orderSavedSuccessfully => _t('orderSavedSuccessfully');
+  String get orderUpdatedSuccessfully => _t('orderUpdatedSuccessfully');
   String get orderSavedOffline => _t('orderSavedOffline');
   String get orderPendingSync => _t('orderPendingSync');
   String get syncOrdersNow => _t('syncOrdersNow');
@@ -1301,6 +1302,7 @@ class AppStrings {
       'gstLabel': 'GST 3.00%',
       'totalAmount': 'Total Amount',
       'orderSavedSuccessfully': 'Order saved successfully',
+      'orderUpdatedSuccessfully': 'Order updated successfully',
       'orderSavedOffline': 'Order saved offline — will sync when internet is available',
       'orderPendingSync': 'Pending sync',
       'syncOrdersNow': 'Sync orders',
@@ -1820,6 +1822,7 @@ class AppStrings {
       'gstLabel': 'GST 3.00%',
       'totalAmount': 'कुल राशि',
       'orderSavedSuccessfully': 'ऑर्डर सफलतापूर्वक सहेजा गया',
+      'orderUpdatedSuccessfully': 'ऑर्डर सफलतापूर्वक अपडेट हो गया',
       'orderSavedOffline': 'ऑर्डर ऑफ़लाइन सहेजा — इंटरनेट आने पर सिंक होगा',
       'customerAddedOffline': 'ग्राहक ऑफ़लाइन सहेजा — इंटरनेट आने पर सिंक होगा',
       'orderPendingSync': 'सिंक लंबित',
@@ -2390,6 +2393,7 @@ class AppStrings {
       'gstLabel': 'ضريبة السلع والخدمات 3.00%',
       'totalAmount': 'المبلغ الإجمالي',
       'orderSavedSuccessfully': 'تم حفظ الطلب بنجاح',
+      'orderUpdatedSuccessfully': 'تم تحديث الطلب بنجاح',
       'orderSavedOffline': 'تم حفظ الطلب دون اتصال — سيتم المزامنة عند توفر الإنترنت',
       'customerAddedOffline': 'تم حفظ العميل دون اتصال — سيتم المزامنة عند توفر الإنترنت',
       'orderPendingSync': 'في انتظار المزامنة',

@@ -97,6 +97,7 @@ class OrderPayloadBuilder {
       return raw;
     }
     if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(raw)) {
+      // Start of that local day, same as the working order save format.
       final offset = DateTime.now().timeZoneOffset;
       final sign = offset.isNegative ? '-' : '+';
       final oh = offset.inHours.abs().toString().padLeft(2, '0');

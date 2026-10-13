@@ -18,11 +18,13 @@ Future<T?> showScrollableOptionSheet<T>({
   required String Function(T option) labelOf,
   String? title,
   bool searchable = false,
+  bool useRootNavigator = false,
 }) {
   if (options.isEmpty) return Future.value(null);
 
   return showModalBottomSheet<T>(
     context: context,
+    useRootNavigator: useRootNavigator,
     isScrollControlled: true,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
