@@ -1573,11 +1573,13 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     final scope = _getNavScopeItems();
     final catalog = UnmatchedSearchCatalog.instance;
     catalog.clear();
+    final seenIds = <String>{};
     for (var i = 0; i < scope.length; i++) {
       final item = scope[i];
       if (item.currentScannedStatus != 'Unmatched') {
         continue;
       }
+      if (!_claimUnmatchedIdentity(seenIds, item)) continue;
       catalog.items.add(SearchItem(
         epc: item.epc,
         itemCode: item.itemCode,
@@ -1602,12 +1604,38 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     }
   }
 
+  /// One row per chip. The same RFID/EPC/TID must not be searched again as a new line.
+  bool _claimUnmatchedIdentity(Set<String> seen, ScannedBulkItem item) {
+    final keys = <String>[];
+    void add(String raw) {
+      final key = _normalizeInventoryScanKey(raw);
+      if (key.isEmpty) return;
+      keys.add(key);
+      final stripped = stripScanKey00(key);
+      if (stripped.isNotEmpty && stripped != key) keys.add(stripped);
+    }
+
+    add(item.rfid);
+    add(item.epc);
+    add(item.originalBulkItem.tid);
+    if (keys.isEmpty) {
+      final code = _normalizeInventoryScanKey(item.itemCode);
+      if (code.isEmpty) return true;
+      return seen.add('code:$code');
+    }
+    for (final key in keys) {
+      if (seen.contains(key)) return false;
+    }
+    seen.addAll(keys);
+    return true;
+  }
+
   void _syncMatchedFromUnmatchedSearch() {
     final catalog = UnmatchedSearchCatalog.instance;
     if (catalog.items.isEmpty) return;
     bool anyAdded = false;
     for (final searchItem in catalog.items) {
-      if (searchItem.proximityPercent >= 80) {
+      if (searchItem.manuallyMatched || searchItem.proximityPercent >= 80) {
         for (final rawKey in [
           searchItem.epc,
           searchItem.rfid,

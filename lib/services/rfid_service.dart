@@ -892,6 +892,23 @@ class RfidService {
     }
   }
 
+  /// Unmatched Search on the UART gun should not wait on a Bluetooth probe.
+  /// Tray and R6 still attach before the scan.
+  bool _skipSearchBleProbe(bool requested) {
+    if (!requested) return false;
+    if (_trayConnected ||
+        _r6Connected ||
+        _trayModeEnabled ||
+        _r6ModeEnabled ||
+        _trayConnecting ||
+        _r6Connecting) {
+      return false;
+    }
+    final prefs = PrefService.instanceOrNull;
+    if (prefs == null) return false;
+    return !prefs.isTrayModeEnabled() && !prefs.isR6ModeEnabled();
+  }
+
   /// Search / Unmatched Search — do not block UART behind tray/R6/tag-list work.
   Future<bool> startSearchScanning({
     required int power,
@@ -899,6 +916,7 @@ class RfidService {
     List<String>? ledEpcs,
     String ledMode = 'epc',
     bool strictLed = false,
+    bool skipBleProbe = false,
   }) async {
     _power = power;
     await ensureReady();
@@ -916,7 +934,9 @@ class RfidService {
         await stopScanning();
         await Future<void>.delayed(const Duration(milliseconds: 80));
       }
-      await autoAttachSystemBluetoothReader();
+      if (!_skipSearchBleProbe(skipBleProbe)) {
+        await autoAttachSystemBluetoothReader();
+      }
       if (searchTags != null && searchTags.isNotEmpty) {
         // Replace any preloaded unmatched catalog so a typed search cannot
         // light tags that are no longer in the list.
@@ -1211,6 +1231,16 @@ class RfidService {
       } catch (e) {
         debugPrint('Error playing beep: $e');
       }
+    }
+  }
+
+  /// Continue the search tone that matches the bars already on screen.
+  Future<void> primeSearchSound(int id) async {
+    if (!_isSupported || id <= 0) return;
+    try {
+      await _methodChannel.invokeMethod('primeSearchSound', {'id': id});
+    } catch (e) {
+      debugPrint('Error primeSearchSound: $e');
     }
   }
 

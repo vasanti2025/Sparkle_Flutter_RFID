@@ -416,6 +416,20 @@ class HardwareControllerImpl(
                 playSound(1, 0)
                 result.success(true)
             }
+            "primeSearchSound" -> {
+                val id = call.argument<Int>("id") ?: -1
+                if (id > 0) {
+                    ensureSoundPool()
+                    val now = System.currentTimeMillis()
+                    lastSearchSoundId = id
+                    lastSearchSoundPlayAt = now
+                    if (searchSoundRank(id) <= 1) {
+                        lastCloseSearchSoundAt = now
+                    }
+                    playSearchTone(id)
+                }
+                result.success(true)
+            }
             "playSound" -> {
                 ensureSoundPool()
                 val id = call.argument<Int>("id") ?: 1
