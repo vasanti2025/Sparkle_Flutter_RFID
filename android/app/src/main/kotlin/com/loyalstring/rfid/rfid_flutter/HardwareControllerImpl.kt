@@ -94,6 +94,10 @@ class HardwareControllerImpl(
      * Do not setEPCMode or blink-revert — that turns the solid light off.
      */
     @Volatile private var holdLedSolid = false
+    /** Continuous inventory holds a tag LED solid. Pulse stop/start so it blinks. */
+    @Volatile private var tagLedBlinkOn = false
+    @Volatile private var ledLightOn = true
+    @Volatile private var ledPhaseUntil = 0L
     /** One UART queue — start/stop/LED must not overlap (that fails startInventory). */
     private val uartExecutor = Executors.newSingleThreadExecutor()
     @Volatile private var uartPollPaused = false
@@ -185,6 +189,9 @@ class HardwareControllerImpl(
         searchLedAppliedKey = ""
         searchLedPhaseUntil = 0L
         lastSearchHitAt = 0L
+        tagLedBlinkOn = false
+        ledLightOn = true
+        ledPhaseUntil = 0L
         synchronized(foundLedLock) {
             searchEpcOnly.clear()
         }
@@ -976,7 +983,7 @@ class HardwareControllerImpl(
                 } catch (_: Throwable) {
                 }
                 try {
-                    Thread.sleep(80L)
+                    Thread.sleep(15L)
                 } catch (_: InterruptedException) {
                 }
                 prepareSearchRadio(power)
@@ -1319,8 +1326,12 @@ class HardwareControllerImpl(
     private fun prepareSearchRadio(power: Int) {
         uhf().setPower(power)
         if (holdLedSolid) {
-            // Filter + MODE_LED_TAG (solid) already set by the plugin class.
-            Log.i(TAG, "Search LED held solid (plugin) mode=$searchRadioMode")
+            // Plugin set MODE_LED_TAG solid. Re-apply blink times on the same mode.
+            uhf().applyLedTagSolidMode()
+            tagLedBlinkOn = true
+            ledLightOn = true
+            ledPhaseUntil = 0L
+            Log.i(TAG, "Search LED blink on plugin filter mode=$searchRadioMode")
             searchLedAppliedKey = ""
             searchLedPhase = SEARCH_LED_BLINK
             searchLedPhaseUntil = 0L
@@ -1328,14 +1339,31 @@ class HardwareControllerImpl(
             foundLedGatherDeadline = 0L
             return
         }
-        // A list of tags must stay unfiltered. Locking the first 2–3 EPCs
-        // hides the rest, so 4 tags in front show as 3.
-        if (searchRadioMode == SEARCH_RADIO_ALL || searchLedMulti) {
+        // A list must not use an empty LED filter — that lights every tag in
+        // range, including ones that are not on the list. Read in EPC first,
+        // then light only the list chips the gun actually saw (max 8).
+        if (searchLedMulti) {
+            uhf().prepareScan(power)
+            tagLedBlinkOn = false
+            ledLightOn = true
+            ledPhaseUntil = 0L
+            searchLedAppliedKey = ""
+            searchLedPhase = SEARCH_LED_DISCOVER
+            searchLedPhaseUntil = 0L
+            foundLedGatherUntil = 0L
+            foundLedGatherDeadline = 0L
+            Log.i(TAG, "List search EPC discover — LED only after a list hit")
+            return
+        }
+        if (searchRadioMode == SEARCH_RADIO_ALL) {
             val ok = uhf().applyLedBlinkInventoryNoFilter()
             Log.i(TAG, "Tag LED Inventory unfiltered (LED+normal) multi=$searchLedMulti => $ok")
             if (!ok) {
                 uhf().prepareScan(power)
             }
+            tagLedBlinkOn = ok
+            ledLightOn = true
+            ledPhaseUntil = 0L
             searchLedAppliedKey = ""
             searchLedPhase = if (ok) SEARCH_LED_DISCOVER else SEARCH_LED_WAIT
             searchLedPhaseUntil = 0L
@@ -1343,8 +1371,24 @@ class HardwareControllerImpl(
             foundLedGatherDeadline = 0L
             return
         }
-        // Home Search: EPC first so the gun reads the real chip (item code SP24
-        // is not an EPC). The hit path then locks solid LED on that live EPC only.
+        // Known 24/32 chip: light it now. Waiting for a live read adds the delay.
+        if (searchRadioMode == SEARCH_RADIO_FILTER) {
+            val chips = catalogChipEpcs()
+            if (chips.isNotEmpty() && uhf().applyLedTagBlinkMode(chips)) {
+                tagLedBlinkOn = true
+                ledLightOn = true
+                ledPhaseUntil = 0L
+                Log.i(TAG, "Search LED blink immediate epcs=${chips.size}")
+                searchLedAppliedKey = searchLedKey(chips)
+                searchLedPhase = SEARCH_LED_BLINK
+                searchLedPhaseUntil = 0L
+                foundLedGatherUntil = 0L
+                foundLedGatherDeadline = 0L
+                lastSearchHitAt = 0L
+                return
+            }
+        }
+        // Item code (SP24) is not a chip EPC. Read once, then lock that live EPC.
         uhf().prepareScan(power)
         searchLedAppliedKey = ""
         searchLedPhase = SEARCH_LED_DISCOVER
@@ -1387,12 +1431,12 @@ class HardwareControllerImpl(
                 foundLedEpcs.remove(oldest)
             }
             if (isNew) {
-                // One tag locks on this read. A list waits so several list chips
-                // share one filter, and later hits can still join (max 8).
-                foundLedGatherUntil = if (searchLedMulti) now + SEARCH_LED_GATHER_MS else now
+                // Short wait so chips already in front share one filter, then the
+                // light comes on. Tags that are not in the list are never added.
+                foundLedGatherUntil = if (searchLedMulti) now + 150L else now
                 if (foundLedGatherDeadline == 0L) {
                     foundLedGatherDeadline = if (searchLedMulti) {
-                        now + SEARCH_LED_GATHER_MAX_MS
+                        now + 350L
                     } else {
                         now
                     }
@@ -1402,10 +1446,9 @@ class HardwareControllerImpl(
     }
 
     private fun tickSearchLedBlink() {
-        // Plugin solid stays on. Revert-to-EPC turns the light off.
-        // List search stays unfiltered so every tag in front keeps reporting.
-        if (holdLedSolid || searchLedMulti) return
-        // One searched tag stays locked. A list keeps updating as more list chips are read.
+        // Plugin LED is already set. Do not clear it here.
+        if (holdLedSolid) return
+        // One searched tag stays locked. A list updates until its chips are filtered.
         if (!searchLedMulti &&
             searchRadioMode == SEARCH_RADIO_FILTER &&
             searchLedPhase == SEARCH_LED_BLINK &&
@@ -1413,7 +1456,7 @@ class HardwareControllerImpl(
         ) {
             return
         }
-        // Unmatched stays unfiltered Tag LED for the whole scan.
+        // Only the open list. Unfiltered LED mode lights tags that are not on it.
         if (searchRadioMode != SEARCH_RADIO_FILTER) return
         if (searchLedApplyBusy || uartPollPaused) return
         if (!isScanning || activeInventorySession || trayModeEnabled || r6ModeEnabled) return
@@ -1466,7 +1509,7 @@ class HardwareControllerImpl(
         try {
             uhf().stopInventory()
             try {
-                Thread.sleep(80L)
+                Thread.sleep(15L)
             } catch (_: InterruptedException) {
             }
             if (!isScanning) return
@@ -1611,6 +1654,9 @@ class HardwareControllerImpl(
             resumeSearchInventoryRunning()
             if (filtered && isScanning) {
                 uhf().reassertLedSolidIfCleared()
+                tagLedBlinkOn = true
+                ledLightOn = true
+                ledPhaseUntil = 0L
                 searchLedAppliedKey = searchLedKey(epcs)
                 searchLedPhase = SEARCH_LED_BLINK
                 searchLedDidDiscover = false
@@ -1636,7 +1682,7 @@ class HardwareControllerImpl(
         if (!isScanning) return
         if (uhf().startInventory()) return
         try {
-            Thread.sleep(80L)
+            Thread.sleep(20L)
         } catch (_: InterruptedException) {
         }
         if (!isScanning) return
@@ -1654,6 +1700,40 @@ class HardwareControllerImpl(
             }
         }
         return pollerParked
+    }
+
+    /**
+     * MODE_LED_TAG stays lit for the whole inventory, which looks solid.
+     * Stop the field briefly so the tag goes dark, then start again.
+     * Returns true while the light should stay off.
+     */
+    private fun tickLedBlinkDark(): Boolean {
+        if (!tagLedBlinkOn || activeInventorySession || !isScanning) return false
+        if (trayModeEnabled || r6ModeEnabled) return false
+        if (uartPollPaused || searchLedApplyBusy) return false
+        val now = SystemClock.elapsedRealtime()
+        if (!ledLightOn) {
+            if (now < ledPhaseUntil) return true
+            if (!uhf().startInventory()) {
+                uhf().applyLedTagSolidMode()
+                uhf().startInventory()
+            }
+            ledLightOn = true
+            ledPhaseUntil = now + LED_BLINK_ON_MS
+            return false
+        }
+        if (ledPhaseUntil == 0L) {
+            ledPhaseUntil = now + LED_BLINK_ON_MS
+            return false
+        }
+        if (now < ledPhaseUntil) return false
+        try {
+            uhf().stopInventory()
+        } catch (_: Throwable) {
+        }
+        ledLightOn = false
+        ledPhaseUntil = now + LED_BLINK_OFF_MS
+        return true
     }
 
     private fun searchLedFailBackoff() {
@@ -1758,6 +1838,10 @@ class HardwareControllerImpl(
                             continue
                         }
                         pollerParked = false
+                        if (!inventory && !useTray && tickLedBlinkDark()) {
+                            Thread.sleep(15)
+                            continue
+                        }
                         if (useTray) {
                             var tagInfo = trayManager.readTagFromBuffer()
                             if (tagInfo == null) {
@@ -1786,7 +1870,11 @@ class HardwareControllerImpl(
                                     handleTagRead(cleanEpc, pair.second, inventory)
                                 }
                                 pair = uhf().readTagFromBuffer()
-                            } while (pair != null && pollerActive && isScanning)
+                            } while (
+                                pair != null && pollerActive && isScanning &&
+                                    !(tagLedBlinkOn && ledPhaseUntil > 0L &&
+                                        SystemClock.elapsedRealtime() >= ledPhaseUntil)
+                            )
                             if (!inventory) tickSearchLedBlink()
                         }
                     } catch (_: InterruptedException) {
@@ -2122,6 +2210,9 @@ class HardwareControllerImpl(
         /** Keep LabelStock LEDs on, then return to EPC for other tags. */
         private const val SEARCH_LED_BLINK_MS = 1400L
         private const val SEARCH_LED_HIT_TIMEOUT_MS = 700L
+        /** On/off so a tag LED cannot stay solid for the whole scan. */
+        private const val LED_BLINK_ON_MS = 350L
+        private const val LED_BLINK_OFF_MS = 250L
         private const val SEARCH_RADIO_EPC = 0
         private const val SEARCH_RADIO_FILTER = 1
         private const val SEARCH_RADIO_ALL = 2
