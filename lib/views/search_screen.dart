@@ -1794,11 +1794,11 @@ class _SearchScreenState extends State<SearchScreen> {
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
       child: Row(
         children: [
-          _countChip('Searched Total', total, _SearchCountFilter.all),
+          _countChip('Search Count', total, _SearchCountFilter.all),
           const SizedBox(width: 6),
-          _countChip('Searched Matched', matched, _SearchCountFilter.matched),
+          _countChip('Match Count', matched, _SearchCountFilter.matched),
           const SizedBox(width: 6),
-          _countChip('Searched Unmatched', unmatched, _SearchCountFilter.unmatched),
+          _countChip('Unmatch Count', unmatched, _SearchCountFilter.unmatched),
         ],
       ),
     );
