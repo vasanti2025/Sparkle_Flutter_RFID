@@ -26,6 +26,7 @@ class SearchItem {
   String rssi;
   int proximityPercent;
   final List<(int atMs, int percent)> _peakWindow = [];
+  int _lastFallMs = 0;
 
   late final String normEpc;
   late final String normRfid;
@@ -50,21 +51,28 @@ class SearchItem {
     normHex = normalizeScanKey(hex);
   }
 
-  /// Hold the strongest recent reading so a 1s RSSI dip (LED blink / noise)
-  /// cannot flash 100% → 20% → 100% while the gun stays on the tag.
-  /// Percent only falls after weaker reads persist, or [decayTowardZero] when the gun leaves.
+  /// Hold the strongest recent reading. LED blink makes RSSI jump, so the
+  /// number rises immediately but only eases down while the gun stays close.
   bool applyStableProximity(String rssi, int rawPercent) {
     this.rssi = rssi;
-    final sample = rawPercent.clamp(0, 100);
+    final sample = (rawPercent.clamp(0, 100) / 5).round() * 5;
     final now = DateTime.now().millisecondsSinceEpoch;
     _peakWindow.add((now, sample));
-    _peakWindow.removeWhere((e) => now - e.$1 > 1800);
+    _peakWindow.removeWhere((e) => now - e.$1 > 4000);
     var peak = 0;
     for (final e in _peakWindow) {
       if (e.$2 > peak) peak = e.$2;
     }
-    if (peak == proximityPercent) return false;
-    proximityPercent = peak;
+    if (peak >= proximityPercent) {
+      if (peak == proximityPercent) return false;
+      proximityPercent = peak;
+      return true;
+    }
+    if (now - _lastFallMs < 1200) return false;
+    final next = peak > proximityPercent - 5 ? peak : proximityPercent - 5;
+    if (next == proximityPercent) return false;
+    _lastFallMs = now;
+    proximityPercent = next;
     return true;
   }
 
@@ -324,7 +332,7 @@ class _SearchScreenState extends State<SearchScreen> {
       if (i < 0 || i >= _searchItems.length) continue;
       final item = _searchItems[i];
       if (item.proximityPercent <= 0) continue;
-      if (now - entry.value < 2000) continue;
+      if (now - entry.value < 4000) continue;
       item.decayTowardZero();
       _dirtyIndices.add(i);
       any = true;
@@ -523,7 +531,6 @@ class _SearchScreenState extends State<SearchScreen> {
       if (epc.isEmpty) return;
 
       final proximity = convertRssiToProximity(rssi);
-      if (proximity < 0) return;
 
       final now = DateTime.now().millisecondsSinceEpoch;
       var index = _tagIndexMap[epc];
@@ -544,6 +551,8 @@ class _SearchScreenState extends State<SearchScreen> {
       if (_homeScanOnlyIndex != null && index != _homeScanOnlyIndex) return;
 
       _lastRssiUpdateMs[index] = now;
+      // LED reads often report RSSI 0. Keep the last percent; do not flash 50%.
+      if (proximity < 0) return;
       final item = _searchItems[index];
       final prev = item.proximityPercent;
       final changed = item.applyStableProximity(rssi, proximity);

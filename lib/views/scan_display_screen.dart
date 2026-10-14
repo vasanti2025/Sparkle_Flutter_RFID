@@ -3235,8 +3235,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       _showToast(context.sRead.errorSessionExpired);
       return;
     }
-    final keepLegacyBranch = clientCode.trim().toUpperCase() ==
-        PrefService.wholesaleClientCode;
+    final keepLegacyBranch = PrefService.isWholesaleClientCode(clientCode);
 
     var stockBranchId = branchId ?? 0;
     var stockCounterId = counterId ?? 0;

@@ -7,7 +7,6 @@ import 'services/db_service.dart';
 import 'services/location_sync_service.dart';
 import 'services/order_sync_service.dart';
 import 'services/pref_service.dart';
-import 'services/rfid_service.dart';
 
 Future<void> warmAfterFirstFrame(
   PrefService prefService,
@@ -45,11 +44,6 @@ Future<void> warmAfterFirstFrame(
     }
   });
 
-  Future<void>.delayed(const Duration(seconds: 2), () async {
-    try {
-      await RfidService().autoAttachSystemBluetoothReader();
-    } catch (e, st) {
-      debugPrint('Tray/R6 auto-attach skipped: $e\n$st');
-    }
-  });
+  // Do not probe Bluetooth or the UART reader here. That work ran on the
+  // main thread a few seconds after Home and showed "isn't responding".
 }

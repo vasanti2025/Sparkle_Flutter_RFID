@@ -24,6 +24,27 @@ import 'widgets/scan_bottom_bar.dart';
 import 'widgets/scan_branch_counter_dialog.dart';
 
 final Map<String, List<BulkItem>> _missingStockMemory = {};
+final Map<String, Set<String>> _missingMatchedMemory = {};
+
+String _missingItemKey(BulkItem item) {
+  return (item.epc.isNotEmpty
+          ? item.epc
+          : (item.rfid.isNotEmpty ? item.rfid : item.itemCode))
+      .trim()
+      .toUpperCase();
+}
+
+bool _isMatchedStockStatus(String status) {
+  switch (status.trim().toLowerCase()) {
+    case 'match':
+    case 'matched':
+    case 'found':
+    case 'scanned':
+      return true;
+    default:
+      return false;
+  }
+}
 
 /// Parsed on the caller. A background isolate copies the whole payload and
 /// makes a large list slower, not faster.
@@ -33,13 +54,8 @@ List<BulkItem> parseStockTakingRows(List<dynamic> raw) {
   for (final row in raw) {
     if (row is! Map) continue;
     final item = BulkItem.fromStockTaking(row);
-    final status = item.status.toLowerCase();
-    if (status == 'match' || status == 'matched') continue;
-    final key = (item.epc.isNotEmpty
-            ? item.epc
-            : (item.rfid.isNotEmpty ? item.rfid : item.itemCode))
-        .trim()
-        .toUpperCase();
+    if (_isMatchedStockStatus(item.status)) continue;
+    final key = _missingItemKey(item);
     if (key.isEmpty || !seen.add(key)) continue;
     out.add(item);
   }
@@ -50,6 +66,61 @@ Future<File> _missingStockCacheFile(String key) async {
   final dir = await getApplicationSupportDirectory();
   final safe = key.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
   return File('${dir.path}/missing_stock_$safe.json');
+}
+
+Future<File> _missingMatchedCacheFile(String key) async {
+  final dir = await getApplicationSupportDirectory();
+  final safe = key.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+  return File('${dir.path}/missing_matched_$safe.json');
+}
+
+Future<Set<String>> _readMatchedKeys(String key) async {
+  final memory = _missingMatchedMemory[key];
+  if (memory != null) return memory;
+  try {
+    final file = await _missingMatchedCacheFile(key);
+    if (!await file.exists()) return {};
+    final decoded = jsonDecode(await file.readAsString());
+    if (decoded is! List) return {};
+    final keys = {for (final row in decoded) row.toString().trim().toUpperCase()};
+    keys.remove('');
+    _missingMatchedMemory[key] = keys;
+    return keys;
+  } catch (_) {
+    return {};
+  }
+}
+
+Future<void> _writeMatchedKeys(String key, Set<String> keys) async {
+  _missingMatchedMemory[key] = keys;
+  try {
+    final file = await _missingMatchedCacheFile(key);
+    await file.writeAsString(jsonEncode(keys.toList()));
+  } catch (_) {}
+}
+
+List<BulkItem> _dropMatchedItems(List<BulkItem> items, Set<String> matched) {
+  if (matched.isEmpty) {
+    return [
+      for (final item in items)
+        if (!_isMatchedStockStatus(item.status)) item,
+    ];
+  }
+  return [
+    for (final item in items)
+      if (!_isMatchedStockStatus(item.status) && !_itemWasMatched(item, matched))
+        item,
+  ];
+}
+
+bool _itemWasMatched(BulkItem item, Set<String> matched) {
+  final identity = _missingItemKey(item);
+  if (identity.isNotEmpty && matched.contains(identity)) return true;
+  for (final raw in [item.epc, item.rfid, item.tid, item.itemCode]) {
+    final key = normalizeScanKey(raw);
+    if (key.isNotEmpty && matched.contains(key)) return true;
+  }
+  return false;
 }
 
 Future<List<BulkItem>?> _readMissingStockCache(String key) async {
@@ -127,6 +198,8 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
   int _lastTriggerMs = 0;
   int _lastUiMs = 0;
   int _loadReq = 0;
+  String _cacheKey = '';
+  Timer? _persistTimer;
   late DateTime _stockDate;
 
   int get _matchedCount => _rows.where((r) => r.matched).length;
@@ -153,10 +226,42 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
 
   @override
   void dispose() {
+    _persistTimer?.cancel();
+    _persistRemainingMissing(flushDisk: true);
     _tagsSub?.cancel();
     _triggerSub?.cancel();
     _rfid.stopScanning();
     super.dispose();
+  }
+
+  /// Next open must show only what this scan left unmatched.
+  void _persistRemainingMissing({bool flushDisk = false}) {
+    if (_cacheKey.isEmpty || _rows.isEmpty) return;
+    final matched = _missingMatchedMemory.putIfAbsent(_cacheKey, () => <String>{});
+    final remaining = <BulkItem>[];
+    for (final row in _rows) {
+      final key = _missingItemKey(row.item);
+      if (row.matched) {
+        if (key.isNotEmpty) matched.add(key);
+        for (final scanKey in row.keys) {
+          matched.add(scanKey);
+        }
+      } else if (!_isMatchedStockStatus(row.item.status)) {
+        remaining.add(row.item);
+      }
+    }
+    _missingStockMemory[_cacheKey] = remaining;
+    if (!flushDisk) {
+      _persistTimer?.cancel();
+      _persistTimer = Timer(const Duration(milliseconds: 400), () {
+        unawaited(_writeMissingStockCache(_cacheKey, remaining));
+        unawaited(_writeMatchedKeys(_cacheKey, Set<String>.from(matched)));
+      });
+      return;
+    }
+    _persistTimer?.cancel();
+    unawaited(_writeMissingStockCache(_cacheKey, remaining));
+    unawaited(_writeMatchedKeys(_cacheKey, Set<String>.from(matched)));
   }
 
   void _applyLocation(RfidDeviceAssignment loc) {
@@ -315,15 +420,19 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
     final date = DateFormat('yyyy-MM-dd').format(_stockDate);
     final cacheKey =
         '$clientCode|$_branchId|${_branchName.trim().toLowerCase()}|$date';
+    _cacheKey = cacheKey;
+    final alreadyMatched = await _readMatchedKeys(cacheKey);
+    if (!mounted || req != _loadReq) return;
     final memory = _missingStockMemory[cacheKey];
     if (memory != null) {
-      _publishRows(memory);
+      _publishRows(_dropMatchedItems(memory, alreadyMatched));
     } else {
       final disk = await _readMissingStockCache(cacheKey);
       if (!mounted || req != _loadReq) return;
       if (disk != null) {
-        _missingStockMemory[cacheKey] = disk;
-        _publishRows(disk);
+        final missing = _dropMatchedItems(disk, alreadyMatched);
+        _missingStockMemory[cacheKey] = missing;
+        _publishRows(missing);
       } else if (_rows.isEmpty) {
         setState(() {
           _loading = true;
@@ -354,9 +463,10 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
         branchAddress: branchAddress,
         stockTakingDate: date,
       );
-      if (!mounted || req != _loadReq) return;
-      if (_scanning || _matchedKeys.isNotEmpty) return;
-      final items = parseStockTakingRows(raw);
+      if (!mounted || req != _loadReq || _scanning) return;
+      final already = await _readMatchedKeys(cacheKey);
+      if (!mounted || req != _loadReq || _scanning) return;
+      final items = _dropMatchedItems(parseStockTakingRows(raw), already);
       _missingStockMemory[cacheKey] = items;
       unawaited(_writeMissingStockCache(cacheKey, items));
       _publishRows(items);
@@ -405,6 +515,7 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
     for (final key in row.keys) {
       _matchedKeys.add(key);
     }
+    _persistRemainingMissing();
 
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastUiMs >= 80) {

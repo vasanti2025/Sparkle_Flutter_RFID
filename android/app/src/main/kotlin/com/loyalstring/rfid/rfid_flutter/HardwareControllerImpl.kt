@@ -253,10 +253,12 @@ class HardwareControllerImpl(
         activity.runOnUiThread {
             eventSink?.success("BARCODE_TRIGGER")
         }
-        try {
-            ensureManagers()
-            barcodeManager.startScan()
-        } catch (_: Throwable) {
+        uartExecutor.execute {
+            try {
+                ensureBarcodeManager()
+                barcodeManager.startScan()
+            } catch (_: Throwable) {
+            }
         }
     }
 
@@ -281,21 +283,24 @@ class HardwareControllerImpl(
     }
 
     override fun handleMethod(call: MethodCall, result: MethodChannel.Result) {
-        ensureManagers()
+        // Do not construct the BLE reader or barcode engine here. The first
+        // method call is isSupported/initReader on the UI thread, and loading
+        // DeviceAPI there shows "isn't responding" on every launch.
         when (call.method) {
             "initReader" -> {
-                if (trayModeEnabled || r6ModeEnabled) {
-                    result.success(trayManager.isConnected || trayManager.init())
-                } else {
-                    uartExecutor.execute {
-                        val ok = try {
+                uartExecutor.execute {
+                    val ok = try {
+                        if (trayModeEnabled || r6ModeEnabled) {
+                            ensureTrayManager()
+                            trayManager.isConnected || trayManager.init()
+                        } else {
                             uhf().initHardware()
-                        } catch (e: Throwable) {
-                            Log.e(TAG, "initReader bg failed", e)
-                            false
                         }
-                        mainHandler.post { result.success(ok) }
+                    } catch (e: Throwable) {
+                        Log.e(TAG, "initReader bg failed", e)
+                        false
                     }
+                    mainHandler.post { result.success(ok) }
                 }
             }
             "prepareForScan" -> {
@@ -361,20 +366,16 @@ class HardwareControllerImpl(
             }
             "setSearchTags" -> {
                 val tags = ArrayList(call.argument<List<String>>("tags") ?: emptyList())
-                matchEpcs.clear()
-                synchronized(searchTagLock) {
-                    searchTags.clear()
-                    searchLedEpcs.clear()
-                }
-                resetSearchLedFoundState()
-                if (tags.size <= 2500) {
-                    for (tag in tags) addSearchKey(tag)
-                } else {
-                    tagSetExecutor.execute {
-                        for (tag in tags) addSearchKey(tag)
+                tagSetExecutor.execute {
+                    matchEpcs.clear()
+                    synchronized(searchTagLock) {
+                        searchTags.clear()
+                        searchLedEpcs.clear()
                     }
+                    resetSearchLedFoundState()
+                    for (tag in tags) addSearchKey(tag)
+                    mainHandler.post { result.success(true) }
                 }
-                result.success(true)
             }
             "setSearchLedEpcs" -> {
                 val tags = ArrayList(call.argument<List<String>>("tags") ?: emptyList())
@@ -391,8 +392,10 @@ class HardwareControllerImpl(
             }
             "addSearchTags" -> {
                 val tags = ArrayList(call.argument<List<String>>("tags") ?: emptyList())
-                for (tag in tags) addSearchKey(tag)
-                result.success(true)
+                tagSetExecutor.execute {
+                    for (tag in tags) addSearchKey(tag)
+                    mainHandler.post { result.success(true) }
+                }
             }
             "setMatchEpcs" -> {
                 val epcs = call.argument<List<String>>("epcs") ?: emptyList()
@@ -504,6 +507,7 @@ class HardwareControllerImpl(
                         if (!hasBluetoothPermission()) {
                             emptyList()
                         } else {
+                            ensureTrayManager()
                             trayManager.scanNearbyDevices(4500)
                         }
                     } catch (e: Throwable) {
@@ -516,19 +520,57 @@ class HardwareControllerImpl(
                 }
             }
             "listSystemConnectedBluetoothDevices" -> {
-                result.success(listSystemConnectedBluetoothDevices())
+                uartExecutor.execute {
+                    val list = try {
+                        listSystemConnectedBluetoothDevices()
+                    } catch (e: Throwable) {
+                        Log.e(TAG, "listSystemConnectedBluetoothDevices", e)
+                        emptyList()
+                    }
+                    mainHandler.post { result.success(list) }
+                }
             }
             "getTrayStatus" -> result.success(trayStatusMap())
             "getR6Status" -> result.success(r6StatusMap())
-            "openBarcode" -> result.success(barcodeManager.openIfNeeded())
-            "startBarcodeScan" -> result.success(barcodeManager.startScan())
+            "openBarcode" -> {
+                uartExecutor.execute {
+                    val ok = try {
+                        ensureBarcodeManager()
+                        barcodeManager.openIfNeeded()
+                    } catch (_: Throwable) {
+                        false
+                    }
+                    mainHandler.post { result.success(ok) }
+                }
+            }
+            "startBarcodeScan" -> {
+                uartExecutor.execute {
+                    val ok = try {
+                        ensureBarcodeManager()
+                        barcodeManager.startScan()
+                    } catch (_: Throwable) {
+                        false
+                    }
+                    mainHandler.post { result.success(ok) }
+                }
+            }
             "stopBarcodeScan" -> {
-                barcodeManager.stopScan()
-                result.success(true)
+                uartExecutor.execute {
+                    try {
+                        if (::barcodeManager.isInitialized) barcodeManager.stopScan()
+                    } catch (_: Throwable) {
+                    }
+                    mainHandler.post { result.success(true) }
+                }
             }
             "closeBarcode" -> {
-                barcodeManager.close()
-                result.success(true)
+                uartExecutor.execute {
+                    try {
+                        if (::barcodeManager.isInitialized) barcodeManager.close()
+                    } catch (_: Throwable) {
+                    }
+                    mainHandler.post { result.success(true) }
+                }
             }
             else -> result.notImplemented()
         }
@@ -545,15 +587,17 @@ class HardwareControllerImpl(
         return inst
     }
 
-    private fun ensureManagers() {
-        if (!::barcodeManager.isInitialized) {
-            barcodeManager = BarcodeManager(activity)
-            barcodeManager.setOnScanned { data ->
-                activity.runOnUiThread {
-                    eventSink?.success("BARCODE:$data")
-                }
+    private fun ensureBarcodeManager() {
+        if (::barcodeManager.isInitialized) return
+        barcodeManager = BarcodeManager(activity)
+        barcodeManager.setOnScanned { data ->
+            activity.runOnUiThread {
+                eventSink?.success("BARCODE:$data")
             }
         }
+    }
+
+    private fun ensureTrayManager() {
         if (!::trayManager.isInitialized) {
             trayManager = TrayReaderManager(
                 activity,
@@ -622,7 +666,7 @@ class HardwareControllerImpl(
         cancelBleReconnect()
         if (enabled && address.isNotEmpty()) {
             if (!::trayManager.isInitialized) {
-                ensureManagers()
+                ensureTrayManager()
             }
             if (trayManager.isReallyConnected()) {
                 Log.i(TAG, "BLE already linked — skip reconnect")
@@ -697,10 +741,13 @@ class HardwareControllerImpl(
 
     private fun r6StatusMap(): HashMap<String, Any> {
         val map = HashMap<String, Any>()
+        val ready = ::trayManager.isInitialized
         map["enabled"] = r6ModeEnabled
-        map["connected"] = r6ModeEnabled && (trayManager.isReallyConnected() || trayManager.isConnected)
+        map["connected"] = r6ModeEnabled && ready &&
+            (trayManager.isReallyConnected() || trayManager.isConnected)
         map["address"] = r6DeviceAddress
-        map["connecting"] = r6ModeEnabled && (trayManager.isConnecting || bleConnectQueued)
+        map["connecting"] = r6ModeEnabled && ready &&
+            (trayManager.isConnecting || bleConnectQueued)
         return map
     }
 
@@ -1267,9 +1314,11 @@ class HardwareControllerImpl(
             foundLedGatherDeadline = 0L
             return
         }
-        if (searchRadioMode == SEARCH_RADIO_ALL) {
+        // A list of tags must stay unfiltered. Locking the first 2–3 EPCs
+        // hides the rest, so 4 tags in front show as 3.
+        if (searchRadioMode == SEARCH_RADIO_ALL || searchLedMulti) {
             val ok = uhf().applyLedBlinkInventoryNoFilter()
-            Log.i(TAG, "Unmatched Tag LED Inventory Solid (LED+normal) => $ok")
+            Log.i(TAG, "Tag LED Inventory unfiltered (LED+normal) multi=$searchLedMulti => $ok")
             if (!ok) {
                 uhf().prepareScan(power)
             }
@@ -1340,7 +1389,8 @@ class HardwareControllerImpl(
 
     private fun tickSearchLedBlink() {
         // Plugin solid stays on. Revert-to-EPC turns the light off.
-        if (holdLedSolid) return
+        // List search stays unfiltered so every tag in front keeps reporting.
+        if (holdLedSolid || searchLedMulti) return
         // One searched tag stays locked. A list keeps updating as more list chips are read.
         if (!searchLedMulti &&
             searchRadioMode == SEARCH_RADIO_FILTER &&
@@ -1746,10 +1796,11 @@ class HardwareControllerImpl(
         // (uhf-uart-demo Tag LED Inventory), not stopInventory + Reserved-bank read.
         val searchHit = !inventory && matchesSearchTag(cleanEpc)
         val rssiTrim = rssi.trim()
-        val rssiOut = if (searchHit && (rssiTrim.isEmpty() || rssiTrim == "0")) "-60" else rssi
+        val rssiMissing = rssiTrim.isEmpty() || rssiTrim == "0" || rssiTrim == "0.0"
+        val rssiOut = rssi
         if (searchHit) {
             lastSearchHitAt = SystemClock.elapsedRealtime()
-            playRssiSearchSound(rssiOut)
+            if (!rssiMissing) playRssiSearchSound(rssiOut)
             noteFoundSearchLed(cleanEpc)
         }
 
@@ -1790,12 +1841,13 @@ class HardwareControllerImpl(
             if (isSearchTag && rssi.isNotBlank()) {
                 val prox = rssiToProximityPercent(rssi)
                 val lastProx = recentEmitProx[cleanEpc]
-                if (lastProx != null && prox != lastProx) {
-                    recentEmitAt[cleanEpc] = now
-                    recentEmitProx[cleanEpc] = prox
-                    return true
+                // Ignore 1-point RSSI noise. A real step, or a heartbeat, still updates.
+                if (lastProx != null &&
+                    kotlin.math.abs(prox - lastProx) < 8 &&
+                    now - last < 400L
+                ) {
+                    return false
                 }
-                if (now - last < searchEmitDedupMs) return false
                 recentEmitAt[cleanEpc] = now
                 recentEmitProx[cleanEpc] = prox
                 return true

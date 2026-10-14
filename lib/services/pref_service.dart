@@ -297,16 +297,22 @@ class PrefService {
   String getSavedUsername() => _store.getString(_keyUsername) ?? '';
   String getSavedPassword() => _store.getString(_keyPassword) ?? '';
 
-  /// Wholesale + Scan Display branch/counter flow is only for this ClientCode.
-  static const String wholesaleClientCode = 'LS000641';
+  /// Wholesale options (Kama and the same flow for LS000582).
+  static const Set<String> wholesaleClientCodes = {
+    'LS000641',
+    'LS000582',
+  };
+
+  static bool isWholesaleClientCode(String? value) {
+    final code = (value ?? '').trim().toUpperCase();
+    return code.isNotEmpty && wholesaleClientCodes.contains(code);
+  }
 
   bool isWholesaleLoginUser() {
-    bool matches(String? value) =>
-        (value ?? '').trim().toUpperCase() == wholesaleClientCode;
     final emp = getEmployee();
-    return matches(emp?.clientCode) ||
-        matches(emp?.clients?.clientCode) ||
-        matches(getClient()?.clientCode);
+    return isWholesaleClientCode(emp?.clientCode) ||
+        isWholesaleClientCode(emp?.clients?.clientCode) ||
+        isWholesaleClientCode(getClient()?.clientCode);
   }
 
   Future<void> setLoggedIn(bool loggedIn) async => _store.setBool(_keyLoggedIn, loggedIn);
