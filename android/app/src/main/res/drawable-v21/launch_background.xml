@@ -10,4 +10,9 @@
             android:gravity="center"
             android:src="@drawable/sprakle_rfid_logo_1" />
     </item>
+    <item android:bottom="32dp">
+        <bitmap
+            android:gravity="bottom|center_horizontal"
+            android:src="@drawable/splash_version" />
+    </item>
 </layer-list>

@@ -11,16 +11,34 @@ class LaunchLogo extends StatelessWidget {
   Widget build(BuildContext context) {
     return const ColoredBox(
       color: background,
-      child: Center(
-        child: FractionallySizedBox(
-          widthFactor: 0.55,
-          child: Image(
-            image: AssetImage('assets/branding/splash_logo.png'),
-            fit: BoxFit.contain,
-            filterQuality: FilterQuality.low,
-            gaplessPlayback: true,
+      child: Stack(
+        children: [
+          Center(
+            child: FractionallySizedBox(
+              widthFactor: 0.55,
+              child: Image(
+                image: AssetImage('assets/branding/splash_logo.png'),
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.low,
+                gaplessPlayback: true,
+              ),
+            ),
           ),
-        ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Padding(
+              padding: EdgeInsets.only(bottom: 28),
+              child: Text(
+                'Version 1.0.7',
+                style: TextStyle(
+                  color: Color(0xFF46464A),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
