@@ -59,9 +59,15 @@ class SearchItem {
 
   /// Hold the strongest recent reading. LED blink makes RSSI jump, so the
   /// number rises immediately but only eases down while the gun stays close.
-  bool applyStableProximity(String rssi, int rawPercent) {
+  /// [onlyRaise] keeps the highest percentage reached and ignores weaker reads.
+  bool applyStableProximity(String rssi, int rawPercent, {bool onlyRaise = false}) {
     this.rssi = rssi;
     final sample = (rawPercent.clamp(0, 100) / 5).round() * 5;
+    if (onlyRaise) {
+      if (sample <= proximityPercent) return false;
+      proximityPercent = sample;
+      return true;
+    }
     final now = DateTime.now().millisecondsSinceEpoch;
     _peakWindow.add((now, sample));
     _peakWindow.removeWhere((e) => now - e.$1 > 4000);
@@ -114,6 +120,26 @@ class SearchItem {
       ..add((now, proximityPercent));
     _lastFallMs = now;
   }
+}
+
+/// One Unmatched Search read. Never lowers a percent already on the row.
+/// A positive read that would round to 0%, or a chip read with no RSSI, still
+/// counts as seen at the smallest bar step (5). Later stronger reads only rise.
+bool applyUnmatchedRead(SearchItem item, int proximity, String rssi) {
+  if (proximity <= 0) {
+    if (item.proximityPercent > 0) return false;
+    return item.applyStableProximity(rssi, 5, onlyRaise: true);
+  }
+  final sample = proximity < 3 ? 3 : proximity;
+  return item.applyStableProximity(rssi, sample, onlyRaise: true);
+}
+
+/// First row keeps a shared key. A later row must not steal it and hide the first.
+bool claimUnmatchedIndexKey(Map<String, int> map, String key, int index) {
+  final existing = map[key];
+  if (existing != null && existing != index) return false;
+  map[key] = index;
+  return true;
 }
 
 /// Single compact unmatched list shared with inventory — avoids a second 50k copy
@@ -230,6 +256,16 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _nativeTagsNarrowed = false;
   /// Full unmatched catalog is already on the reader, so Scan must not upload it again.
   bool _unmatchedTagsOnReader = false;
+  /// Rows that received a read this scan, including ones already above 0%.
+  final Set<int> _unmatchedSeen = {};
+  int _unmatchedUnknown = 0;
+  int _unmatchedRssiMissing = 0;
+  int _unmatchedIndexCollisions = 0;
+  int _unmatchedMaxHandlerUs = 0;
+  int _unmatchedScanStartedMs = 0;
+  int _unmatchedOldestDirtyMs = 0;
+  int _unmatchedLastLogMs = 0;
+  final Set<String> _unmatchedUnknownEpcs = {};
 
   @override
   void initState() {
@@ -301,7 +337,15 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _indexSearchItem(int i, SearchItem item) {
     void add(String key) {
-      addScanKeyVariants(key, (k) => _tagIndexMap[k] = i);
+      addScanKeyVariants(key, (k) {
+        if (_listKey == 'unmatchedItems') {
+          if (!claimUnmatchedIndexKey(_tagIndexMap, k, i)) {
+            _unmatchedIndexCollisions++;
+          }
+          return;
+        }
+        _tagIndexMap[k] = i;
+      });
     }
 
     add(item.normEpc);
@@ -326,6 +370,12 @@ class _SearchScreenState extends State<SearchScreen> {
     }
     await _rebuildTagIndexChunked();
     if (!mounted) return;
+    if (_unmatchedIndexCollisions > 0) {
+      debugPrint(
+        'UnmatchedScan index catalog=${_searchItems.length} '
+        'keys=${_tagIndexMap.length} collisions=$_unmatchedIndexCollisions',
+      );
+    }
     if (_tagIndexMap.isNotEmpty) {
       await _rfidService.setSearchTags(_tagIndexMap.keys.toList(growable: false));
       _unmatchedTagsOnReader = true;
@@ -343,6 +393,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Future<void> _rebuildTagIndexChunked() async {
     _tagIndexMap.clear();
+    if (_listKey == 'unmatchedItems') _unmatchedIndexCollisions = 0;
     const chunk = 600;
     for (int i = 0; i < _searchItems.length; i++) {
       _indexSearchItem(i, _searchItems[i]);
@@ -379,6 +430,13 @@ class _SearchScreenState extends State<SearchScreen> {
       final item = _searchItems[i];
       if (item.proximityPercent <= 0) continue;
       if (now - entry.value < 4000) continue;
+      if (_listKey == 'unmatchedItems') {
+        // Out of range: leave the top strip. Keep the highest percentage.
+        if (!_hotSet.contains(i)) continue;
+        _dirtyIndices.add(i);
+        any = true;
+        continue;
+      }
       item.decayTowardZero();
       _dirtyIndices.add(i);
       any = true;
@@ -521,7 +579,13 @@ class _SearchScreenState extends State<SearchScreen> {
       if (i < 0 || i >= _searchItems.length) continue;
       final prox = _searchItems[i].proximityPercent;
       if (prox > 0) {
-        _hotSet.add(i);
+        final seenAt = _lastRssiUpdateMs[i] ?? 0;
+        final stillInRange = DateTime.now().millisecondsSinceEpoch - seenAt < 4000;
+        if (_listKey == 'unmatchedItems' && !stillInRange) {
+          _hotSet.remove(i);
+        } else {
+          _hotSet.add(i);
+        }
       } else {
         _hotSet.remove(i);
       }
@@ -532,6 +596,7 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     }
     _dirtyIndices.clear();
+    _unmatchedOldestDirtyMs = 0;
     _applyRssiPriority();
     if (_listKey != 'unmatchedItems') return;
     _refreshUpsideIndices(touched);
@@ -551,6 +616,7 @@ class _SearchScreenState extends State<SearchScreen> {
       if (next.length >= 8) return;
       if (!seen.add(i)) return;
       if (i < 0 || i >= _searchItems.length) return;
+      if (!_hotSet.contains(i)) return;
       if (_searchItems[i].proximityPercent <= 0) return;
       if (!_inCurrentSearchView(i)) return;
       next.add(i);
@@ -680,8 +746,13 @@ class _SearchScreenState extends State<SearchScreen> {
   void _flushPendingSearchUpdates() {
     if (_dirtyIndices.isEmpty) return;
     if (!mounted) return;
+    final uiDelayMs = _unmatchedOldestDirtyMs == 0
+        ? 0
+        : DateTime.now().millisecondsSinceEpoch - _unmatchedOldestDirtyMs;
     _rebuildNearbyOnly();
-    _displayIndexValid = false;
+    // Percent ticks must not rebuild the row index. That walk was running on
+    // the tag callback and let a burst of reads stall the screen.
+    if (_listKey != 'unmatchedItems') _displayIndexValid = false;
     if (_listKey == 'unmatchedItems') {
       _nearbyTick.value++;
     }
@@ -694,6 +765,7 @@ class _SearchScreenState extends State<SearchScreen> {
       setState(() {});
     }
     if (_listKey == 'unmatchedItems') {
+      _logUnmatchedScanProgress(uiDelayMs);
       _checkAutoStopSearch();
     }
   }
@@ -710,8 +782,29 @@ class _SearchScreenState extends State<SearchScreen> {
       }
       return;
     }
-    if (!_visibleItemsAllAtMax()) return;
+    if (!_everyExpectedItemFound()) return;
+    _showToast('All Items Found');
     unawaited(_stopSearchScan());
+  }
+
+  /// Every row on this Unmatched Search screen is at 100%. A partial batch
+  /// must not count, even if the on-screen filter is stale.
+  bool _everyExpectedItemFound() {
+    if (_listKey != 'unmatchedItems') return _visibleItemsAllAtMax();
+    if (_searchItems.isEmpty) return false;
+    if (_searchQuery.trim().isEmpty) {
+      for (final item in _searchItems) {
+        if (item.proximityPercent < 100) return false;
+      }
+      return true;
+    }
+    if (!_displayIndexValid) _rebuildDisplayIndices();
+    if (_queryScopeIndices.isEmpty) return false;
+    for (final i in _queryScopeIndices) {
+      if (i < 0 || i >= _searchItems.length) return false;
+      if (_searchItems[i].proximityPercent < 100) return false;
+    }
+    return true;
   }
 
   bool _visibleItemsAllAtMax() {
@@ -735,6 +828,12 @@ class _SearchScreenState extends State<SearchScreen> {
     if (!_isScanning && !_rfidService.isScanning) return;
     _scanBusy = true;
     try {
+      if (_listKey == 'unmatchedItems') {
+        _uiFlushTimer?.cancel();
+        _uiFlushTimer = null;
+        _flushPendingSearchUpdates();
+        _logUnmatchedScanSummary('stop');
+      }
       _stopProximityDecay();
       _homeScanOnlyIndex = null;
       await _rfidService.stopScanning();
@@ -751,6 +850,17 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _scheduleSearchUiUpdate() {
+    // Unmatched Search paints once per frame. A setState inside the tag
+    // callback was blocking the reader stream, so later chips in a burst
+    // never reached the list.
+    if (_listKey == 'unmatchedItems') {
+      _uiFlushTimer ??= Timer(const Duration(milliseconds: 16), () {
+        _uiFlushTimer = null;
+        _lastSearchUiUpdateUs = DateTime.now().microsecondsSinceEpoch;
+        _flushPendingSearchUpdates();
+      });
+      return;
+    }
     final now = DateTime.now().microsecondsSinceEpoch;
     final minUs = _isLargeUnmatched ? 16000 : 8000;
     if (_lastSearchUiUpdateUs == 0 ||
@@ -835,8 +945,13 @@ class _SearchScreenState extends State<SearchScreen> {
       if (item.proximityPercent <= 0) continue;
       any = true;
       item.holdProgress();
-      _lastRssiUpdateMs[i] = now;
-      _hotSet.add(i);
+      if (_listKey == 'unmatchedItems') {
+        // Keep the current top strip. Rows that already left range stay below.
+        if (_hotSet.contains(i)) _lastRssiUpdateMs[i] = now;
+      } else {
+        _lastRssiUpdateMs[i] = now;
+        _hotSet.add(i);
+      }
       if (item.proximityPercent >= 100) {
         _atMaxProximity.add(i);
       }
@@ -872,9 +987,102 @@ class _SearchScreenState extends State<SearchScreen> {
     unawaited(_rfidService.playSound(id));
   }
 
+  void _beginUnmatchedScanLog() {
+    _unmatchedUnknown = 0;
+    _unmatchedRssiMissing = 0;
+    _unmatchedMaxHandlerUs = 0;
+    _unmatchedOldestDirtyMs = 0;
+    _unmatchedUnknownEpcs.clear();
+    _unmatchedSeen.clear();
+    for (var i = 0; i < _searchItems.length; i++) {
+      if (_searchItems[i].proximityPercent > 0) _unmatchedSeen.add(i);
+    }
+    _unmatchedScanStartedMs = DateTime.now().millisecondsSinceEpoch;
+    _unmatchedLastLogMs = _unmatchedScanStartedMs;
+    debugPrint(
+      'UnmatchedScan start catalog=${_searchItems.length} '
+      'alreadySeen=${_unmatchedSeen.length}',
+    );
+  }
+
+  void _noteUnmatchedUnknown(String epc) {
+    _unmatchedUnknown++;
+    if (!_unmatchedUnknownEpcs.add(epc)) return;
+    debugPrint('UnmatchedScan received-not-displayed epc=$epc');
+  }
+
+  void _applyUnmatchedTag(
+    int index,
+    SearchItem item,
+    String epc,
+    int proximity,
+    String rssi,
+    int now,
+  ) {
+    final started = DateTime.now().microsecondsSinceEpoch;
+    if (proximity <= 0) _unmatchedRssiMissing++;
+    final changed = applyUnmatchedRead(item, proximity, rssi);
+    final first = _unmatchedSeen.add(index);
+    if (first) {
+      debugPrint(
+        'UnmatchedScan processed epc=$epc item=${item.itemCode} '
+        'percent=${item.proximityPercent}',
+      );
+    }
+    final reentered = !_hotSet.contains(index);
+    if (changed || first || reentered) {
+      _dirtyIndices.add(index);
+      if (_unmatchedOldestDirtyMs == 0) _unmatchedOldestDirtyMs = now;
+      if (!item.positionLocked) {
+        _rssiOrderDirty = true;
+      }
+      _scheduleSearchUiUpdate();
+    }
+    final elapsed = DateTime.now().microsecondsSinceEpoch - started;
+    if (elapsed > _unmatchedMaxHandlerUs) _unmatchedMaxHandlerUs = elapsed;
+  }
+
+  void _logUnmatchedScanProgress(int uiDelayMs) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (_unmatchedLastLogMs != 0 && now - _unmatchedLastLogMs < 1000) return;
+    _unmatchedLastLogMs = now;
+    debugPrint(
+      'UnmatchedScan +${now - _unmatchedScanStartedMs}ms '
+      'seen=${_unmatchedSeen.length}/${_searchItems.length} '
+      'uiDelay=${uiDelayMs}ms unknown=$_unmatchedUnknown '
+      'rssiMissing=$_unmatchedRssiMissing '
+      'maxHandlerUs=$_unmatchedMaxHandlerUs',
+    );
+  }
+
+  void _logUnmatchedScanSummary(String phase) {
+    final missing = <String>[];
+    for (var i = 0; i < _searchItems.length; i++) {
+      if (_unmatchedSeen.contains(i)) continue;
+      final code = _searchItems[i].itemCode.trim();
+      missing.add(code.isEmpty ? _searchItems[i].rfid : code);
+    }
+    final elapsed = _unmatchedScanStartedMs == 0
+        ? 0
+        : DateTime.now().millisecondsSinceEpoch - _unmatchedScanStartedMs;
+    debugPrint(
+      'UnmatchedScan $phase +${elapsed}ms '
+      'catalog=${_searchItems.length} seen=${_unmatchedSeen.length} '
+      'notReceived=${missing.length} receivedNotDisplayed=$_unmatchedUnknown '
+      'rssiMissing=$_unmatchedRssiMissing '
+      'collisions=$_unmatchedIndexCollisions '
+      'maxHandlerUs=$_unmatchedMaxHandlerUs '
+      'notReceivedCodes=${missing.take(48).join(",")}'
+      '${_unmatchedUnknownEpcs.isEmpty ? "" : " receivedNotDisplayedEpcs=${_unmatchedUnknownEpcs.join(",")}"}',
+    );
+  }
+
   void _onTagScanned(Map<String, dynamic> tagEvent) {
     try {
       if (!_isScanning) return;
+      if (!mounted) return;
+      final route = ModalRoute.of(context);
+      if (route != null && !route.isCurrent) return;
 
       final epc = _normScanKey(tagEvent['epc'] as String? ?? '');
       final rssi = (tagEvent['rssi'] as String? ?? '').trim();
@@ -897,7 +1105,10 @@ class _SearchScreenState extends State<SearchScreen> {
       if (index == null && !epc.startsWith('00') && epc.length + 2 <= 64) {
         index = _tagIndexMap['00$epc'];
       }
-      if (index == null || index < 0 || index >= _searchItems.length) return;
+      if (index == null || index < 0 || index >= _searchItems.length) {
+        if (_listKey == 'unmatchedItems') _noteUnmatchedUnknown(epc);
+        return;
+      }
       if (_homeScanOnlyIndex != null && index != _homeScanOnlyIndex) return;
       if (_listKey == 'unmatchedItems' &&
           _searchQuery.trim().isNotEmpty &&
@@ -906,12 +1117,21 @@ class _SearchScreenState extends State<SearchScreen> {
       }
 
       _lastRssiUpdateMs[index] = now;
+      final item = _searchItems[index];
+      if (_listKey == 'unmatchedItems') {
+        _applyUnmatchedTag(index, item, epc, proximity, rssi, now);
+        return;
+      }
       // LED reads often report RSSI 0. Keep the last percent; do not flash 50%.
       if (proximity < 0) return;
-      final item = _searchItems[index];
       final prev = item.proximityPercent;
-      final changed = item.applyStableProximity(rssi, proximity);
-      if (changed) {
+      final changed = item.applyStableProximity(
+        rssi,
+        proximity,
+        onlyRaise: false,
+      );
+      final reentered = _listKey == 'unmatchedItems' && !_hotSet.contains(index);
+      if (changed || reentered) {
         _dirtyIndices.add(index);
         if (!item.positionLocked) {
           _rssiOrderDirty = true;
@@ -981,6 +1201,7 @@ class _SearchScreenState extends State<SearchScreen> {
       _lastCatalogUiUpdateUs = 0;
       _dirtyIndices.clear();
       _displayIndexValid = false;
+      if (_listKey == 'unmatchedItems') _beginUnmatchedScanLog();
       _startProximityDecay();
 
       final List<String> ledEpcs;
@@ -1033,7 +1254,10 @@ class _SearchScreenState extends State<SearchScreen> {
           _nativeTagsNarrowed = narrowed;
           if (narrowed) _unmatchedTagsOnReader = false;
           ledEpcs = const <String>[];
-          ledMode = 'list';
+          // 'list' applies a reader EPC filter and stops inventory to do it.
+          // Tags singulated in that gap stay quiet until the user restarts.
+          // Unmatched Search keeps the open EPC session so later chips still read.
+          ledMode = _listKey == 'unmatchedItems' ? 'epc' : 'list';
         }
       }
       if (_listKey == 'unmatchedItems' &&
@@ -1476,14 +1700,24 @@ class _SearchScreenState extends State<SearchScreen> {
     UnmatchedSearchCatalog.instance.screenKeys = keys;
   }
 
-  Future<void> _handOffToScanDisplay([VoidCallback? action]) async {
+  Future<void> _handOffToScanDisplay(
+    VoidCallback? action, {
+    bool forSave = false,
+  }) async {
     if (_isHandingOff) return;
     _isHandingOff = true;
     if (mounted) setState(() {});
     if (_isScanning) await _stopSearchScan();
     if (!mounted) return;
-    _publishUnmatchedScreenKeys();
-    final screenKeys = UnmatchedSearchCatalog.instance.screenKeys;
+    // Only Save publishes the search list. Menu and back must not
+    // turn the next Inventory save into an Unmatched Search save.
+    Set<String>? screenKeys;
+    if (forSave) {
+      _publishUnmatchedScreenKeys();
+      screenKeys = UnmatchedSearchCatalog.instance.screenKeys;
+    } else {
+      UnmatchedSearchCatalog.instance.screenKeys = null;
+    }
     Navigator.of(context).pop();
     if (screenKeys != null) {
       UnmatchedSearchCatalog.instance.screenKeys = screenKeys;
@@ -1738,7 +1972,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         itemExtent: 34,
                         cacheExtent: 400,
                         addAutomaticKeepAlives: false,
-                        addRepaintBoundaries: false,
+                        addRepaintBoundaries: isUnmatchedList,
                         itemBuilder: (context, index) {
                           if (isUnmatchedList && !statusFiltered) {
                             final pinned = _nearbyPinnedCount();
@@ -1766,7 +2000,7 @@ class _SearchScreenState extends State<SearchScreen> {
           if (isUnmatchedList)
             ScanBottomBarInventory(
               onSave: () {
-                unawaited(_handOffToScanDisplay(catalog.onSave));
+                unawaited(_handOffToScanDisplay(catalog.onSave, forSave: true));
               },
               onList: () {
                 setState(() => _showMenu = !_showMenu);
@@ -1955,6 +2189,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _toggleSearchedItem(SearchItem item) {
+    if (!item.manuallyMatched && item.proximityPercent <= 0) return;
     if (item.manuallyMatched) {
       item.manuallyMatched = false;
       if (_manualMatchedCount > 0) _manualMatchedCount--;
@@ -1968,15 +2203,18 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildManualMatchButton(SearchItem item) {
     final matched = item.manuallyMatched;
+    final canMark = matched || item.proximityPercent > 0;
     return SizedBox(
       width: 28,
       height: 22,
       child: Material(
-        color: matched ? Colors.transparent : const Color(0xFFBDBDBD),
+        color: matched
+            ? Colors.transparent
+            : (canMark ? const Color(0xFFBDBDBD) : const Color(0xFFE0E0E0)),
         borderRadius: BorderRadius.circular(11),
         child: InkWell(
           borderRadius: BorderRadius.circular(11),
-          onTap: () => _toggleSearchedItem(item),
+          onTap: canMark ? () => _toggleSearchedItem(item) : null,
           child: matched
               ? const Icon(Icons.check_circle, color: Colors.green, size: 18)
               : const SizedBox.expand(),

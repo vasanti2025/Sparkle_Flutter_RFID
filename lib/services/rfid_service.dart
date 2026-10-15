@@ -59,6 +59,10 @@ class RfidService {
   int _power = 5;
   int get power => _power;
 
+  DateTime? _scanRequestedAt;
+  int _tagsThisScan = 0;
+  bool _loggedFirstTag = false;
+
   final _tagsController = StreamController<String>.broadcast();
   Stream<String> get tagsStream => _tagsController.stream;
 
@@ -208,12 +212,47 @@ class RfidService {
       final epc = parts[0];
       final rssi = parts.length > 1 ? parts[1] : '';
       if (epc.isEmpty) return;
+      _noteTagReceived();
       _tagsController.add(epc);
       _tagsWithRssiController.add({'epc': epc, 'rssi': rssi});
     } else if (event.isNotEmpty) {
+      _noteTagReceived();
       _tagsController.add(event);
       _tagsWithRssiController.add({'epc': event, 'rssi': ''});
     }
+  }
+
+  void _beginScanTiming() {
+    _scanRequestedAt = DateTime.now();
+    _tagsThisScan = 0;
+    _loggedFirstTag = false;
+  }
+
+  void _noteTagReceived() {
+    _tagsThisScan++;
+    if (_loggedFirstTag || _scanRequestedAt == null) return;
+    _loggedFirstTag = true;
+    final ms = DateTime.now().difference(_scanRequestedAt!).inMilliseconds;
+    debugPrint('RFID first-tag +${ms}ms');
+  }
+
+  void _logScanPhase(String phase, DateTime requestedAt) {
+    final ms = DateTime.now().difference(requestedAt).inMilliseconds;
+    debugPrint('RFID $phase +${ms}ms');
+  }
+
+  /// UART C5/C7 has no tray or R6. Do not probe Bluetooth before the radio starts.
+  Future<bool> _uartHandheldWithoutBle() async {
+    if (_trayConnected ||
+        _r6Connected ||
+        _trayModeEnabled ||
+        _r6ModeEnabled ||
+        _trayConnecting ||
+        _r6Connecting) {
+      return false;
+    }
+    final prefs = PrefService.instanceOrNull ?? await PrefService.init();
+    return !prefs.isTrayModeEnabled() && !prefs.isR6ModeEnabled();
   }
 
   /// Preload inventory keys on device before G-scan (native filters non-matching tags).
@@ -892,23 +931,6 @@ class RfidService {
     }
   }
 
-  /// Unmatched Search on the UART gun should not wait on a Bluetooth probe.
-  /// Tray and R6 still attach before the scan.
-  bool _skipSearchBleProbe(bool requested) {
-    if (!requested) return false;
-    if (_trayConnected ||
-        _r6Connected ||
-        _trayModeEnabled ||
-        _r6ModeEnabled ||
-        _trayConnecting ||
-        _r6Connecting) {
-      return false;
-    }
-    final prefs = PrefService.instanceOrNull;
-    if (prefs == null) return false;
-    return !prefs.isTrayModeEnabled() && !prefs.isR6ModeEnabled();
-  }
-
   /// Search / Unmatched Search — do not block UART behind tray/R6/tag-list work.
   Future<bool> startSearchScanning({
     required int power,
@@ -934,9 +956,12 @@ class RfidService {
         await stopScanning();
         await Future<void>.delayed(const Duration(milliseconds: 80));
       }
-      if (!_skipSearchBleProbe(skipBleProbe)) {
+      final requestedAt = DateTime.now();
+      _beginScanTiming();
+      if (!skipBleProbe && !await _uartHandheldWithoutBle()) {
         await autoAttachSystemBluetoothReader();
       }
+      _logScanPhase('reader-ready', requestedAt);
       if (searchTags != null && searchTags.isNotEmpty) {
         // Replace any preloaded unmatched catalog so a typed search cannot
         // light tags that are no longer in the list.
@@ -970,7 +995,10 @@ class RfidService {
               'holdLedSolid': holdLedSolid,
             }) ??
             false;
-        if (started) return true;
+        if (started) {
+          _logScanPhase('reader-started', requestedAt);
+          return true;
+        }
         _isScanning = false;
       }
       return false;
@@ -1017,17 +1045,20 @@ class RfidService {
         await stopScanning();
         await Future<void>.delayed(const Duration(milliseconds: 120));
       }
+      final requestedAt = DateTime.now();
+      _beginScanTiming();
 
-      // Apply BLE mode from Android Bluetooth / saved prefs so Scan Display
-      // uses tray or R6 when that reader is already connected at OS level.
-      await autoAttachSystemBluetoothReader();
-      final prefs = PrefService.instanceOrNull ?? await PrefService.init();
-      if (prefs.isR6ModeEnabled() || _r6ModeEnabled) {
-        await _ensureR6ReadyForScan();
-      } else {
-        await _ensureTrayReadyForInventoryScan();
+      // UART C5/C7 starts the radio now. Tray and R6 still attach first.
+      if (!await _uartHandheldWithoutBle()) {
+        await autoAttachSystemBluetoothReader();
+        final prefs = PrefService.instanceOrNull ?? await PrefService.init();
+        if (prefs.isR6ModeEnabled() || _r6ModeEnabled) {
+          await _ensureR6ReadyForScan();
+        } else {
+          await _ensureTrayReadyForInventoryScan();
+        }
       }
-      await _methodChannel.invokeMethod<bool>('prepareForScan');
+      _logScanPhase('reader-ready', requestedAt);
       await setInventoryScanMode(true);
       await clearMatchEpcs();
       await clearInventoryScope();
@@ -1036,9 +1067,10 @@ class RfidService {
       for (var attempt = 0; attempt < attempts; attempt++) {
         if (attempt > 0) {
           await Future<void>.delayed(Duration(milliseconds: 120 * attempt));
-          await _methodChannel.invokeMethod<bool>('prepareForScan');
           await setInventoryScanMode(true);
         }
+        // Accept a tag that arrives before this call returns.
+        _isScanning = true;
         final started = await _methodChannel.invokeMethod<bool>('startScanning', {
               'power': power,
               'inventory': true,
@@ -1046,6 +1078,7 @@ class RfidService {
             }) ??
             false;
         if (started) {
+          _logScanPhase('reader-started', requestedAt);
           _isScanning = true;
           if (_trayModeEnabled) {
             _trayConnected = true;
@@ -1071,6 +1104,11 @@ class RfidService {
   }
 
   Future<bool> stopScanning() async {
+    if (_scanRequestedAt != null) {
+      final ms = DateTime.now().difference(_scanRequestedAt!).inMilliseconds;
+      debugPrint('RFID stop +${ms}ms tags=$_tagsThisScan');
+      _scanRequestedAt = null;
+    }
     _isScanning = false;
     _simulationTimer?.cancel();
     _simulationTimer = null;

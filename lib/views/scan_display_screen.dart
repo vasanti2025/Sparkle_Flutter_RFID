@@ -313,6 +313,14 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   // Fast scan lookup — mirrors Kotlin filteredDbEpcSet + matchedEpcSet
   final Map<String, int> _epcToMasterIndex = {};
   final Set<String> _matchedEpcSet = {};
+  /// Matches made on this Scan Display visit (Counter, Box, Branch, scan).
+  /// Loaded or resumed results from earlier in the day stay out of this set.
+  final Set<String> _sessionMatchedKeys = {};
+  /// Copy of [_sessionMatchedKeys] taken when Unmatched Search opens.
+  /// Reads after that stay out of the search save.
+  final Set<String> _searchEntrySessionKeys = {};
+  /// Unmatched Search is on top. Inventory must not match those reads.
+  bool _unmatchedSearchActive = false;
   Set<String> _filteredDbEpcSet = {};
   bool _lookupMapsReady = false;
   /// First reports while maps are still building — replay so a tag is not
@@ -469,6 +477,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     if (stripped.isNotEmpty) _matchedEpcSet.add(stripped);
     for (final key in item.matchKeys) {
       _matchedEpcSet.add(key);
+      _sessionMatchedKeys.add(key);
     }
     if (!wasMatched) {
       item.currentScannedStatus = 'Matched';
@@ -864,6 +873,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   void _onTagScanned(String tag) {
     try {
+      // Search owns the reader while Unmatched Search is open.
+      if (_unmatchedSearchActive) return;
       // Only handle tags while this screen owns the scan session.
       if (!_isScanning) return;
       if (!mounted) return;
@@ -913,7 +924,15 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         return;
       }
 
-      if (inScope || (mapsWarming && masterIndex != null)) {
+      // Filter not ready yet: hold the read. Do not match the whole catalog.
+      if (mapsWarming) {
+        if (_pendingWarmTags.length < 4000) {
+          _pendingWarmTags.add(scannedEpc);
+        }
+        return;
+      }
+
+      if (inScope) {
         if (_rfidService.trayReaderActive) {
           _trayScanSession.recordInScope(scannedEpc, _filteredDbEpcSet);
         }
@@ -921,18 +940,13 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
           _registerMatchForItem(_scannedItems[masterIndex], scannedEpc);
         } else {
           _matchedEpcSet.add(scannedEpc);
-          if (altEpc != null) _matchedEpcSet.add(altEpc);
+          _sessionMatchedKeys.add(scannedEpc);
+          if (altEpc != null) {
+            _matchedEpcSet.add(altEpc);
+            _sessionMatchedKeys.add(altEpc);
+          }
         }
         _scheduleScanUiUpdate();
-        return;
-      }
-
-      // Don't classify unknown tags as unlabelled until lookup maps are ready.
-      // Keep the first read — the gun may not report that EPC again for ~1 min.
-      if (mapsWarming) {
-        if (_pendingWarmTags.length < 4000) {
-          _pendingWarmTags.add(scannedEpc);
-        }
         return;
       }
 
@@ -1117,6 +1131,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     final dateMode = _stockTakingDate != null;
     setState(() {
       _showResumeOnScanButton = false;
+      _sessionMatchedKeys.clear();
+      _searchEntrySessionKeys.clear();
       if (dateMode) {
         _matchedEpcSet
           ..clear()
@@ -1604,6 +1620,11 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   Future<void> _openSearchUnmatched() async {
     setState(() => _showMenu = false);
     final navigator = Navigator.of(context);
+    // Freeze this visit's scans before search reads can add anything.
+    _unmatchedSearchActive = true;
+    _searchEntrySessionKeys
+      ..clear()
+      ..addAll(_sessionMatchedKeys);
     if (_isScanning) {
       _scanEpoch++;
       await _rfidService.stopScanning();
@@ -1635,10 +1656,14 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         if (!mounted) return;
       }
     }
-    if (!mounted) return;
+    if (!mounted) {
+      _unmatchedSearchActive = false;
+      return;
+    }
     await navigator.pushNamed('/search', arguments: {
       'listKey': 'unmatchedItems',
     });
+    _unmatchedSearchActive = false;
     if (mounted) {
       setState(() {
         _syncMatchedFromUnmatchedSearch();
@@ -1679,28 +1704,34 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     return false;
   }
 
-  bool _searchItemOnScreen(SearchItem searchItem, Set<String> keys) {
-    for (final rawKey in [
-      searchItem.epc,
-      searchItem.rfid,
-      searchItem.itemCode,
-      searchItem.tid,
-      searchItem.hex,
-    ]) {
-      if (rawKey.trim().isEmpty) continue;
-      final norm = _normalizeInventoryScanKey(rawKey);
-      if (norm.isNotEmpty && keys.contains(norm)) return true;
-      final stripped = stripScanKey00(norm);
-      if (stripped.isNotEmpty && keys.contains(stripped)) return true;
-    }
-    return false;
-  }
-
-  /// Rows for this save. Unmatched Search keeps items already matched in the
-  /// Inventory session, plus the rows on that search screen. A row is stored once.
+  /// Unmatched Search save: this visit's matches, plus the unmatched list
+  /// opened on that screen. Unticked rows stay unmatch, so Total Qty and
+  /// Unmatch Qty stay the list totals. Other Inventory saves use the screen list.
   List<ScannedBulkItem> _itemsForCurrentSave() {
     final keys = UnmatchedSearchCatalog.instance.screenKeys;
     if (keys == null) return _getNavScopeItems();
+
+    final include = <String>{..._searchEntrySessionKeys};
+    void addRaw(String raw) {
+      if (raw.trim().isEmpty) return;
+      final norm = _normalizeInventoryScanKey(raw);
+      if (norm.isNotEmpty) include.add(norm);
+      final stripped = stripScanKey00(norm);
+      if (stripped.isNotEmpty) include.add(stripped);
+    }
+
+    final catalog = UnmatchedSearchCatalog.instance;
+    if (catalog.items.isNotEmpty) {
+      for (final searchItem in catalog.items) {
+        addRaw(searchItem.epc);
+        addRaw(searchItem.rfid);
+        addRaw(searchItem.itemCode);
+        addRaw(searchItem.tid);
+        addRaw(searchItem.hex);
+      }
+    } else {
+      include.addAll(keys);
+    }
 
     final out = <ScannedBulkItem>[];
     final seen = <String>{};
@@ -1715,12 +1746,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     }
 
     for (final item in _scannedItems) {
-      if (item.matchKeys.any(_matchedEpcSet.contains)) add(item);
-    }
-    if (keys.isNotEmpty) {
-      for (final item in _scannedItems) {
-        if (_itemInScreenKeys(item, keys)) add(item);
-      }
+      if (item.matchKeys.any(include.contains)) add(item);
     }
     return out;
   }
@@ -1728,13 +1754,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   void _syncMatchedFromUnmatchedSearch() {
     final catalog = UnmatchedSearchCatalog.instance;
     if (catalog.items.isEmpty) return;
-    final screenKeys = catalog.screenKeys;
     bool anyAdded = false;
     for (final searchItem in catalog.items) {
-      if (screenKeys != null && !_searchItemOnScreen(searchItem, screenKeys)) {
-        continue;
-      }
-      if (searchItem.manuallyMatched || searchItem.proximityPercent >= 80) {
+      if (searchItem.manuallyMatched && searchItem.proximityPercent > 0) {
         for (final rawKey in [
           searchItem.epc,
           searchItem.rfid,
@@ -1744,9 +1766,15 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         ]) {
           if (rawKey.trim().isEmpty) continue;
           final norm = _normalizeInventoryScanKey(rawKey);
-          if (norm.isNotEmpty && _matchedEpcSet.add(norm)) anyAdded = true;
+          if (norm.isNotEmpty) {
+            _sessionMatchedKeys.add(norm);
+            if (_matchedEpcSet.add(norm)) anyAdded = true;
+          }
           final stripped = stripScanKey00(norm);
-          if (stripped.isNotEmpty && _matchedEpcSet.add(stripped)) anyAdded = true;
+          if (stripped.isNotEmpty) {
+            _sessionMatchedKeys.add(stripped);
+            if (_matchedEpcSet.add(stripped)) anyAdded = true;
+          }
         }
       }
     }

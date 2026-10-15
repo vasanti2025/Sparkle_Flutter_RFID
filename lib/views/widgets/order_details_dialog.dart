@@ -307,9 +307,26 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
     final double baseAmt = (net * rate) + hallmark + stoneAmount + diamondAmount;
     final double mrpVal = double.tryParse(_mrpCtrl.text.trim()) ?? 0.0;
 
+    // Quotation: a new rate per gram updates the item total. Wastage and the
+    // other percentages stay on fine weight and are not recalculated here.
+    String itemAmt;
+    if (!widget.showDates) {
+      final originalRate = double.tryParse(widget.item.todaysRate.trim()) ?? 0.0;
+      final originalAmt = double.tryParse(widget.item.itemAmt ?? '') ?? 0.0;
+      if ((rate - originalRate).abs() < 0.0000001) {
+        itemAmt = originalAmt.toStringAsFixed(2);
+      } else {
+        final originalNet = double.tryParse(widget.item.nWt ?? '') ?? net;
+        final amount = originalAmt - (originalNet * originalRate) + (net * rate);
+        itemAmt = (amount < 0 ? 0.0 : amount).toStringAsFixed(2);
+      }
+    } else {
+      itemAmt = mrpVal > 0.0 ? mrpVal.toStringAsFixed(2) : baseAmt.toStringAsFixed(2);
+    }
+
     if (mounted) {
       setState(() {
-        _itemAmt = mrpVal > 0.0 ? mrpVal.toStringAsFixed(2) : baseAmt.toStringAsFixed(2);
+        _itemAmt = itemAmt;
       });
     }
   }

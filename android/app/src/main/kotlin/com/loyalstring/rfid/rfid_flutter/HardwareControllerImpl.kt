@@ -117,6 +117,9 @@ class HardwareControllerImpl(
     /** Search proximity needs fresher RSSI than generic product-scan dedup. Pushpa has none. */
     private val searchEmitDedupMs = 20L
     private val tagFlushDelayMs = 50L
+    private var scanArmedAt = 0L
+    private var firstTagLogged = false
+    private var droppedTagEvents = 0
 
     private fun normalizeScanKey(raw: String): String {
         val t = raw.trim().uppercase()
@@ -1030,6 +1033,10 @@ class HardwareControllerImpl(
             }
             if (started) {
                 isScanning = true
+                scanArmedAt = SystemClock.elapsedRealtime()
+                firstTagLogged = false
+                droppedTagEvents = 0
+                Log.i(TAG, "RFID reader-started inventory=$inventory")
                 startPollingThread(inventory, useTray = false)
             } else {
                 isScanning = false
@@ -1448,7 +1455,7 @@ class HardwareControllerImpl(
     private fun tickSearchLedBlink() {
         // Plugin LED is already set. Do not clear it here.
         if (holdLedSolid) return
-        // One searched tag stays locked. A list updates until its chips are filtered.
+        // One searched tag stays locked. Do not stopInventory from here.
         if (!searchLedMulti &&
             searchRadioMode == SEARCH_RADIO_FILTER &&
             searchLedPhase == SEARCH_LED_BLINK &&
@@ -1767,6 +1774,11 @@ class HardwareControllerImpl(
     }
 
     private fun stopRfidInventory(restoreEpc: Boolean = true): Boolean {
+        if (scanArmedAt != 0L) {
+            val ran = SystemClock.elapsedRealtime() - scanArmedAt
+            Log.i(TAG, "RFID stop +${ran}ms unique=${sessionUniqueEpcs.size} dropped=$droppedTagEvents")
+            scanArmedAt = 0L
+        }
         inventoryScanMode = false
         inventoryScopeEpcs.clear()
         sessionUniqueEpcs.clear()
@@ -1911,6 +1923,11 @@ class HardwareControllerImpl(
             return
         }
         val firstInventory = inventory && sessionUniqueEpcs.add(cleanEpc)
+        if (!firstTagLogged) {
+            firstTagLogged = true
+            val waited = if (scanArmedAt == 0L) -1L else SystemClock.elapsedRealtime() - scanArmedAt
+            Log.i(TAG, "RFID first-tag +${waited}ms unique=${sessionUniqueEpcs.size}")
+        }
         queueTagEvent(emitEpc, rssiOut, flushNow = searchHit || firstInventory)
     }
 
@@ -1984,7 +2001,9 @@ class HardwareControllerImpl(
             if (pendingTagEvents.size >= 300) {
                 if (matchesSearchTag(cleanEpc) || inventoryScanMode) {
                     pendingTagEvents.removeAt(0)
+                    droppedTagEvents++
                 } else {
+                    droppedTagEvents++
                     return
                 }
             }
