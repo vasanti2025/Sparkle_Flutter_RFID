@@ -308,6 +308,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   bool _showSearchInput = false;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
+  Timer? _screenScopeTimer;
 
   // Fast scan lookup — mirrors Kotlin filteredDbEpcSet + matchedEpcSet
   final Map<String, int> _epcToMasterIndex = {};
@@ -383,6 +384,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     _tagsSubscription?.cancel();
     _triggerSubscription?.cancel();
     _scanUiFlushTimer?.cancel();
+    _screenScopeTimer?.cancel();
     _rfidService.stopScanning();
     _searchController.dispose();
     super.dispose();
@@ -573,6 +575,29 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     }
     _filteredDbEpcSet = next;
     _replayPendingWarmTags();
+  }
+
+  /// Reader scope follows the open Category / Product / Design / search list.
+  void _applyCurrentScreenScanScope() {
+    _screenScopeTimer?.cancel();
+    if (_selectedMenu == 'UNLABELLED') {
+      _filteredDbEpcSet = {};
+      return;
+    }
+    final scope = _getDisplayScopeItems();
+    if (scope.length <= 2500) {
+      _setFilteredItemsForScan(scope);
+      return;
+    }
+    unawaited(_setFilteredItemsForScanChunked(scope));
+  }
+
+  void _scheduleCurrentScreenScanScope() {
+    _screenScopeTimer?.cancel();
+    _screenScopeTimer = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      _applyCurrentScreenScanScope();
+    });
   }
 
   int _viewStateHash() {
@@ -792,6 +817,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         _searchQuery = '';
         _searchController.clear();
       });
+      _applyCurrentScreenScanScope();
       return false;
     }
     if (_currentLevel == 'DesignItems') {
@@ -800,6 +826,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         _selectedDesign = null;
         _selectedDesigns.clear();
       });
+      _applyCurrentScreenScanScope();
       return false;
     } else if (_currentLevel == 'Design') {
       setState(() {
@@ -807,6 +834,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         _selectedProduct = null;
         _selectedProducts.clear();
       });
+      _applyCurrentScreenScanScope();
       return false;
     } else if (_currentLevel == 'Product') {
       setState(() {
@@ -814,6 +842,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         _selectedCategory = null;
         _selectedCategories.clear();
       });
+      _applyCurrentScreenScanScope();
       return false;
     }
 
@@ -825,6 +854,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         _selectedProduct = null;
         _selectedDesign = null;
       });
+      _applyCurrentScreenScanScope();
       return false;
     }
 
@@ -874,6 +904,14 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       final inScope = hitSet(_filteredDbEpcSet);
       final masterIndex = _epcToMasterIndex[scannedEpc] ??
           (altEpc != null ? _epcToMasterIndex[altEpc] : null);
+
+      // Known stock that is not on this screen must not match or become unlabelled.
+      if (_filteredDbEpcSet.isNotEmpty &&
+          _selectedMenu != 'UNLABELLED' &&
+          masterIndex != null &&
+          !inScope) {
+        return;
+      }
 
       if (inScope || (mapsWarming && masterIndex != null)) {
         if (_rfidService.trayReaderActive) {
@@ -1298,7 +1336,11 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     if (_isSaving) return;
     setState(() => _isSaving = true);
     _stopScanning();
+    // Apply Unmatched Search ticks first, then take the session rows.
+    // Previously matched Inventory items are not in the search list.
     _syncMatchedFromUnmatchedSearch();
+    final saveItems = List<ScannedBulkItem>.of(_itemsForCurrentSave());
+    UnmatchedSearchCatalog.instance.screenKeys = null;
     _syncItemStatusesFromMatchedSet();
 
     final viewModel = Provider.of<ProductViewModel>(context, listen: false);
@@ -1358,8 +1400,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       var matchedUpload = 0;
       var unmatchedUpload = 0;
 
-      for (var i = 0; i < _scannedItems.length; i++) {
-        final item = _scannedItems[i];
+      for (var i = 0; i < saveItems.length; i++) {
+        final item = saveItems[i];
         final isMatched = _matchKeysForItem(item)
             .any((key) => _matchedEpcSet.contains(key));
 
@@ -1630,11 +1672,68 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     return true;
   }
 
+  bool _itemInScreenKeys(ScannedBulkItem item, Set<String> keys) {
+    for (final key in item.matchKeys) {
+      if (keys.contains(key)) return true;
+    }
+    return false;
+  }
+
+  bool _searchItemOnScreen(SearchItem searchItem, Set<String> keys) {
+    for (final rawKey in [
+      searchItem.epc,
+      searchItem.rfid,
+      searchItem.itemCode,
+      searchItem.tid,
+      searchItem.hex,
+    ]) {
+      if (rawKey.trim().isEmpty) continue;
+      final norm = _normalizeInventoryScanKey(rawKey);
+      if (norm.isNotEmpty && keys.contains(norm)) return true;
+      final stripped = stripScanKey00(norm);
+      if (stripped.isNotEmpty && keys.contains(stripped)) return true;
+    }
+    return false;
+  }
+
+  /// Rows for this save. Unmatched Search keeps items already matched in the
+  /// Inventory session, plus the rows on that search screen. A row is stored once.
+  List<ScannedBulkItem> _itemsForCurrentSave() {
+    final keys = UnmatchedSearchCatalog.instance.screenKeys;
+    if (keys == null) return _getNavScopeItems();
+
+    final out = <ScannedBulkItem>[];
+    final seen = <String>{};
+    void add(ScannedBulkItem item) {
+      final id = (item.epc.trim().isNotEmpty
+              ? item.epc
+              : (item.rfid.trim().isNotEmpty ? item.rfid : item.itemCode))
+          .trim()
+          .toUpperCase();
+      if (id.isNotEmpty && !seen.add(id)) return;
+      out.add(item);
+    }
+
+    for (final item in _scannedItems) {
+      if (item.matchKeys.any(_matchedEpcSet.contains)) add(item);
+    }
+    if (keys.isNotEmpty) {
+      for (final item in _scannedItems) {
+        if (_itemInScreenKeys(item, keys)) add(item);
+      }
+    }
+    return out;
+  }
+
   void _syncMatchedFromUnmatchedSearch() {
     final catalog = UnmatchedSearchCatalog.instance;
     if (catalog.items.isEmpty) return;
+    final screenKeys = catalog.screenKeys;
     bool anyAdded = false;
     for (final searchItem in catalog.items) {
+      if (screenKeys != null && !_searchItemOnScreen(searchItem, screenKeys)) {
+        continue;
+      }
       if (searchItem.manuallyMatched || searchItem.proximityPercent >= 80) {
         for (final rawKey in [
           searchItem.epc,
@@ -2271,6 +2370,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                         setState(() {
                           _searchQuery = val;
                         });
+                        _scheduleCurrentScreenScanScope();
                       },
                       autofocus: true,
                     )
@@ -2295,6 +2395,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                         _searchQuery = '';
                         _searchController.clear();
                       });
+                      _applyCurrentScreenScanScope();
                     },
                   )
                 else ...[
@@ -4011,6 +4112,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
             _currentLevel = 'DesignItems';
           }
         });
+        _applyCurrentScreenScanScope();
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 6),

@@ -124,6 +124,10 @@ class UnmatchedSearchCatalog {
 
   final List<SearchItem> items = [];
 
+  /// Keys for the items this Unmatched Search screen is showing.
+  /// Save and match-sync use this so other session rows are left out.
+  Set<String>? screenKeys;
+
   /// Scan Display save / list / email — used only by Search Unmatched.
   VoidCallback? onSave;
   void Function(BuildContext dialogContext)? onEmail;
@@ -133,7 +137,10 @@ class UnmatchedSearchCatalog {
   int Function()? unmatchedCountOf;
   int Function()? unlabelledCountOf;
 
-  void clear() => items.clear();
+  void clear() {
+    items.clear();
+    screenKeys = null;
+  }
 
   void clearActions() {
     onSave = null;
@@ -197,6 +204,8 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _rssiOrderDirty = false;
   bool _displayIndexValid = false;
   int _filteredCount = 0;
+  /// Unmatched rows that match the current text query. Empty means the whole list.
+  final Set<int> _queryScopeIndices = {};
   bool _indexReady = true;
   int _lastRssiSoundMs = 0;
   int _lastRssiSoundId = -1;
@@ -507,14 +516,14 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _rebuildNearbyOnly() {
-    var hotMembershipChanged = false;
-    for (final i in _dirtyIndices) {
+    final touched = List<int>.of(_dirtyIndices);
+    for (final i in touched) {
       if (i < 0 || i >= _searchItems.length) continue;
       final prox = _searchItems[i].proximityPercent;
       if (prox > 0) {
-        if (_hotSet.add(i)) hotMembershipChanged = true;
+        _hotSet.add(i);
       } else {
-        if (_hotSet.remove(i)) hotMembershipChanged = true;
+        _hotSet.remove(i);
       }
       if (prox >= 100) {
         _atMaxProximity.add(i);
@@ -523,23 +532,96 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     }
     _dirtyIndices.clear();
-    final reorder = _rssiOrderDirty ||
-        _shuffledGen != _orderGen ||
-        _displayOrder.length != _searchItems.length;
     _applyRssiPriority();
-    if (!_isLargeUnmatched || _searchQuery.trim().isNotEmpty) return;
-    if (!reorder && !hotMembershipChanged) return;
-    _hotIndices.clear();
-    for (final i in _displayOrder) {
-      if (!_hotSet.contains(i)) continue;
-      _hotIndices.add(i);
-      if (_hotIndices.length == 40) break;
+    if (_listKey != 'unmatchedItems') return;
+    _refreshUpsideIndices(touched);
+  }
+
+  /// Tags just read stay in the top strip, even when older rows are locked.
+  void _refreshUpsideIndices([List<int>? touched]) {
+    if (_hotSet.isEmpty) {
+      if (_hotIndices.isEmpty) return;
+      _hotIndices.clear();
+      _mainDisplayDirty = true;
+      return;
     }
-    _mainDisplayDirty = true;
+    final next = <int>[];
+    final seen = <int>{};
+    void consider(int i) {
+      if (next.length >= 8) return;
+      if (!seen.add(i)) return;
+      if (i < 0 || i >= _searchItems.length) return;
+      if (_searchItems[i].proximityPercent <= 0) return;
+      if (!_inCurrentSearchView(i)) return;
+      next.add(i);
+    }
+
+    if (touched != null && touched.isNotEmpty) {
+      final newest = List<int>.of(touched);
+      newest.sort((a, b) =>
+          (_lastRssiUpdateMs[b] ?? 0).compareTo(_lastRssiUpdateMs[a] ?? 0));
+      for (final i in newest) {
+        consider(i);
+      }
+      for (final i in _hotIndices) {
+        consider(i);
+      }
+    } else {
+      final ranked = <int>[];
+      for (final i in _hotSet) {
+        if (i < 0 || i >= _searchItems.length) continue;
+        if (_searchItems[i].proximityPercent <= 0) continue;
+        if (!_inCurrentSearchView(i)) continue;
+        ranked.add(i);
+      }
+      ranked.sort((a, b) =>
+          (_lastRssiUpdateMs[b] ?? 0).compareTo(_lastRssiUpdateMs[a] ?? 0));
+      for (final i in ranked) {
+        consider(i);
+        if (next.length >= 8) break;
+      }
+    }
+    final sameSet = _sameIndexSet(_hotIndices, next);
+    if (_sameIndexList(_hotIndices, next)) return;
+    _hotIndices
+      ..clear()
+      ..addAll(next);
+    if (!sameSet) _mainDisplayDirty = true;
+  }
+
+  bool _inCurrentSearchView(int index) {
+    final query = _searchQuery.trim().toUpperCase().replaceAll(' ', '');
+    if (query.isEmpty) return true;
+    final item = _searchItems[index];
+    return item.normItemCode.contains(query) ||
+        item.normRfid.contains(query) ||
+        item.normEpc.contains(query) ||
+        item.normTid.contains(query) ||
+        item.normHex.contains(query);
+  }
+
+  bool _sameIndexList(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  bool _sameIndexSet(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    if (_sameIndexList(a, b)) return true;
+    final left = a.toSet();
+    for (final i in b) {
+      if (!left.contains(i)) return false;
+    }
+    return true;
   }
 
   int _nearbyPinnedCount() {
-    if (!_isLargeUnmatched || _searchQuery.trim().isNotEmpty) return 0;
+    if (_listKey != 'unmatchedItems' || _countFilter != _SearchCountFilter.all) {
+      return 0;
+    }
     final n = _hotIndices.length;
     if (n <= 0) return 0;
     return n > 8 ? 8 : n;
@@ -554,8 +636,15 @@ class _SearchScreenState extends State<SearchScreen> {
     for (var i = 0; i < pinned; i++) {
       skip.add(_hotIndices[i]);
     }
+    final List<int> source;
+    if (_searchQuery.trim().isEmpty) {
+      source = _displayOrder;
+    } else {
+      if (!_displayIndexValid) _rebuildDisplayIndices();
+      source = _visibleOrder;
+    }
     final next = <int>[];
-    for (final i in _displayOrder) {
+    for (final i in source) {
       if (skip.contains(i)) continue;
       next.add(i);
     }
@@ -563,10 +652,29 @@ class _SearchScreenState extends State<SearchScreen> {
     _mainDisplayDirty = false;
   }
 
-  int _largeUnmatchedListCount() {
-    if (_nearbyPinnedCount() == 0) return _searchItems.length;
+  /// Rows under the top strip. The strip itself is not repeated here.
+  int _unmatchedOpenCount() {
+    if (_nearbyPinnedCount() == 0) {
+      if (_isLargeUnmatched && _searchQuery.trim().isEmpty) {
+        return _searchItems.length;
+      }
+      if (!_displayIndexValid) _rebuildDisplayIndices();
+      return _filteredCount;
+    }
     _ensureMainDisplayOrder();
     return _mainDisplayOrder.length;
+  }
+
+  SearchItem? _itemAtUnmatchedOpen(int index) {
+    if (_nearbyPinnedCount() == 0) {
+      if (_searchQuery.trim().isEmpty) return _itemAtDisplay(index);
+      return _tryDisplayItemAt(index);
+    }
+    _ensureMainDisplayOrder();
+    if (index < 0 || index >= _mainDisplayOrder.length) return null;
+    final i = _mainDisplayOrder[index];
+    if (i < 0 || i >= _searchItems.length) return null;
+    return _searchItems[i];
   }
 
   void _flushPendingSearchUpdates() {
@@ -574,7 +682,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (!mounted) return;
     _rebuildNearbyOnly();
     _displayIndexValid = false;
-    if (_isLargeUnmatched) {
+    if (_listKey == 'unmatchedItems') {
       _nearbyTick.value++;
     }
     final now = DateTime.now().microsecondsSinceEpoch;
@@ -738,18 +846,9 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     }
     if (!any) return null;
-    if (_isLargeUnmatched && _searchQuery.trim().isEmpty) {
-      _hotIndices.clear();
-      final order = _displayOrder.length == _searchItems.length
-          ? _displayOrder
-          : List<int>.generate(_searchItems.length, (i) => i);
-      for (final i in order) {
-        if (!_hotSet.contains(i)) continue;
-        _hotIndices.add(i);
-        if (_hotIndices.length == 40) break;
-      }
+    if (_listKey == 'unmatchedItems') {
+      _refreshUpsideIndices();
       _nearbyTick.value++;
-      _mainDisplayDirty = true;
     }
     return (rssi: bestRssi, percent: bestPct);
   }
@@ -800,6 +899,11 @@ class _SearchScreenState extends State<SearchScreen> {
       }
       if (index == null || index < 0 || index >= _searchItems.length) return;
       if (_homeScanOnlyIndex != null && index != _homeScanOnlyIndex) return;
+      if (_listKey == 'unmatchedItems' &&
+          _searchQuery.trim().isNotEmpty &&
+          !_queryScopeIndices.contains(index)) {
+        return;
+      }
 
       _lastRssiUpdateMs[index] = now;
       // LED reads often report RSSI 0. Keep the last percent; do not flash 50%.
@@ -990,6 +1094,8 @@ class _SearchScreenState extends State<SearchScreen> {
 
     _debounceTimer = Timer(const Duration(milliseconds: 250), () {
       if (!mounted) return;
+      _mainDisplayDirty = true;
+      _refreshUpsideIndices();
       setState(() {});
     });
   }
@@ -1269,6 +1375,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_isLargeUnmatched && _searchQuery.trim().isEmpty) {
       _filteredCount = _searchItems.length;
       _displayIndexValid = true;
+      _queryScopeIndices.clear();
       return;
     }
     final query = _searchQuery.trim().toUpperCase().replaceAll(' ', '');
@@ -1303,6 +1410,10 @@ class _SearchScreenState extends State<SearchScreen> {
       ..addAll(rest);
     _filteredCount = _visibleOrder.length;
     _displayIndexValid = true;
+    _queryScopeIndices.clear();
+    if (_listKey == 'unmatchedItems' && query.isNotEmpty) {
+      _queryScopeIndices.addAll(_visibleOrder);
+    }
   }
 
   SearchItem? _itemAtDisplay(int index) {
@@ -1338,13 +1449,45 @@ class _SearchScreenState extends State<SearchScreen> {
     throw StateError('Search display is empty');
   }
 
+  void _publishUnmatchedScreenKeys() {
+    if (_listKey != 'unmatchedItems') return;
+    final keys = <String>{};
+    void addItem(SearchItem item) {
+      for (final raw in [item.epc, item.rfid, item.itemCode, item.tid, item.hex]) {
+        final key = _normScanKey(raw);
+        if (key.isEmpty) continue;
+        keys.add(key);
+        final stripped = stripScanKey00(key);
+        if (stripped.isNotEmpty && stripped != key) keys.add(stripped);
+      }
+    }
+
+    if (_searchQuery.trim().isEmpty) {
+      for (final item in _searchItems) {
+        addItem(item);
+      }
+    } else {
+      if (!_displayIndexValid) _rebuildDisplayIndices();
+      for (var i = 0; i < _filteredCount; i++) {
+        final item = _tryDisplayItemAt(i);
+        if (item != null) addItem(item);
+      }
+    }
+    UnmatchedSearchCatalog.instance.screenKeys = keys;
+  }
+
   Future<void> _handOffToScanDisplay([VoidCallback? action]) async {
     if (_isHandingOff) return;
     _isHandingOff = true;
     if (mounted) setState(() {});
     if (_isScanning) await _stopSearchScan();
     if (!mounted) return;
+    _publishUnmatchedScreenKeys();
+    final screenKeys = UnmatchedSearchCatalog.instance.screenKeys;
     Navigator.of(context).pop();
+    if (screenKeys != null) {
+      UnmatchedSearchCatalog.instance.screenKeys = screenKeys;
+    }
     action?.call();
   }
 
@@ -1398,8 +1541,8 @@ class _SearchScreenState extends State<SearchScreen> {
     final statusFiltered = isUnmatchedList && _countFilter != _SearchCountFilter.all;
     final catalogCount = statusFiltered
         ? _statusListCount()
-        : (largeUnmatched && query.isEmpty)
-            ? _largeUnmatchedListCount()
+        : isUnmatchedList
+            ? _unmatchedOpenCount()
             : _filteredCount;
 
     final catalog = UnmatchedSearchCatalog.instance;
@@ -1577,8 +1720,7 @@ class _SearchScreenState extends State<SearchScreen> {
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : (isUnmatchedList ? _searchItems.isEmpty : catalogCount == 0) &&
-                        !(largeUnmatched && _hotIndices.isNotEmpty)
+                : (isUnmatchedList ? _searchItems.isEmpty : catalogCount == 0)
                     ? Center(
                         child: Text(
                           isUnmatchedList && _searchItems.isEmpty
@@ -1588,65 +1730,35 @@ class _SearchScreenState extends State<SearchScreen> {
                           textAlign: TextAlign.center,
                         ),
                       )
-                    : Column(
-                        children: [
-                          if (largeUnmatched && query.isEmpty && !statusFiltered)
-                            ValueListenableBuilder<int>(
-                              valueListenable: _nearbyTick,
-                              builder: (context, value, child) {
-                                if (_hotIndices.isEmpty) {
-                                  return const SizedBox.shrink();
-                                }
-                                final n = _hotIndices.length > 8
-                                    ? 8
-                                    : _hotIndices.length;
-                                return SizedBox(
-                                  height: n * 34.0,
-                                  child: ListView.builder(
-                                    physics: const NeverScrollableScrollPhysics(),
-                                    itemExtent: 34,
-                                    itemCount: n,
-                                    itemBuilder: (context, index) {
-                                      if (index < 0 || index >= _hotIndices.length) {
-                                        return const SizedBox(height: 34);
-                                      }
-                                      final i = _hotIndices[index];
-                                      if (i < 0 || i >= _searchItems.length) {
-                                        return const SizedBox(height: 34);
-                                      }
-                                      return _buildSearchRow(
-                                        _searchItems[i],
-                                        index,
-                                      );
-                                    },
-                                  ),
-                                );
-                              },
-                            ),
-                          Expanded(
-                            child: ListView.builder(
-                              itemCount: catalogCount,
-                              itemExtent: 34,
-                              cacheExtent: 80,
-                              addAutomaticKeepAlives: false,
-                              addRepaintBoundaries: false,
-                              itemBuilder: (context, index) {
-                                final item = statusFiltered
-                                    ? _itemAtStatus(index)
-                                    : (largeUnmatched && query.isEmpty)
-                                        ? _itemAtDisplay(index)
-                                        : _tryDisplayItemAt(index);
-                                if (item == null) return const SizedBox(height: 34);
-                                final serialBase = (!statusFiltered &&
-                                        largeUnmatched &&
-                                        query.isEmpty)
-                                    ? _nearbyPinnedCount()
-                                    : 0;
-                                return _buildSearchRow(item, index + serialBase);
-                              },
-                            ),
-                          ),
-                        ],
+                    : ListView.builder(
+                        itemCount: catalogCount +
+                            ((isUnmatchedList && !statusFiltered)
+                                ? _nearbyPinnedCount()
+                                : 0),
+                        itemExtent: 34,
+                        cacheExtent: 400,
+                        addAutomaticKeepAlives: false,
+                        addRepaintBoundaries: false,
+                        itemBuilder: (context, index) {
+                          if (isUnmatchedList && !statusFiltered) {
+                            final pinned = _nearbyPinnedCount();
+                            if (index < pinned) {
+                              final i = _hotIndices[index];
+                              if (i < 0 || i >= _searchItems.length) {
+                                return const SizedBox(height: 34);
+                              }
+                              return _buildSearchRow(_searchItems[i], index);
+                            }
+                            final item = _itemAtUnmatchedOpen(index - pinned);
+                            if (item == null) return const SizedBox(height: 34);
+                            return _buildSearchRow(item, index);
+                          }
+                          final item = statusFiltered
+                              ? _itemAtStatus(index)
+                              : _tryDisplayItemAt(index);
+                          if (item == null) return const SizedBox(height: 34);
+                          return _buildSearchRow(item, index);
+                        },
                       ),
           ),
 
