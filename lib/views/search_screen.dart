@@ -1254,10 +1254,8 @@ class _SearchScreenState extends State<SearchScreen> {
           _nativeTagsNarrowed = narrowed;
           if (narrowed) _unmatchedTagsOnReader = false;
           ledEpcs = const <String>[];
-          // 'list' applies a reader EPC filter and stops inventory to do it.
-          // Tags singulated in that gap stay quiet until the user restarts.
-          // Unmatched Search keeps the open EPC session so later chips still read.
-          ledMode = _listKey == 'unmatchedItems' ? 'epc' : 'list';
+          // List mode is what blinks the chips this search actually reads.
+          ledMode = 'list';
         }
       }
       if (_listKey == 'unmatchedItems' &&
