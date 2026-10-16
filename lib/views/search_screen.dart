@@ -240,8 +240,6 @@ class _SearchScreenState extends State<SearchScreen> {
   _SearchCountFilter _countFilter = _SearchCountFilter.all;
   List<int> _statusOrder = [];
   bool _statusOrderDirty = true;
-  /// After a 100% auto-stop, do not auto-stop again until the gun leaves the tag.
-  bool _completeAtSessionStart = false;
   final ValueNotifier<int> _nearbyTick = ValueNotifier<int>(0);
 
   bool get _isLargeUnmatched =>
@@ -270,9 +268,8 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_rfidService.preWarmReader());
-    });
+    // Do not init the UART reader here. Chainway init blocks long enough to
+    // show "isn't responding" on this screen, and scan start inits the reader.
     _tagsSubscription = _rfidService.tagsWithRssiStream.listen(_onTagScanned);
     _triggerSubscription = _rfidService.triggerStream.listen((_) {
       if (!mounted) return;
@@ -766,62 +763,7 @@ class _SearchScreenState extends State<SearchScreen> {
     }
     if (_listKey == 'unmatchedItems') {
       _logUnmatchedScanProgress(uiDelayMs);
-      _checkAutoStopSearch();
     }
-  }
-
-  /// Unmatched Search only: stop when every visible item is at 100%.
-  /// Global Search never auto-stops at 100%.
-  void _checkAutoStopSearch() {
-    if (_listKey != 'unmatchedItems') return;
-    if (!_isScanning || _scanBusy) return;
-    if (_searchItems.isEmpty) return;
-    if (_completeAtSessionStart) {
-      if (!_visibleItemsAllAtMax()) {
-        _completeAtSessionStart = false;
-      }
-      return;
-    }
-    if (!_everyExpectedItemFound()) return;
-    _showToast('All Items Found');
-    unawaited(_stopSearchScan());
-  }
-
-  /// Every row on this Unmatched Search screen is at 100%. A partial batch
-  /// must not count, even if the on-screen filter is stale.
-  bool _everyExpectedItemFound() {
-    if (_listKey != 'unmatchedItems') return _visibleItemsAllAtMax();
-    if (_searchItems.isEmpty) return false;
-    if (_searchQuery.trim().isEmpty) {
-      for (final item in _searchItems) {
-        if (item.proximityPercent < 100) return false;
-      }
-      return true;
-    }
-    if (!_displayIndexValid) _rebuildDisplayIndices();
-    if (_queryScopeIndices.isEmpty) return false;
-    for (final i in _queryScopeIndices) {
-      if (i < 0 || i >= _searchItems.length) return false;
-      if (_searchItems[i].proximityPercent < 100) return false;
-    }
-    return true;
-  }
-
-  bool _visibleItemsAllAtMax() {
-    if (_searchItems.isEmpty) return false;
-    if (_isLargeUnmatched && _searchQuery.trim().isEmpty) {
-      for (final item in _searchItems) {
-        if (item.proximityPercent < 100) return false;
-      }
-      return true;
-    }
-    if (!_displayIndexValid) _rebuildDisplayIndices();
-    if (_filteredCount <= 0) return false;
-    for (var i = 0; i < _filteredCount; i++) {
-      final item = _tryDisplayItemAt(i);
-      if (item == null || item.proximityPercent < 100) return false;
-    }
-    return true;
   }
 
   Future<void> _stopSearchScan() async {
@@ -1188,7 +1130,6 @@ class _SearchScreenState extends State<SearchScreen> {
         tagsToSend = cleanTags;
       }
 
-      _completeAtSessionStart = _visibleItemsAllAtMax();
       final held = _holdCurrentSearchProgress();
       setState(() => _isScanning = true);
       if (held == null) {

@@ -54,11 +54,11 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
     /**
      * DeviceAPI 2.0.3 command 0x70 keeps MODE_LED_TAG (14).
      * reservedOffset = on time, reservedLength = off time, unit 100ms.
-     * 0 and 0 is solid. 1 and 1 is the fastest firmware blink (100ms on/off).
-     * Mode 15 is temperature and turns the tag LED off.
+     * 0 and 0 stays solid for every tag in the filter. Mode 15 is temperature
+     * and turns the tag LED off — do not use it.
      */
-    private val ledBlinkOn = 1
-    private val ledBlinkOff = 1
+    private val ledBlinkOn = 0
+    private val ledBlinkOff = 0
     private var reader: com.rscja.deviceapi.RFIDWithUHFUART? = null
     @Volatile private var ready = false
 
@@ -296,7 +296,7 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
             ) {
                 return true
             }
-            android.util.Log.w("UhfUartFacade", "LED left blink — reapplying on=$ledBlinkOn off=$ledBlinkOff")
+            android.util.Log.w("UhfUartFacade", "LED left solid — reapplying on=$ledBlinkOn off=$ledBlinkOff")
             stopInventoryQuiet(r)
             if (!setLedTagSolid(r)) return false
             r.startInventoryTag()
@@ -312,7 +312,7 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
         } catch (_: Throwable) {
         }
         try {
-            Thread.sleep(15L)
+            Thread.sleep(40L)
         } catch (_: InterruptedException) {
         }
     }
@@ -327,18 +327,15 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
         }
     }
 
-    /** Tag LED blink. Mode stays MODE_LED_TAG (14). 0,0 would be solid. */
+    /** Tag LED solid. Mode stays MODE_LED_TAG (14). 0,0 keeps every filtered tag on. */
     private fun setLedTagSolid(r: com.rscja.deviceapi.RFIDWithUHFUART): Boolean {
-        val blink = com.rscja.deviceapi.entity.InventoryModeEntity.Builder()
+        val solid = com.rscja.deviceapi.entity.InventoryModeEntity.Builder()
             .setMode(com.rscja.deviceapi.entity.InventoryModeEntity.MODE_LED_TAG)
             .setReservedOffset(ledBlinkOn)
             .setReservedLength(ledBlinkOff)
             .build()
-        val ok = r.setEPCAndTIDUserMode(blink)
-        android.util.Log.i(
-            "UhfUartFacade",
-            "LED blink on=${ledBlinkOn}00ms off=${ledBlinkOff}00ms => $ok",
-        )
+        val ok = r.setEPCAndTIDUserMode(solid)
+        android.util.Log.i("UhfUartFacade", "LED solid MODE_LED_TAG 0,0 => $ok")
         return ok
     }
 
@@ -385,9 +382,15 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
             val n = epc.length
             if (n < 8 || n > 64 || n % 2 != 0) continue
             if (epc.any { ch -> ch !in '0'..'9' && ch !in 'A'..'F' }) continue
-            unique.add(epc)
+            val chip = if (n > 32 && isChipHex(epc.substring(0, 32))) epc.substring(0, 32) else epc
+            unique.add(chip)
         }
         return unique
+    }
+
+    private fun isChipHex(epc: String): Boolean {
+        return (epc.length == 24 || epc.length == 32) &&
+            epc.all { ch -> ch in '0'..'9' || ch in 'A'..'F' }
     }
 
     /**

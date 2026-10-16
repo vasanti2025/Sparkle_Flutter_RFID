@@ -98,8 +98,6 @@ class HardwareControllerImpl(
     @Volatile private var tagLedBlinkOn = false
     @Volatile private var ledLightOn = true
     @Volatile private var ledPhaseUntil = 0L
-    /** List blink walks every scanned chip. A reader that keeps one slot cannot stay on the first. */
-    private var listTurn = 0
     /** One UART queue — start/stop/LED must not overlap (that fails startInventory). */
     private val uartExecutor = Executors.newSingleThreadExecutor()
     @Volatile private var uartPollPaused = false
@@ -197,7 +195,6 @@ class HardwareControllerImpl(
         tagLedBlinkOn = false
         ledLightOn = true
         ledPhaseUntil = 0L
-        listTurn = 0
         synchronized(foundLedLock) {
             searchEpcOnly.clear()
         }
@@ -1350,8 +1347,11 @@ class HardwareControllerImpl(
             return
         }
         // A list must not use an empty LED filter — that lights every tag in
-        // range, including ones that are not on the list. Read in EPC first,
-        // then light only the list chips the gun actually saw (max 8).
+        // range, including ones that are not on the list. Read in EPC first so
+        // the scan and beep start immediately, then blink only chips that were
+        // actually read. Filtering the whole catalog up front locked the gun
+        // onto a few chips, startInventory returned "already start", and the
+        // session died: no scan, no sound, no LED.
         if (searchLedMulti) {
             uhf().prepareScan(power)
             tagLedBlinkOn = false
@@ -1411,21 +1411,50 @@ class HardwareControllerImpl(
     private fun searchLedKey(epcs: Collection<String>): String =
         epcs.sorted().joinToString(",")
 
-    /** Live list chip. LED reads append TID; the filter has to be the EPC only. */
+    /**
+     * Chip id for the LED filter. A shared 24-hex header used to merge three
+     * different 128-bit tags into one select, so the list showed 3 scans and
+     * only one LED.
+     */
     private fun ledEpcOf(cleanEpc: String): String? {
         if (resolveSearchEpc(cleanEpc) == null) return null
         if (cleanEpc.length >= 32) {
             val p32 = cleanEpc.substring(0, 32)
-            if (isChipEpcHex(p32) && matchesSearchTag(p32)) return p32
+            if (isChipEpcHex(p32)) return p32
         }
+        if (isChipEpcHex(cleanEpc)) return cleanEpc
         if (cleanEpc.length >= 24) {
             val p24 = cleanEpc.substring(0, 24)
             if (isChipEpcHex(p24)) return p24
         }
-        if (isChipEpcHex(cleanEpc)) return cleanEpc
-        if (isLedFilterHex(cleanEpc)) return cleanEpc
+        if (isLedFilterHex(cleanEpc) && cleanEpc.length <= 32) return cleanEpc
         val resolved = resolveSearchEpc(cleanEpc) ?: return null
-        return if (isChipEpcHex(resolved) || isLedFilterHex(resolved)) resolved else null
+        if (resolved.length >= 32 && isChipEpcHex(resolved.substring(0, 32))) {
+            return resolved.substring(0, 32)
+        }
+        if (isChipEpcHex(resolved)) return resolved
+        if (resolved.length >= 24 && isChipEpcHex(resolved.substring(0, 24))) {
+            return resolved.substring(0, 24)
+        }
+        return if (isLedFilterHex(resolved) && resolved.length <= 32) resolved else null
+    }
+
+    /**
+     * One chip per tag. Drop a 24-hex key that is only the head of a 32-hex
+     * key already in the set, so the reader select stays on the full EPC.
+     */
+    private fun distinctLedChips(raw: Collection<String>): List<String> {
+        val chips = LinkedHashSet<String>()
+        for (rawEpc in raw) {
+            val epc = rawEpc.trim().uppercase()
+            when {
+                epc.length >= 32 && isChipEpcHex(epc.substring(0, 32)) ->
+                    chips.add(epc.substring(0, 32))
+                isChipEpcHex(epc) -> chips.add(epc)
+                isLedFilterHex(epc) && epc.length <= 32 -> chips.add(epc)
+            }
+        }
+        return chips.sorted()
     }
 
     /** When a search tag is matched (progress/%), queue that live chip EPC for LED. */
@@ -1443,12 +1472,9 @@ class HardwareControllerImpl(
             }
             if (isNew) {
                 if (searchLedMulti) {
-                    // Keep EPC open until this tag and the others already in front
-                    // are in the same filter. Refreshing on every new tag does that.
-                    foundLedGatherUntil = now + 150L
-                    if (foundLedGatherDeadline == 0L) {
-                        foundLedGatherDeadline = now + 400L
-                    }
+                    // Do not lock 1–2 tags. Every new list chip restarts the wait
+                    // so the 3rd tag is in the same solid filter.
+                    foundLedGatherUntil = now + 800L
                 } else {
                     foundLedGatherUntil = now
                     if (foundLedGatherDeadline == 0L) foundLedGatherDeadline = now
@@ -1460,8 +1486,7 @@ class HardwareControllerImpl(
     private fun tickSearchLedBlink() {
         // Plugin LED is already set. Do not clear it here.
         if (holdLedSolid) return
-        // One searched tag stays on that chip. List blink updates itself.
-        if (searchLedMulti && tagLedBlinkOn) return
+        // One searched tag stays on that chip. A list keeps adding every match.
         if (!searchLedMulti &&
             searchRadioMode == SEARCH_RADIO_FILTER &&
             searchLedPhase == SEARCH_LED_BLINK &&
@@ -1479,10 +1504,13 @@ class HardwareControllerImpl(
         }
         if (found.isEmpty()) return
         if (searchLedMulti) {
-            if (tagLedBlinkOn) return
-            val debounceDone = foundLedGatherUntil <= 0L || now >= foundLedGatherUntil
-            val capDone = foundLedGatherDeadline > 0L && now >= foundLedGatherDeadline
-            if (debounceDone || capDone) requestSearchLedHandoff(found)
+            val live = currentListLedEpcs()
+            if (live.isEmpty()) return
+            // Already solid on every chip we have. A newly read list tag falls
+            // through and is added, instead of leaving the 3rd dark.
+            if (ledFilterCovers(live)) return
+            val debounceDone = foundLedGatherUntil > 0L && now >= foundLedGatherUntil
+            if (debounceDone) requestSearchLedHandoff(live)
             return
         }
         if (searchLedKey(found) == searchLedAppliedKey) return
@@ -1664,6 +1692,7 @@ class HardwareControllerImpl(
         }
         try {
             if (!isScanning) return
+            if (searchLedMulti) drainSearchBufferIntoFound()
             val target = if (searchLedMulti) {
                 val live = currentListLedEpcs()
                 if (live.isNotEmpty()) live else epcs
@@ -1672,12 +1701,13 @@ class HardwareControllerImpl(
             }
             if (searchLedPhase == SEARCH_LED_BLINK && searchLedKey(target) == searchLedAppliedKey) return
             val filtered = uhf().applyLedTagBlinkMode(target)
-            Log.i(TAG, "Search LED live filter epcs=${target.size} => $filtered")
+            Log.i(TAG, "Search LED solid filter epcs=${target.size} => $filtered")
             attachSearchLedTagCallback()
             resumeSearchInventoryRunning()
             if (filtered && isScanning) {
                 uhf().reassertLedSolidIfCleared()
-                tagLedBlinkOn = true
+                // Solid stays on. The stop/start pulse was turning the 3rd tag off.
+                tagLedBlinkOn = false
                 ledLightOn = true
                 ledPhaseUntil = 0L
                 searchLedAppliedKey = searchLedKey(target)
@@ -1726,48 +1756,46 @@ class HardwareControllerImpl(
     }
 
     private fun currentListLedEpcs(): List<String> {
-        return synchronized(foundLedLock) {
+        val raw = synchronized(foundLedLock) {
             foundLedEpcs.keys.filter { it !in searchEpcOnly }
         }
+        return distinctLedChips(raw)
+    }
+
+    /** True when every live chip is already in the filter that is blinking. */
+    private fun ledFilterCovers(live: Collection<String>): Boolean {
+        if (searchLedAppliedKey.isEmpty()) return false
+        val have = searchLedAppliedKey.split(',').toSet()
+        return live.all { it in have }
     }
 
     /**
-     * Inventory is already stopped. Put every scanned list chip on the LED
-     * filter. A different chip is first each flash so a reader that keeps only
-     * one slot still blinks the rest. Does not drop back to EPC mode.
+     * Apply every scanned list chip together, same order every time.
+     * A rotating or one-tag filter is what made the count jump between 0, 1, and 2.
+     * Chips already blinking stay in the set so a later read cannot drop them.
      */
     private fun lightEveryScannedListTag() {
-        val all = currentListLedEpcs()
+        val merged = LinkedHashSet<String>()
+        if (searchLedAppliedKey.isNotEmpty()) {
+            merged.addAll(searchLedAppliedKey.split(',').filter { it.isNotEmpty() })
+        }
+        merged.addAll(currentListLedEpcs())
+        val all = distinctLedChips(merged)
         if (all.isEmpty()) return
-        if (all.size == 1) {
-            try {
-                uhf().applyLedTagBlinkMode(all)
-            } catch (_: Throwable) {
-            }
-            return
-        }
-        val start = listTurn % all.size
-        listTurn = (listTurn + 1) % all.size
         val count = minOf(all.size, SEARCH_LED_MAX)
-        val ordered = ArrayList<String>(count)
-        for (i in 0 until count) {
-            ordered.add(all[(start + i) % all.size])
-        }
+        val stable = ArrayList(all.take(count))
+        if (searchLedKey(stable) == searchLedAppliedKey) return
         val ok = try {
-            uhf().applyLedTagBlinkMode(ordered)
+            uhf().applyLedTagBlinkMode(stable)
         } catch (_: Throwable) {
             false
         }
         if (!ok) {
-            try {
-                uhf().applyLedTagBlinkMode(listOf(all[start]))
-            } catch (_: Throwable) {
-            }
+            Log.w(TAG, "List LED filter failed n=${stable.size}")
+            return
         }
-        // Do not retry this set on every flash. Re-applying the filter each
-        // blink holds the RF field up and the light looks solid.
-        searchLedAppliedKey = searchLedKey(all)
-        Log.i(TAG, "List LED blink n=${all.size} first=${all[start]}")
+        searchLedAppliedKey = searchLedKey(stable)
+        Log.i(TAG, "List LED blink n=${stable.size}")
     }
 
     /**
@@ -1775,8 +1803,25 @@ class HardwareControllerImpl(
      * Stop the field briefly so the tag goes dark, then start again.
      * Returns true while the light should stay off.
      */
+    /** Read tags already in the UART buffer before the solid filter is applied. */
+    private fun drainSearchBufferIntoFound() {
+        var n = 0
+        while (n < 64) {
+            val tag = try {
+                uhf().readTagFromBuffer()
+            } catch (_: Throwable) {
+                null
+            } ?: break
+            val epc = normalizeScanKey(tag.first)
+            if (epc.isNotEmpty()) handleTagRead(epc, tag.second, inventory = false)
+            n++
+        }
+    }
+
     private fun tickLedBlinkDark(): Boolean {
-        if (!tagLedBlinkOn || activeInventorySession || !isScanning) return false
+        // List LEDs stay solid for every matched tag. Stopping inventory to
+        // blink was leaving the last tag dark.
+        if (searchLedMulti || !tagLedBlinkOn || activeInventorySession || !isScanning) return false
         if (trayModeEnabled || r6ModeEnabled) return false
         if (uartPollPaused || searchLedApplyBusy) return false
         val now = SystemClock.elapsedRealtime()
@@ -1784,17 +1829,28 @@ class HardwareControllerImpl(
             if (now < ledPhaseUntil) return true
             if (searchLedMulti) {
                 val all = currentListLedEpcs()
-                if (all.isNotEmpty() && searchLedKey(all) != searchLedAppliedKey) {
+                // Keep chips already in the filter. Replacing with only the
+                // tags read so far drops the rest and they stay dark.
+                if (all.isNotEmpty() && !ledFilterCovers(all)) {
                     lightEveryScannedListTag()
                 }
             }
+            // startInventory clears MODE_LED_TAG. The first flash works because
+            // the handoff just set blink times. Every later flash must set them
+            // again while the field is off, or the light stops after one blink.
+            // Do not setFilter here — doing that on every flash freezes it solid.
+            uhf().applyLedTagSolidMode()
             var started = uhf().startInventory()
             if (!started) {
+                try {
+                    uhf().stopInventory()
+                } catch (_: Throwable) {
+                }
                 uhf().applyLedTagSolidMode()
                 started = uhf().startInventory()
             }
             if (!started) {
-                ledPhaseUntil = now + 30L
+                ledPhaseUntil = now + 40L
                 return true
             }
             ledLightOn = true
