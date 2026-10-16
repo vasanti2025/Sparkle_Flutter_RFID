@@ -26,8 +26,8 @@ android {
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        versionCode = 8
+        versionName = "1.0.8"
         // RFID handheld (C71) is arm64 — skip x86/x86_64 CMake builds that lock .cxx caches on Windows.
         ndk {
             abiFilters += listOf("arm64-v8a")
