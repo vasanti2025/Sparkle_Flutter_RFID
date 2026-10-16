@@ -1253,8 +1253,10 @@ class _SearchScreenState extends State<SearchScreen> {
           }
           _nativeTagsNarrowed = narrowed;
           if (narrowed) _unmatchedTagsOnReader = false;
-          ledEpcs = const <String>[];
-          // List mode is what blinks the chips this search actually reads.
+          // Only LED rows on this list. An empty filter lights every LED in range.
+          ledEpcs = _listKey == 'unmatchedItems'
+              ? _collectInventoryLedEpcs()
+              : const <String>[];
           ledMode = 'list';
         }
       }
@@ -1554,6 +1556,21 @@ class _SearchScreenState extends State<SearchScreen> {
       for (final item in _searchItems) {
         addItem(item);
       }
+    }
+    return tags.toList(growable: false);
+  }
+
+  /// LED rows on this inventory list only. A printed RFID (SJ0410) is a
+  /// normal tag and must not take a blink slot. Rows that show "-" have no
+  /// printed RFID; their chip is the LED tag (SP26–SP29).
+  List<String> _collectInventoryLedEpcs() {
+    final tags = <String>{};
+    for (final item in _searchItems) {
+      if (item.rfid.trim().isNotEmpty) continue;
+      final chip = _oneChipEpc(item);
+      if (chip == null) continue;
+      tags.add(chip);
+      if (tags.length >= 8) break;
     }
     return tags.toList(growable: false);
   }

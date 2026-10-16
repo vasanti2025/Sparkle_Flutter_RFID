@@ -1346,9 +1346,8 @@ class HardwareControllerImpl(
             foundLedGatherDeadline = 0L
             return
         }
-        // A list must not use an empty LED filter — that lights every tag in
-        // range, including ones that are not on the list. Read in EPC first,
-        // then light only the list chips the gun actually saw (max 8).
+        // Open list: read every inventory tag first. Do not start with an empty
+        // LED filter — that blinks tags that are not on this list.
         if (searchLedMulti) {
             uhf().prepareScan(power)
             tagLedBlinkOn = false
@@ -1359,7 +1358,7 @@ class HardwareControllerImpl(
             searchLedPhaseUntil = 0L
             foundLedGatherUntil = 0L
             foundLedGatherDeadline = 0L
-            Log.i(TAG, "List search EPC discover — LED only after a list hit")
+            Log.i(TAG, "List search EPC discover — blink only inventory LED chips")
             return
         }
         if (searchRadioMode == SEARCH_RADIO_ALL) {
@@ -1452,6 +1451,28 @@ class HardwareControllerImpl(
         }
     }
 
+    /**
+     * Blink set for the open list: every inventory LED chip, then other
+     * inventory chips already read, up to 8. Tags that are not on the list
+     * are never added.
+     */
+    private fun listBlinkEpcs(): List<String> {
+        val led = catalogChipEpcs()
+        val found = synchronized(foundLedLock) {
+            foundLedEpcs.keys.filter { it !in searchEpcOnly }
+        }
+        val unique = LinkedHashSet<String>()
+        for (epc in led) {
+            if (unique.size >= SEARCH_LED_MAX) break
+            unique.add(epc)
+        }
+        for (epc in found) {
+            if (unique.size >= SEARCH_LED_MAX) break
+            unique.add(epc)
+        }
+        return ArrayList(unique)
+    }
+
     private fun tickSearchLedBlink() {
         // Plugin LED is already set. Do not clear it here.
         if (holdLedSolid) return
@@ -1473,7 +1494,22 @@ class HardwareControllerImpl(
             foundLedEpcs.keys.filter { it !in searchEpcOnly }
         }
         if (found.isEmpty()) return
-        if (searchLedKey(found) == searchLedAppliedKey) return
+        // Inventory LED chips are known up front. Lock those once so tags that
+        // are not on this list stay dark. A list with no LED chips still
+        // follows the chips this search actually reads.
+        val blink = if (searchLedMulti) {
+            if (catalogChipEpcs().isNotEmpty() &&
+                searchLedPhase == SEARCH_LED_BLINK &&
+                searchLedAppliedKey.isNotEmpty()
+            ) {
+                return
+            }
+            listBlinkEpcs()
+        } else {
+            found
+        }
+        if (blink.isEmpty()) return
+        if (searchLedKey(blink) == searchLedAppliedKey) return
         var wantLock = false
         synchronized(foundLedLock) {
             if (foundLedGatherUntil <= 0L) {
@@ -1483,7 +1519,7 @@ class HardwareControllerImpl(
                     (foundLedGatherDeadline > 0L && now >= foundLedGatherDeadline)
             }
         }
-        if (wantLock) requestSearchLedHandoff(found)
+        if (wantLock) requestSearchLedHandoff(blink)
     }
 
     private fun requestGlobalEpcRevert() {
