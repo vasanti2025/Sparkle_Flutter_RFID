@@ -29,7 +29,7 @@ class LaunchLogo extends StatelessWidget {
             child: Padding(
               padding: EdgeInsets.only(bottom: 28),
               child: Text(
-                'Version 1.0.7',
+                'Version 1.0.8',
                 style: TextStyle(
                   color: Color(0xFF46464A),
                   fontSize: 10,

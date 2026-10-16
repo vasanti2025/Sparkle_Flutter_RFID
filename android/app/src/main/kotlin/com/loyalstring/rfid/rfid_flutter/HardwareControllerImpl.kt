@@ -87,7 +87,7 @@ class HardwareControllerImpl(
     @Volatile private var lastSearchHitAt = 0L
     /** filter = one searched chip; list = only the open list; all = every LED; epc = no LED. */
     @Volatile private var searchRadioMode = SEARCH_RADIO_EPC
-    /** List search keeps adding found list chips (max 8). One-tag search locks the first. */
+    /** List search lights every list chip the gun reads. One-tag search stays on that chip. */
     @Volatile private var searchLedMulti = false
     /**
      * LED Tag solid was applied by LedTagSolid (rfid_flutter_plugin) before start.
@@ -98,6 +98,8 @@ class HardwareControllerImpl(
     @Volatile private var tagLedBlinkOn = false
     @Volatile private var ledLightOn = true
     @Volatile private var ledPhaseUntil = 0L
+    /** List blink walks every scanned chip. A reader that keeps one slot cannot stay on the first. */
+    private var listTurn = 0
     /** One UART queue — start/stop/LED must not overlap (that fails startInventory). */
     private val uartExecutor = Executors.newSingleThreadExecutor()
     @Volatile private var uartPollPaused = false
@@ -195,6 +197,7 @@ class HardwareControllerImpl(
         tagLedBlinkOn = false
         ledLightOn = true
         ledPhaseUntil = 0L
+        listTurn = 0
         synchronized(foundLedLock) {
             searchEpcOnly.clear()
         }
@@ -1408,20 +1411,21 @@ class HardwareControllerImpl(
     private fun searchLedKey(epcs: Collection<String>): String =
         epcs.sorted().joinToString(",")
 
-    /** Live chip the gun just read. Short item-code hex (SP24) is valid too. */
+    /** Live list chip. LED reads append TID; the filter has to be the EPC only. */
     private fun ledEpcOf(cleanEpc: String): String? {
         if (resolveSearchEpc(cleanEpc) == null) return null
-        if (isLedFilterHex(cleanEpc)) return cleanEpc
-        if (cleanEpc.length > 32) {
+        if (cleanEpc.length >= 32) {
             val p32 = cleanEpc.substring(0, 32)
-            if (isLedFilterHex(p32) && matchesSearchTag(p32)) return p32
+            if (isChipEpcHex(p32) && matchesSearchTag(p32)) return p32
         }
-        if (cleanEpc.length > 24) {
+        if (cleanEpc.length >= 24) {
             val p24 = cleanEpc.substring(0, 24)
-            if (isLedFilterHex(p24) && matchesSearchTag(p24)) return p24
+            if (isChipEpcHex(p24)) return p24
         }
+        if (isChipEpcHex(cleanEpc)) return cleanEpc
+        if (isLedFilterHex(cleanEpc)) return cleanEpc
         val resolved = resolveSearchEpc(cleanEpc) ?: return null
-        return if (isLedFilterHex(resolved)) resolved else null
+        return if (isChipEpcHex(resolved) || isLedFilterHex(resolved)) resolved else null
     }
 
     /** When a search tag is matched (progress/%), queue that live chip EPC for LED. */
@@ -1433,20 +1437,21 @@ class HardwareControllerImpl(
             if (searchEpcOnly.contains(epc)) return
             val isNew = !foundLedEpcs.containsKey(epc)
             foundLedEpcs[epc] = now
-            while (foundLedEpcs.size > SEARCH_LED_MAX) {
+            while (foundLedEpcs.size > SEARCH_LED_REMEMBER) {
                 val oldest = foundLedEpcs.keys.first()
                 foundLedEpcs.remove(oldest)
             }
             if (isNew) {
-                // Short wait so chips already in front share one filter, then the
-                // light comes on. Tags that are not in the list are never added.
-                foundLedGatherUntil = if (searchLedMulti) now + 150L else now
-                if (foundLedGatherDeadline == 0L) {
-                    foundLedGatherDeadline = if (searchLedMulti) {
-                        now + 350L
-                    } else {
-                        now
+                if (searchLedMulti) {
+                    // Keep EPC open until this tag and the others already in front
+                    // are in the same filter. Refreshing on every new tag does that.
+                    foundLedGatherUntil = now + 150L
+                    if (foundLedGatherDeadline == 0L) {
+                        foundLedGatherDeadline = now + 400L
                     }
+                } else {
+                    foundLedGatherUntil = now
+                    if (foundLedGatherDeadline == 0L) foundLedGatherDeadline = now
                 }
             }
         }
@@ -1455,7 +1460,8 @@ class HardwareControllerImpl(
     private fun tickSearchLedBlink() {
         // Plugin LED is already set. Do not clear it here.
         if (holdLedSolid) return
-        // One searched tag stays locked. Do not stopInventory from here.
+        // One searched tag stays on that chip. List blink updates itself.
+        if (searchLedMulti && tagLedBlinkOn) return
         if (!searchLedMulti &&
             searchRadioMode == SEARCH_RADIO_FILTER &&
             searchLedPhase == SEARCH_LED_BLINK &&
@@ -1468,20 +1474,23 @@ class HardwareControllerImpl(
         if (searchLedApplyBusy || uartPollPaused) return
         if (!isScanning || activeInventorySession || trayModeEnabled || r6ModeEnabled) return
         val now = SystemClock.elapsedRealtime()
-        // Keep the searched tag's solid LED on. Revert-to-EPC turns it off.
         val found = synchronized(foundLedLock) {
             foundLedEpcs.keys.filter { it !in searchEpcOnly }
         }
         if (found.isEmpty()) return
+        if (searchLedMulti) {
+            if (tagLedBlinkOn) return
+            val debounceDone = foundLedGatherUntil <= 0L || now >= foundLedGatherUntil
+            val capDone = foundLedGatherDeadline > 0L && now >= foundLedGatherDeadline
+            if (debounceDone || capDone) requestSearchLedHandoff(found)
+            return
+        }
         if (searchLedKey(found) == searchLedAppliedKey) return
-        var wantLock = false
-        synchronized(foundLedLock) {
-            if (foundLedGatherUntil <= 0L) {
-                wantLock = true
-            } else {
-                wantLock = now >= foundLedGatherUntil ||
-                    (foundLedGatherDeadline > 0L && now >= foundLedGatherDeadline)
-            }
+        val wantLock = if (foundLedGatherUntil <= 0L) {
+            true
+        } else {
+            now >= foundLedGatherUntil ||
+                (foundLedGatherDeadline > 0L && now >= foundLedGatherDeadline)
         }
         if (wantLock) requestSearchLedHandoff(found)
     }
@@ -1655,8 +1664,15 @@ class HardwareControllerImpl(
         }
         try {
             if (!isScanning) return
-            val filtered = uhf().applyLedTagBlinkMode(epcs)
-            Log.i(TAG, "Search LED live filter epcs=${epcs.size} => $filtered")
+            val target = if (searchLedMulti) {
+                val live = currentListLedEpcs()
+                if (live.isNotEmpty()) live else epcs
+            } else {
+                epcs
+            }
+            if (searchLedPhase == SEARCH_LED_BLINK && searchLedKey(target) == searchLedAppliedKey) return
+            val filtered = uhf().applyLedTagBlinkMode(target)
+            Log.i(TAG, "Search LED live filter epcs=${target.size} => $filtered")
             attachSearchLedTagCallback()
             resumeSearchInventoryRunning()
             if (filtered && isScanning) {
@@ -1664,7 +1680,7 @@ class HardwareControllerImpl(
                 tagLedBlinkOn = true
                 ledLightOn = true
                 ledPhaseUntil = 0L
-                searchLedAppliedKey = searchLedKey(epcs)
+                searchLedAppliedKey = searchLedKey(target)
                 searchLedPhase = SEARCH_LED_BLINK
                 searchLedDidDiscover = false
                 searchLedPhaseUntil = 0L
@@ -1709,6 +1725,51 @@ class HardwareControllerImpl(
         return pollerParked
     }
 
+    private fun currentListLedEpcs(): List<String> {
+        return synchronized(foundLedLock) {
+            foundLedEpcs.keys.filter { it !in searchEpcOnly }
+        }
+    }
+
+    /**
+     * Inventory is already stopped. Put every scanned list chip on the LED
+     * filter. A different chip is first each flash so a reader that keeps only
+     * one slot still blinks the rest. Does not drop back to EPC mode.
+     */
+    private fun lightEveryScannedListTag() {
+        val all = currentListLedEpcs()
+        if (all.isEmpty()) return
+        if (all.size == 1) {
+            try {
+                uhf().applyLedTagBlinkMode(all)
+            } catch (_: Throwable) {
+            }
+            return
+        }
+        val start = listTurn % all.size
+        listTurn = (listTurn + 1) % all.size
+        val count = minOf(all.size, SEARCH_LED_MAX)
+        val ordered = ArrayList<String>(count)
+        for (i in 0 until count) {
+            ordered.add(all[(start + i) % all.size])
+        }
+        val ok = try {
+            uhf().applyLedTagBlinkMode(ordered)
+        } catch (_: Throwable) {
+            false
+        }
+        if (!ok) {
+            try {
+                uhf().applyLedTagBlinkMode(listOf(all[start]))
+            } catch (_: Throwable) {
+            }
+        }
+        // Do not retry this set on every flash. Re-applying the filter each
+        // blink holds the RF field up and the light looks solid.
+        searchLedAppliedKey = searchLedKey(all)
+        Log.i(TAG, "List LED blink n=${all.size} first=${all[start]}")
+    }
+
     /**
      * MODE_LED_TAG stays lit for the whole inventory, which looks solid.
      * Stop the field briefly so the tag goes dark, then start again.
@@ -1721,9 +1782,20 @@ class HardwareControllerImpl(
         val now = SystemClock.elapsedRealtime()
         if (!ledLightOn) {
             if (now < ledPhaseUntil) return true
-            if (!uhf().startInventory()) {
+            if (searchLedMulti) {
+                val all = currentListLedEpcs()
+                if (all.isNotEmpty() && searchLedKey(all) != searchLedAppliedKey) {
+                    lightEveryScannedListTag()
+                }
+            }
+            var started = uhf().startInventory()
+            if (!started) {
                 uhf().applyLedTagSolidMode()
-                uhf().startInventory()
+                started = uhf().startInventory()
+            }
+            if (!started) {
+                ledPhaseUntil = now + 30L
+                return true
             }
             ledLightOn = true
             ledPhaseUntil = now + LED_BLINK_ON_MS
@@ -1744,7 +1816,7 @@ class HardwareControllerImpl(
     }
 
     private fun searchLedFailBackoff() {
-        foundLedGatherUntil = SystemClock.elapsedRealtime() + 2000L
+        foundLedGatherUntil = SystemClock.elapsedRealtime() + 250L
         foundLedGatherDeadline = foundLedGatherUntil
     }
 
@@ -1851,7 +1923,7 @@ class HardwareControllerImpl(
                         }
                         pollerParked = false
                         if (!inventory && !useTray && tickLedBlinkDark()) {
-                            Thread.sleep(15)
+                            Thread.sleep(5)
                             continue
                         }
                         if (useTray) {
@@ -2221,6 +2293,8 @@ class HardwareControllerImpl(
         private const val SEARCH_LED_BLINK = 1
         private const val SEARCH_LED_DISCOVER = 2
         private const val SEARCH_LED_MAX = 8
+        /** List chips remembered for blink. The radio filter itself still holds 8. */
+        private const val SEARCH_LED_REMEMBER = 24
         /** Wait after the last newly-found tag so a pile of 3 is applied together. */
         private const val SEARCH_LED_GATHER_MS = 280L
         private const val SEARCH_LED_GATHER_MAX_MS = 800L
@@ -2229,9 +2303,9 @@ class HardwareControllerImpl(
         /** Keep LabelStock LEDs on, then return to EPC for other tags. */
         private const val SEARCH_LED_BLINK_MS = 1400L
         private const val SEARCH_LED_HIT_TIMEOUT_MS = 700L
-        /** On/off so a tag LED cannot stay solid for the whole scan. */
-        private const val LED_BLINK_ON_MS = 350L
-        private const val LED_BLINK_OFF_MS = 250L
+        /** Field on, then off. Continuous LED inventory looks solid, so this pulse is the blink. */
+        private const val LED_BLINK_ON_MS = 50L
+        private const val LED_BLINK_OFF_MS = 50L
         private const val SEARCH_RADIO_EPC = 0
         private const val SEARCH_RADIO_FILTER = 1
         private const val SEARCH_RADIO_ALL = 2

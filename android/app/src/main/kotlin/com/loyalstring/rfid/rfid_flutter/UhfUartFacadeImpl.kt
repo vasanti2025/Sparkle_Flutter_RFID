@@ -38,6 +38,11 @@ interface UhfFacade {
      * LED tags and normal tags both inventory. Lock to searched EPCs after a hit.
      */
     fun applyLedBlinkInventoryNoFilter(): Boolean
+    /**
+     * Inventory is already stopped. EPC mode and an empty filter so a list
+     * scan can see every tag in range. Does not light LEDs.
+     */
+    fun beginEpcSniff(): Boolean
     /** Restore EPC-only inventory after Search (same as demo leaving Tag LED tab). */
     fun restoreEpcInventoryMode(): Boolean
 }
@@ -49,11 +54,11 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
     /**
      * DeviceAPI 2.0.3 command 0x70 keeps MODE_LED_TAG (14).
      * reservedOffset = on time, reservedLength = off time, unit 100ms.
-     * 0 and 0 is solid. 10 and 10 is the demo blink (1s on, 1s off, repeating).
+     * 0 and 0 is solid. 1 and 1 is the fastest firmware blink (100ms on/off).
      * Mode 15 is temperature and turns the tag LED off.
      */
-    private val ledBlinkOn = 10
-    private val ledBlinkOff = 10
+    private val ledBlinkOn = 1
+    private val ledBlinkOff = 1
     private var reader: com.rscja.deviceapi.RFIDWithUHFUART? = null
     @Volatile private var ready = false
 
@@ -251,15 +256,17 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
             val r = reader ?: return false
             val unique = ledEpcsOf(epcs)
             if (unique.isEmpty()) return false
-            val selected = ArrayList(unique)
-            selected.sortWith(
-                compareByDescending<String> {
-                    if (it.length == 24) 2 else if (it.length == 32) 1 else 0
-                }.thenByDescending { it.length },
-            )
-            val filterEpcs = if (selected.size <= 8) selected else ArrayList(selected.take(8))
+            val filterEpcs = ArrayList(unique)
+            if (filterEpcs.size > 8) {
+                while (filterEpcs.size > 8) filterEpcs.removeAt(filterEpcs.size - 1)
+            }
             // setFilter / setEPCAndTIDUserMode are ignored while inventory is running.
             stopInventoryQuiet(r)
+            try {
+                r.setFilter(ArrayList<com.rscja.deviceapi.entity.FilterEntity>())
+            } catch (_: Throwable) {
+                clearEpcFilters(r)
+            }
             // Demo Tag LED checked rows: offset 32 only. Offset 0 lights other chips.
             if (!installEpcFilterStrict(r, filterEpcs)) {
                 android.util.Log.w("UhfUartFacade", "Search LED strict setFilter(${filterEpcs.size}) failed")
@@ -335,6 +342,25 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
         return ok
     }
 
+    override fun beginEpcSniff(): Boolean {
+        val r = reader ?: return false
+        return try {
+            try {
+                r.setEPCMode()
+            } catch (_: Throwable) {
+            }
+            val emptied = try {
+                r.setFilter(ArrayList<com.rscja.deviceapi.entity.FilterEntity>())
+            } catch (_: Throwable) {
+                false
+            }
+            if (!emptied) clearEpcFilters(r)
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     override fun restoreEpcInventoryMode(): Boolean {
         return try {
             val r = reader ?: return false
@@ -374,6 +400,11 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
     ): Boolean {
         if (selected.isEmpty()) return false
         if (tryFilterList(r, selected, 32)) return true
+        // A one-tag fallback would leave the 3rd list tag dark. Retry the full set.
+        if (selected.size > 1) {
+            clearEpcFilters(r)
+            return tryFilterList(r, selected, 32)
+        }
         for (epc in selected) {
             try {
                 if (r.setFilter(
