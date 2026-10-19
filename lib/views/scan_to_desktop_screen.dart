@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:network_info_plus/network_info_plus.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
 import '../services/rfid_service.dart';
@@ -40,6 +41,8 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
 
   final List<DesktopTag> _desktopScans = [];
   HttpServer? _server;
+  /// JSON published at /rfid-data after Save in Local WiFi Mode. Desktop reads this URL.
+  String _localWifiJson = '{}';
 
   String _shortDeviceId = '';
   bool _isLoading = false;
@@ -192,24 +195,10 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
       _server = await HttpServer.bind(InternetAddress.anyIPv4, 8080);
       _server!.listen((HttpRequest request) {
         if (request.uri.path == '/rfid-data') {
-          final employee = context.read<PrefService>().getEmployee();
-          final clientCode = employee?.clientCode ?? '';
-
-          final items = _desktopScans.map((tag) => {
-            'EPC': tag.epc,
-            'RFIDCode': tag.rfidCode,
-          }).toList();
-          
-          final payload = {
-            'ClientCode': clientCode,
-            'DeviceId': _shortDeviceId,
-            'Items': items,
-          };
-          
           request.response
             ..headers.contentType = ContentType.json
             ..headers.add('Access-Control-Allow-Origin', '*')
-            ..write(json.encode(payload));
+            ..write(_localWifiJson);
         } else {
           request.response
             ..statusCode = HttpStatus.ok
@@ -460,8 +449,95 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     }
   }
 
+  bool _usableIp(String? ip) {
+    if (ip == null) return false;
+    final value = ip.trim();
+    return value.isNotEmpty && value != '0.0.0.0' && !value.startsWith('127.');
+  }
+
+  Future<String> _deviceWifiIp() async {
+    try {
+      final wifiIp = await NetworkInfo().getWifiIP();
+      if (_usableIp(wifiIp)) return wifiIp!.trim();
+    } catch (_) {}
+    try {
+      final interfaces = await NetworkInterface.list();
+      for (final interface in interfaces) {
+        final name = interface.name.toLowerCase();
+        if (!name.contains('wlan') && !name.contains('ap')) continue;
+        for (final addr in interface.addresses) {
+          if (addr.type == InternetAddressType.IPv4 && _usableIp(addr.address)) {
+            return addr.address;
+          }
+        }
+      }
+      for (final interface in interfaces) {
+        for (final addr in interface.addresses) {
+          if (addr.type == InternetAddressType.IPv4 && _usableIp(addr.address)) {
+            return addr.address;
+          }
+        }
+      }
+    } catch (_) {}
+    return '';
+  }
+
+  List<Map<String, String>> _localWifiItems() {
+    final items = <Map<String, String>>[];
+    for (final tag in _desktopScans) {
+      final epc = tag.epc.trim().toUpperCase().replaceAll(' ', '').replaceAll('\n', '').replaceAll('\r', '');
+      final rfid = tag.rfidCode.trim();
+      if (epc.isEmpty || rfid.isEmpty || rfid.toLowerCase() == 'scan here') continue;
+      items.add({'EPC': epc, 'RFIDCode': rfid});
+    }
+    return items;
+  }
+
+  // Local WiFi Mode: the gun hosts the scan. Desktop opens http://DEVICE_IP:8080/rfid-data.
+  Future<void> _saveScansToLocalWifi(PrefService pref) async {
+    final employee = pref.getEmployee();
+    final clientCode = employee?.clientCode ?? '';
+    if (clientCode.isEmpty || _shortDeviceId.isEmpty) {
+      _showToast(context.sRead.deviceConfigNotFound);
+      return;
+    }
+
+    final items = _localWifiItems();
+    if (items.isEmpty) {
+      _showToast(context.sRead.pleaseScanValidRfid);
+      return;
+    }
+
+    if (_server == null) {
+      await _startWebServer();
+    }
+    _localWifiJson = json.encode({
+      'ClientCode': clientCode,
+      'DeviceId': _shortDeviceId,
+      'Items': items,
+    });
+
+    final ip = await _deviceWifiIp();
+    if (!mounted) return;
+    if (ip.isEmpty) {
+      _showToast(context.sRead.deviceIpNotFoundSameWifi);
+      return;
+    }
+
+    final desktopUrl = 'http://$ip:8080/rfid-data';
+    debugPrint('LOCAL_SERVER Open this URL on desktop: $desktopUrl');
+    _showToast(
+      context.sRead.localModeOpenOnDesktop(desktopUrl),
+      duration: const Duration(seconds: 6),
+    );
+  }
+
   Future<void> _saveScansToServer() async {
     final pref = context.read<PrefService>();
+    if (pref.isLocalWifiModeEnabled()) {
+      await _saveScansToLocalWifi(pref);
+      return;
+    }
     final employee = pref.getEmployee();
     final clientCode = employee?.clientCode ?? '';
 
@@ -640,12 +716,12 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     _assignRfidDialogOpen = false;
   }
 
-  void _showToast(String message) {
+  void _showToast(String message, {Duration duration = const Duration(seconds: 2)}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message, style: GoogleFonts.poppins()),
-        duration: const Duration(seconds: 2),
+        duration: duration,
       ),
     );
   }

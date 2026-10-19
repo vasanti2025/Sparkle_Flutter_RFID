@@ -633,6 +633,9 @@ class AppStrings {
   String get deviceIpNotFound => _t('deviceIpNotFound');
   String get pleaseConnectToWifi => _t('pleaseConnectToWifi');
   String get localWifiModeEnabledMsg => _t('localWifiModeEnabledMsg');
+  String localModeOpenOnDesktop(String url) =>
+      _t('localModeOpenOnDesktop').replaceAll('{url}', url);
+  String get deviceIpNotFoundSameWifi => _t('deviceIpNotFoundSameWifi');
   String get internetModeEnabled => _t('internetModeEnabled');
   String get trayMode => _t('trayMode');
   String get trayModeDisabled => _t('trayModeDisabled');
@@ -1446,6 +1449,9 @@ class AppStrings {
       'deviceIpNotFound': 'Device IP not found',
       'pleaseConnectToWifi': 'Please connect to WiFi for Local Mode',
       'localWifiModeEnabledMsg': 'Local WiFi Mode Enabled',
+      'localModeOpenOnDesktop': 'Local Mode: Open on desktop: {url}',
+      'deviceIpNotFoundSameWifi':
+          'Device IP not found. Connect RFID and desktop to same WiFi/hotspot.',
       'internetModeEnabled': 'Internet Mode Enabled',
       'trayMode': 'Tray Mode',
       'trayModeDisabled': 'Handheld gun mode',
@@ -1985,6 +1991,9 @@ class AppStrings {
       'deviceIpNotFound': 'डिवाइस आईपी नहीं मिला',
       'pleaseConnectToWifi': 'स्थानीय मोड के लिए कृपया वाईफाई से कनेक्ट करें',
       'localWifiModeEnabledMsg': 'स्थानीय वाईफाई मोड सक्षम',
+      'localModeOpenOnDesktop': 'लोकल मोड: डेस्कटॉप पर खोलें: {url}',
+      'deviceIpNotFoundSameWifi':
+          'डिवाइस आईपी नहीं मिला। RFID और डेस्कटॉप को एक ही वाईफाई/हॉटस्पॉट से जोड़ें।',
       'internetModeEnabled': 'इंटरनेट मोड सक्षम',
       'trayMode': 'ट्रे मोड',
       'trayModeDisabled': 'हैंडहेल्ड गन मोड',
@@ -2550,6 +2559,9 @@ class AppStrings {
       'deviceIpNotFound': 'لم يتم العثور على عنوان IP للجهاز',
       'pleaseConnectToWifi': 'يرجى الاتصال بشبكة WiFi للوضع المحلي',
       'localWifiModeEnabledMsg': 'تم تمكين وضع الواي فاي المحلي',
+      'localModeOpenOnDesktop': 'الوضع المحلي: افتح على سطح المكتب: {url}',
+      'deviceIpNotFoundSameWifi':
+          'لم يتم العثور على عنوان IP للجهاز. صِل جهاز RFID وسطح المكتب بنفس شبكة WiFi أو نقطة الاتصال.',
       'internetModeEnabled': 'تم تمكين وضع الإنترنت',
       'trayMode': 'وضع الصينية',
       'trayModeDisabled': 'وضع المسدس اليدوي',
