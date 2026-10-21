@@ -1527,6 +1527,10 @@ class ApiService {
       final response = await _dio.post(
         'api/RFIDDevice/GetAllRFIDDetails',
         data: {'ClientCode': clientCode},
+        options: Options(
+          sendTimeout: const Duration(seconds: 20),
+          receiveTimeout: const Duration(seconds: 25),
+        ),
       );
       if (response.statusCode == 200) {
         return response.data as Map<String, dynamic>?;
@@ -1580,6 +1584,10 @@ class ApiService {
             'deviceId': deviceId,
           }
         ],
+        options: Options(
+          sendTimeout: const Duration(seconds: 15),
+          receiveTimeout: const Duration(seconds: 15),
+        ),
       );
       return response.statusCode == 200;
     } catch (e) {

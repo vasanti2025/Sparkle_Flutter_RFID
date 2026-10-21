@@ -40,8 +40,12 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
   int _selectedPower = 5;
 
   final List<DesktopTag> _desktopScans = [];
+  final Set<String> _seenEpcs = {};
   HttpServer? _server;
-  /// JSON published at /rfid-data after Save in Local WiFi Mode. Desktop reads this URL.
+  final Set<WebSocket> _desktopSockets = {};
+  Timer? _serverRetry;
+  bool _closingServer = false;
+  /// Full scan JSON for HTTP /rfid-data. Local WiFi Mode also pushes this live over WebSocket.
   String _localWifiJson = '{}';
 
   String _shortDeviceId = '';
@@ -80,7 +84,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     super.initState();
     _selectedPower = context.read<PrefService>().productPower;
     _tagBatcher = TagScanBatcher(
-      flushInterval: const Duration(milliseconds: 40),
+      flushInterval: const Duration(milliseconds: 120),
       onFlush: (tags) => _processTagBatch(tags),
     );
     _initDeviceAndServer();
@@ -96,7 +100,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     _tagsSubscription = _rfidService.tagsStream.listen((tag) {
       if (!_rfidService.isScanning && !_isScanning) return;
       _tagBatcher.add(tag);
-      _tagBatcher.flushNow();
+      if (_isSingleScan) _tagBatcher.flushNow();
     });
     
     // Subscribe to gun key triggers
@@ -116,8 +120,10 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     _singleScanTimer?.cancel();
     _uiFlushTimer?.cancel();
     _tagBatcher.dispose();
+    _closingServer = true;
+    _serverRetry?.cancel();
     unawaited(_stopScanning());
-    _stopWebServer();
+    unawaited(_stopWebServer());
     super.dispose();
   }
 
@@ -133,56 +139,47 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     debugPrint('Stable Device ID: $devId');
     _shortDeviceId = shortSerial(devId);
 
-    // Call addDeviceId update user API to associate this deviceId to user
+    // Local server first so Scan and Local WiFi Save work even when the API is slow or offline.
+    await _initIpAndServer();
+    if (!mounted) return;
+
     final employee = pref.getEmployee();
     final clientCode = employee?.clientCode ?? '';
-    if (clientCode.isNotEmpty) {
-      await ApiService(pref).addDeviceId(clientCode, _shortDeviceId);
+    if (clientCode.isEmpty) return;
+    unawaited(ApiService(pref).addDeviceId(clientCode, _shortDeviceId));
+    if (!pref.isLocalWifiModeEnabled()) {
+      unawaited(_loadScannedDataFromServer());
     }
-
-    await _initIpAndServer();
-    await _loadScannedDataFromServer();
   }
 
   Future<void> _loadScannedDataFromServer() async {
     final pref = context.read<PrefService>();
     final employee = pref.getEmployee();
     final clientCode = employee?.clientCode ?? '';
-    if (clientCode.isEmpty || _shortDeviceId.isEmpty) return;
-
-    setState(() {
-      _isLoading = true;
-    });
+    if (clientCode.isEmpty || _shortDeviceId.isEmpty || !mounted) return;
 
     try {
       final api = ApiService(pref);
       final response = await api.getAllScantoDesktop(clientCode);
-      if (response != null && response['success'] == true) {
-        final rawList = response['data'] as List?;
-        if (rawList != null) {
-          final List<DesktopTag> loadedTags = [];
-          for (var rawItem in rawList) {
-            if (rawItem is Map<String, dynamic>) {
-              final devId = rawItem['DeviceId']?.toString().trim() ?? '';
-              if (devId.toLowerCase() == _shortDeviceId.toLowerCase()) {
-                final epc = rawItem['TIDValue']?.toString() ?? '';
-                final rfidCode = rawItem['RFIDCode']?.toString() ?? '';
-                loadedTags.add(DesktopTag(epc: epc, rfidCode: rfidCode));
-              }
-            }
-          }
-          setState(() {
-            _desktopScans.clear();
-            _desktopScans.addAll(loadedTags);
-          });
-        }
+      if (!mounted || response == null || response['success'] != true) return;
+      final rawList = response['data'] as List?;
+      if (rawList == null) return;
+      var added = false;
+      for (final rawItem in rawList) {
+        if (rawItem is! Map) continue;
+        final devId = rawItem['DeviceId']?.toString().trim() ?? '';
+        if (devId.toLowerCase() != _shortDeviceId.toLowerCase()) continue;
+        final epc = (rawItem['TIDValue']?.toString() ?? '').trim().toUpperCase();
+        if (epc.isEmpty || !_seenEpcs.add(epc)) continue;
+        _desktopScans.add(DesktopTag(
+          epc: epc,
+          rfidCode: rawItem['RFIDCode']?.toString() ?? '',
+        ));
+        added = true;
       }
+      if (added && mounted) setState(() {});
     } catch (e) {
       debugPrint('Error loading scanned data: $e');
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
     }
   }
 
@@ -191,29 +188,171 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
   }
 
   Future<void> _startWebServer() async {
+    if (_closingServer || _server != null) return;
     try {
-      _server = await HttpServer.bind(InternetAddress.anyIPv4, 8080);
-      _server!.listen((HttpRequest request) {
-        if (request.uri.path == '/rfid-data') {
-          request.response
-            ..headers.contentType = ContentType.json
-            ..headers.add('Access-Control-Allow-Origin', '*')
-            ..write(_localWifiJson);
-        } else {
-          request.response
-            ..statusCode = HttpStatus.ok
-            ..headers.contentType = ContentType.html
-            ..write('<html><body><h2>RFID Local Server Running</h2><p>Endpoint: <b>/rfid-data</b></p></body></html>');
-        }
-        request.response.close();
-      });
+      _server = await HttpServer.bind(InternetAddress.anyIPv4, 8080, shared: true);
+      _server!.listen(
+        _onLocalRequest,
+        onError: (Object e) {
+          debugPrint('Local HTTP server error: $e');
+        },
+        onDone: () {
+          _server = null;
+          if (!_closingServer) _scheduleServerRestart();
+        },
+      );
       debugPrint('Local HTTP server started on port 8080');
     } catch (e) {
       debugPrint('Failed to start HTTP server: $e');
+      _server = null;
+      if (!_closingServer) _scheduleServerRestart();
     }
   }
 
+  void _scheduleServerRestart() {
+    if (_closingServer) return;
+    _serverRetry?.cancel();
+    _serverRetry = Timer(const Duration(seconds: 2), () {
+      if (!_closingServer) unawaited(_startWebServer());
+    });
+  }
+
+  Future<void> _onLocalRequest(HttpRequest request) async {
+    try {
+      if (WebSocketTransformer.isUpgradeRequest(request)) {
+        await _acceptDesktopSocket(request);
+        return;
+      }
+      if (request.uri.path == '/rfid-data') {
+        request.response
+          ..headers.contentType = ContentType.json
+          ..headers.add('Access-Control-Allow-Origin', '*')
+          ..write(_localWifiJson);
+      } else {
+        request.response
+          ..statusCode = HttpStatus.ok
+          ..headers.contentType = ContentType.html
+          ..write(
+            '<html><body><h2>RFID Local Server Running</h2>'
+            '<p>HTTP: <b>/rfid-data</b></p>'
+            '<p>WebSocket: <b>/rfid-ws</b></p></body></html>',
+          );
+      }
+      await request.response.close();
+    } catch (e) {
+      debugPrint('Local HTTP request failed: $e');
+    }
+  }
+
+  Future<void> _acceptDesktopSocket(HttpRequest request) async {
+    final path = request.uri.path;
+    if (path != '/rfid-ws' && path != '/rfid-data') {
+      request.response.statusCode = HttpStatus.notFound;
+      await request.response.close();
+      return;
+    }
+    final socket = await WebSocketTransformer.upgrade(request);
+    _desktopSockets.add(socket);
+    if (_localWifiLive()) {
+      _sendSocket(socket, _syncMessage());
+    }
+    socket.listen(
+      (_) {},
+      onDone: () => _desktopSockets.remove(socket),
+      onError: (Object e) {
+        _desktopSockets.remove(socket);
+        debugPrint('Desktop WebSocket closed: $e');
+      },
+      cancelOnError: true,
+    );
+  }
+
+  void _sendSocket(WebSocket socket, String message) {
+    try {
+      socket.add(message);
+    } catch (e) {
+      _desktopSockets.remove(socket);
+      debugPrint('Desktop WebSocket send failed: $e');
+    }
+  }
+
+  void _broadcast(String message) {
+    final stale = <WebSocket>[];
+    for (final socket in _desktopSockets) {
+      try {
+        socket.add(message);
+      } catch (_) {
+        stale.add(socket);
+      }
+    }
+    _desktopSockets.removeAll(stale);
+  }
+
+  bool _localWifiLive() {
+    if (!mounted) return false;
+    return context.read<PrefService>().isLocalWifiModeEnabled();
+  }
+
+  Map<String, dynamic> _wifiEnvelope(String type, List<Map<String, String>> items) {
+    final clientCode = mounted
+        ? (context.read<PrefService>().getEmployee()?.clientCode ?? '')
+        : '';
+    return {
+      'type': type,
+      'ClientCode': clientCode,
+      'DeviceId': _shortDeviceId,
+      'Items': items,
+    };
+  }
+
+  List<Map<String, String>> _tagPayload(Iterable<DesktopTag> tags) {
+    final items = <Map<String, String>>[];
+    for (final tag in tags) {
+      final epc = tag.epc
+          .trim()
+          .toUpperCase()
+          .replaceAll(' ', '')
+          .replaceAll('\n', '')
+          .replaceAll('\r', '');
+      final rfid = tag.rfidCode.trim();
+      if (epc.isEmpty || rfid.toLowerCase() == 'scan here') continue;
+      items.add({'EPC': epc, 'RFIDCode': rfid});
+    }
+    return items;
+  }
+
+  String _syncMessage() {
+    final envelope = _wifiEnvelope('sync', _tagPayload(_desktopScans));
+    _localWifiJson = json.encode({
+      'ClientCode': envelope['ClientCode'],
+      'DeviceId': envelope['DeviceId'],
+      'Items': envelope['Items'],
+    });
+    return json.encode(envelope);
+  }
+
+  void _pushLiveTags(List<DesktopTag> tags) {
+    if (!_localWifiLive() || tags.isEmpty) return;
+    final items = _tagPayload(tags);
+    if (items.isEmpty) return;
+    _syncMessage();
+    _broadcast(json.encode(_wifiEnvelope('tags', items)));
+  }
+
+  void _pushLiveSync() {
+    if (!_localWifiLive()) return;
+    _broadcast(_syncMessage());
+  }
+
   Future<void> _stopWebServer() async {
+    _serverRetry?.cancel();
+    _serverRetry = null;
+    for (final socket in _desktopSockets.toList()) {
+      try {
+        await socket.close();
+      } catch (_) {}
+    }
+    _desktopSockets.clear();
     await _server?.close(force: true);
     _server = null;
   }
@@ -240,15 +379,11 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     if (_isSingleScan && _tagScannedInSession) return;
 
     final db = context.read<DbService>();
-    final existing = _desktopScans.map((t) => t.epc).toSet();
-    for (final pending in _pendingTags) {
-      existing.add(pending.epc);
-    }
     final toAdd = <DesktopTag>[];
 
     for (final raw in tags) {
       final epc = raw.trim().toUpperCase();
-      if (epc.isEmpty || existing.contains(epc)) continue;
+      if (epc.isEmpty || !_seenEpcs.add(epc)) continue;
 
       String mappedRfid = '';
       if (epc.startsWith('E')) {
@@ -258,7 +393,6 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
       }
 
       toAdd.add(DesktopTag(epc: epc, rfidCode: mappedRfid));
-      existing.add(epc);
       if (_isSingleScan) break;
     }
 
@@ -296,17 +430,22 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
         debugPrint('Error querying tag mapping from local DB: $e');
       }
     }
-    if (changed && mounted) setState(() {});
+    if (changed && mounted) {
+      setState(() {});
+      _pushLiveTags(tags);
+    }
   }
 
   void _flushPendingTagsNow() {
     _uiFlushTimer?.cancel();
     _uiFlushTimer = null;
     if (!mounted || _pendingTags.isEmpty) return;
+    final added = List<DesktopTag>.from(_pendingTags);
     setState(() {
       _desktopScans.addAll(_pendingTags);
       _pendingTags.clear();
     });
+    _pushLiveTags(added);
   }
 
   Future<void> _startSingleScan() async {
@@ -329,17 +468,11 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     }
 
     try {
-      if (_rfidService.isScanning) {
-        await _rfidService.stopScanning();
-        await _rfidService.haltScan();
-      }
-
-      await _rfidService.clearSearchTags();
-      await _rfidService.clearMatchEpcs();
-      final started = await _rfidService.startScanning(
+      // Same UART start as Inventory. startScanning waits on a Bluetooth
+      // tray probe (about 30s) and then uses the slower search radio.
+      final started = await _rfidService.startInventoryScanning(
         power: _selectedPower,
-        inventory: false,
-        playStartSound: true,
+        skipBleProbe: true,
       );
       if (gen != _scanGeneration) {
         if (started) {
@@ -388,17 +521,9 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     }
 
     try {
-      if (_rfidService.isScanning) {
-        await _rfidService.stopScanning();
-        await _rfidService.haltScan();
-      }
-
-      await _rfidService.clearSearchTags();
-      await _rfidService.clearMatchEpcs();
-      final started = await _rfidService.startScanning(
+      final started = await _rfidService.startInventoryScanning(
         power: _selectedPower,
-        inventory: true,
-        playStartSound: false,
+        skipBleProbe: true,
       );
       if (gen != _scanGeneration) {
         if (started) {
@@ -516,6 +641,12 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
       'DeviceId': _shortDeviceId,
       'Items': items,
     });
+    _broadcast(json.encode({
+      'type': 'sync',
+      'ClientCode': clientCode,
+      'DeviceId': _shortDeviceId,
+      'Items': items,
+    }));
 
     final ip = await _deviceWifiIp();
     if (!mounted) return;
@@ -586,6 +717,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
         if (mounted) {
           setState(() {
             _desktopScans.clear();
+            _seenEpcs.clear();
           });
         }
       } else {
@@ -655,7 +787,9 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
         _showToast(context.sRead.recordsDeletedSuccess(deletedRecords));
         setState(() {
           _desktopScans.clear();
+          _seenEpcs.clear();
         });
+        _pushLiveSync();
       } else {
         _showToast(context.sRead.failedToClearServerStock);
       }
@@ -684,7 +818,9 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
       if (mounted) {
         setState(() {
           _desktopScans.clear();
+          _seenEpcs.clear();
         });
+        _pushLiveSync();
         _showToast(context.sRead.scanResetSuccessful);
       }
     } finally {
@@ -710,6 +846,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
           setState(() {
             tag.rfidCode = rfid.trim();
           });
+          _pushLiveTags([tag]);
         },
       ),
     );
@@ -850,51 +987,51 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
                           ],
                         ),
                       )
-                    : ListView.builder(
-                        itemCount: _desktopScans.length,
-                        itemBuilder: (context, index) {
-                          final tag = _desktopScans[index];
-                          final isBlank = tag.rfidCode.trim().isEmpty;
-                          final displayText = isBlank ? s.scanHere : tag.rfidCode;
-                          
-                          return Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            decoration: BoxDecoration(
-                              border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  flex: 2,
-                                  child: Text(
-                                    '${index + 1}',
-                                    style: GoogleFonts.poppins(fontSize: 11),
-                                  ),
+                    : Builder(
+                        builder: (context) {
+                          final rowStyle = GoogleFonts.poppins(fontSize: 11);
+                          final blankStyle = GoogleFonts.poppins(
+                            fontSize: 11,
+                            color: Colors.blue,
+                            decoration: TextDecoration.underline,
+                            fontWeight: FontWeight.w600,
+                          );
+                          final filledStyle = GoogleFonts.poppins(fontSize: 11, color: Colors.black87);
+                          return ListView.builder(
+                            itemCount: _desktopScans.length,
+                            addAutomaticKeepAlives: false,
+                            itemBuilder: (context, index) {
+                              final tag = _desktopScans[index];
+                              final isBlank = tag.rfidCode.trim().isEmpty;
+                              return Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                decoration: BoxDecoration(
+                                  border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
                                 ),
-                                Expanded(
-                                  flex: 8,
-                                  child: Text(
-                                    tag.epc,
-                                    style: GoogleFonts.poppins(fontSize: 11),
-                                  ),
-                                ),
-                                Expanded(
-                                  flex: 4,
-                                  child: GestureDetector(
-                                    onTap: () => _showManualRfidDialog(index),
-                                    child: Text(
-                                      displayText,
-                                      style: GoogleFonts.poppins(
-                                        fontSize: 11,
-                                        color: isBlank ? Colors.blue : Colors.black87,
-                                        decoration: isBlank ? TextDecoration.underline : TextDecoration.none,
-                                        fontWeight: isBlank ? FontWeight.w600 : FontWeight.normal,
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      flex: 2,
+                                      child: Text('${index + 1}', style: rowStyle),
+                                    ),
+                                    Expanded(
+                                      flex: 8,
+                                      child: Text(tag.epc, style: rowStyle),
+                                    ),
+                                    Expanded(
+                                      flex: 4,
+                                      child: GestureDetector(
+                                        onTap: () => _showManualRfidDialog(index),
+                                        child: Text(
+                                          isBlank ? s.scanHere : tag.rfidCode,
+                                          style: isBlank ? blankStyle : filledStyle,
+                                        ),
                                       ),
                                     ),
-                                  ),
+                                  ],
                                 ),
-                              ],
-                            ),
+                              );
+                            },
                           );
                         },
                       ),

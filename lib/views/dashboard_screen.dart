@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../app_navigator.dart';
 import '../l10n/l10n_extension.dart';
 import '../services/app_warmup_service.dart' deferred as warmup;
+import '../services/rfid_service.dart';
 import '../services/session_lifecycle.dart';
 import '../session_vm_hooks.dart' deferred as vm_hooks;
 import '../viewmodels/dashboard_view_model.dart';
@@ -50,6 +51,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (!mounted) return;
       context.read<DashboardViewModel>().loadUser();
       unawaited(SessionLifecycle.instance.startMonitoring());
+      RfidService().checkBluetoothAfterLogin();
       unawaited(_startWarmup());
     });
     // Do NOT prefetch all list APIs here — it competes with navigation and

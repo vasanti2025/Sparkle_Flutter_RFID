@@ -7,6 +7,7 @@ import '../models/login_request.dart';
 import '../models/login_response.dart';
 import '../models/user_permission.dart';
 import '../services/api_service.dart';
+import '../services/rfid_service.dart';
 import '../services/location_sync_service.dart' deferred as loc_sync;
 import '../services/pref_service.dart';
 import '../utils/user_facing_error.dart';
@@ -279,6 +280,8 @@ class LoginViewModel extends ChangeNotifier {
 
     // Permissions + location sync run after UI navigates (handheld was freezing here).
     unawaited(_saveBranchIdsForEmployee(employee));
+    // Tray/R6 check runs here so Scan to Desktop does not wait on Bluetooth.
+    RfidService().checkBluetoothAfterLogin();
 
     if (_prefService.isLocationSyncEnabled()) {
       unawaited(() async {

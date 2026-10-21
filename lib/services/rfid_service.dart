@@ -1026,9 +1026,23 @@ class RfidService {
     return LedTagSolid.instance.turnSolid(const []);
   }
 
+  bool _bleCheckScheduled = false;
+
+  /// One Bluetooth tray/R6 check after login. Does not block the screen that calls it.
+  void checkBluetoothAfterLogin() {
+    if (_bleCheckScheduled) return;
+    _bleCheckScheduled = true;
+    unawaited(autoAttachSystemBluetoothReader());
+  }
+
   /// Scan Display inventory start — minimal handoff (mirrors Sparkle).
   /// Avoids prefs/R6 probes, setPower UART race, and heavy Dart prep before start.
-  Future<bool> startInventoryScanning({required int power}) async {
+  /// [skipBleProbe] starts the handheld radio immediately. Scan to Desktop uses
+  /// this because the Bluetooth check already ran after login.
+  Future<bool> startInventoryScanning({
+    required int power,
+    bool skipBleProbe = false,
+  }) async {
     _power = power;
     await ensureReady();
 
@@ -1048,8 +1062,9 @@ class RfidService {
       final requestedAt = DateTime.now();
       _beginScanTiming();
 
-      // UART C5/C7 starts the radio now. Tray and R6 still attach first.
-      if (!await _uartHandheldWithoutBle()) {
+      // UART C5/C7 starts the radio now. Tray and R6 still attach first,
+      // except Scan to Desktop, which must not wait on Bluetooth.
+      if (!skipBleProbe && !await _uartHandheldWithoutBle()) {
         await autoAttachSystemBluetoothReader();
         final prefs = PrefService.instanceOrNull ?? await PrefService.init();
         if (prefs.isR6ModeEnabled() || _r6ModeEnabled) {
