@@ -1,6 +1,8 @@
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 
+import 'pref_service.dart';
+
 class LocationReading {
   final String latitude;
   final String longitude;
@@ -15,6 +17,9 @@ class LocationReading {
 
 class LocationService {
   static Future<bool> ensurePermission() async {
+    final pref = await PrefService.init();
+    // Never raise the system location dialog before the in-app disclosure.
+    if (!pref.isBackgroundLocationConsentGranted()) return false;
     var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();

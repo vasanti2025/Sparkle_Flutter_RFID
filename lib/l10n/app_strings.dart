@@ -59,6 +59,11 @@ class AppStrings {
   String get clearLocalData => _t('clearLocalData');
   String get language => _t('language');
   String get location => _t('location');
+  String get backgroundLocationTitle => _t('backgroundLocationTitle');
+  String get backgroundLocationBody => _t('backgroundLocationBody');
+  String get backgroundLocationContinue => _t('backgroundLocationContinue');
+  String get backgroundLocationNotNow => _t('backgroundLocationNotNow');
+  String get backgroundLocationDenied => _t('backgroundLocationDenied');
   String get selectLanguage => _t('selectLanguage');
   String get english => _t('english');
   String get hindi => _t('hindi');
@@ -854,6 +859,13 @@ class AppStrings {
       'clearLocalData': 'Clear local data',
       'language': 'Language',
       'location': 'Location',
+      'backgroundLocationTitle': 'Background location',
+      'backgroundLocationBody':
+          'Sparkle RFID collects location data to upload this device\'s GPS position to your company server every 15 minutes, even when the app is closed or not in use.\n\nThis is used only for your company\'s employee location record. Location is not used for advertising.',
+      'backgroundLocationContinue': 'Continue',
+      'backgroundLocationNotNow': 'Not Now',
+      'backgroundLocationDenied':
+          'Background location was not allowed. GPS will not be uploaded every 15 minutes.',
       'selectLanguage': 'Select Language',
       'english': 'English',
       'hindi': 'Hindi',
@@ -1567,6 +1579,13 @@ class AppStrings {
       'clearLocalData': 'स्थानीय डेटा साफ़ करें',
       'language': 'भाषा',
       'location': 'स्थान',
+      'backgroundLocationTitle': 'बैकग्राउंड लोकेशन',
+      'backgroundLocationBody':
+          'Sparkle RFID इस डिवाइस की GPS लोकेशन हर 15 मिनट में आपकी कंपनी के सर्वर पर भेजने के लिए लोकेशन डेटा लेता है, तब भी जब ऐप बंद हो या उपयोग में न हो।\n\nइसका उपयोग केवल कंपनी के कर्मचारी लोकेशन रिकॉर्ड के लिए होता है। लोकेशन का उपयोग विज्ञापन के लिए नहीं होता।',
+      'backgroundLocationContinue': 'जारी रखें',
+      'backgroundLocationNotNow': 'अभी नहीं',
+      'backgroundLocationDenied':
+          'बैकग्राउंड लोकेशन की अनुमति नहीं मिली। GPS हर 15 मिनट में अपलोड नहीं होगा।',
       'selectLanguage': 'भाषा चुनें',
       'english': 'English',
       'hindi': 'हिन्दी',
@@ -2113,6 +2132,13 @@ class AppStrings {
       'clearLocalData': 'مسح البيانات المحلية',
       'language': 'اللغة',
       'location': 'الموقع',
+      'backgroundLocationTitle': 'الموقع في الخلفية',
+      'backgroundLocationBody':
+          'يجمع Sparkle RFID بيانات الموقع لرفع موقع GPS لهذا الجهاز إلى خادم شركتك كل 15 دقيقة، حتى عندما يكون التطبيق مغلقًا أو غير مستخدم.\n\nيُستخدم هذا فقط لسجل موقع الموظف في شركتك. لا يُستخدم الموقع للإعلانات.',
+      'backgroundLocationContinue': 'متابعة',
+      'backgroundLocationNotNow': 'ليس الآن',
+      'backgroundLocationDenied':
+          'لم يُسمح بالموقع في الخلفية. لن يتم رفع GPS كل 15 دقيقة.',
       'selectLanguage': 'اختر اللغة',
       'english': 'English',
       'hindi': 'Hindi',

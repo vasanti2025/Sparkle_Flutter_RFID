@@ -18,6 +18,10 @@ class LocationSyncService {
   static Future<void> initializeIfEnabled() async {
     final pref = await PrefService.init();
     if (!pref.isLocationSyncEnabled()) return;
+    if (!pref.isBackgroundLocationConsentGranted()) {
+      await applySettings(false);
+      return;
+    }
     await applySettings(true);
     // Delay first GPS upload so cold start / navigation stays responsive.
     if (pref.isLoggedIn()) {

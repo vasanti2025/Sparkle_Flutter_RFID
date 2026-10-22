@@ -54,13 +54,17 @@ class HardwareControllerImpl(
     /** Sparkle SearchViewModel lastSoundId / lastSoundPlayAt */
     private var lastSearchSoundId = -1
     private var lastSearchSoundPlayAt = 0L
-    /** Same-tone gap: LED inventory floods tag reads; 15ms retrigger clicks/stutters. */
-    private val searchSoundMinIntervalMs = 140L
+    /** Loudest search tone reached. Weaker reads must not silence it. */
+    private var bestSearchSoundId = -1
+    /** Search tone only. Inventory start must not be tied to this. */
+    @Volatile private var searchSoundEnabled = false
+    /** Bumped on Stop so a tone that starts late is silenced, not left looping. */
+    @Volatile private var searchToneGeneration = 0
+    private val soundLock = Any()
     /** Allow a closer bucket to switch without waiting a full beep. */
     private val searchSoundSwitchMinMs = 45L
-    /** Ignore brief weaker RSSI so close tone does not flip to far for ~1s. */
+    /** Ignore brief weaker RSSI so close tone does not flip to far. */
     private var lastCloseSearchSoundAt = 0L
-    private val holdCloseSearchMs = 1800L
 
     private var searchTags = HashSet<String>()
     private val searchTagLock = Any()
@@ -448,12 +452,15 @@ class HardwareControllerImpl(
                 result.success(true)
             }
             "stopSound" -> {
+                searchSoundEnabled = false
                 val id = call.argument<Int>("id")
                 if (id != null) {
-                    stopSound(id)
+                    stopSound(id, force = true)
                 } else {
-                    stopAllSounds()
+                    stopAllSounds(force = true)
                 }
+                lastSearchSoundId = -1
+                bestSearchSoundId = -1
                 result.success(true)
             }
             "startInventorySound" -> {
@@ -471,8 +478,12 @@ class HardwareControllerImpl(
             }
             "clearSearchTags" -> {
                 clearSearchTagState()
-                stopAllSounds()
-                lastSearchSoundId = -1
+                // An open search keeps its tone until the user stops scanning.
+                if (!searchSessionActive()) {
+                    stopAllSounds()
+                    lastSearchSoundId = -1
+                    bestSearchSoundId = -1
+                }
                 result.success(true)
             }
             "clearInventoryScope" -> {
@@ -920,6 +931,10 @@ class HardwareControllerImpl(
         inventoryScanMode = false
         inventoryScopeEpcs.clear()
         sessionUniqueEpcs.clear()
+        searchSoundEnabled = false
+        stopAllSounds(force = true)
+        lastSearchSoundId = -1
+        bestSearchSoundId = -1
         stopInventoryLoopSound()
     }
 
@@ -941,10 +956,16 @@ class HardwareControllerImpl(
             } else if (!inventory) {
                 stopRfidInventory(restoreEpc = !keepSolid)
                 holdLedSolid = keepSolid
+                scanningPermitted = true
+            } else if (!activeInventorySession) {
+                // Leftover search must not count as an inventory session.
+                stopRfidInventory(restoreEpc = true)
+                scanningPermitted = true
             } else {
                 return true
             }
         }
+        searchSoundEnabled = false
         activeInventorySession = inventory
         sessionUniqueEpcs.clear()
         if (trayModeEnabled || r6ModeEnabled) {
@@ -993,6 +1014,7 @@ class HardwareControllerImpl(
                 // Accept callback tags immediately. LED chips often arrive on
                 // setInventoryCallback before the poller thread is up.
                 isScanning = true
+                searchSoundEnabled = true
                 attachSearchLedTagCallback()
                 if (playStartSound) playSound(1, 0)
             }
@@ -1040,6 +1062,7 @@ class HardwareControllerImpl(
                 startPollingThread(inventory, useTray = false)
             } else {
                 isScanning = false
+                searchSoundEnabled = false
                 clearSearchLedTagCallback()
                 stopInventoryLoopSound()
             }
@@ -1047,6 +1070,7 @@ class HardwareControllerImpl(
         } catch (e: Throwable) {
             e.printStackTrace()
             isScanning = false
+            searchSoundEnabled = false
             stopInventoryLoopSound()
             false
         }
@@ -1907,16 +1931,17 @@ class HardwareControllerImpl(
             Log.i(TAG, "RFID stop +${ran}ms unique=${sessionUniqueEpcs.size} dropped=$droppedTagEvents")
             scanArmedAt = 0L
         }
+        isScanning = false
+        searchSoundEnabled = false
         inventoryScanMode = false
         inventoryScopeEpcs.clear()
         sessionUniqueEpcs.clear()
         resetSearchLedFoundState()
-        stopAllSounds()
+        stopAllSounds(force = true)
         lastSearchSoundId = -1
+        bestSearchSoundId = -1
         lastCloseSearchSoundAt = 0L
         stopInventoryLoopSound()
-
-        isScanning = false
         holdLedSolid = false
         activeInventorySession = false
         uartPollPaused = true
@@ -2040,9 +2065,9 @@ class HardwareControllerImpl(
         val rssiTrim = rssi.trim()
         val rssiMissing = rssiTrim.isEmpty() || rssiTrim == "0" || rssiTrim == "0.0"
         val rssiOut = rssi
-        if (searchHit) {
+        if (searchHit && isScanning && scanningPermitted) {
             lastSearchHitAt = SystemClock.elapsedRealtime()
-            if (!rssiMissing) playRssiSearchSound(rssiOut)
+            if (!rssiMissing) playRssiSearchSound(rssiOut) else keepSearchSound()
             noteFoundSearchLed(cleanEpc)
         }
 
@@ -2252,70 +2277,139 @@ class HardwareControllerImpl(
         }
     }
 
-    private fun stopSound(id: Int) {
-        val streamId = soundStreamIds[id] ?: return
-        soundPool?.stop(streamId)
-        soundStreamIds.remove(id)
+    /** Search is running. Its tone stays until [stopRfidInventory]. */
+    private fun searchSessionActive(): Boolean =
+        isScanning && !activeInventorySession && !trayModeEnabled && !r6ModeEnabled
+
+    private fun stopSound(id: Int, force: Boolean = false) {
+        if (!force && searchSessionActive()) return
+        if (force) searchToneGeneration++
+        val silence = Runnable {
+            synchronized(soundLock) {
+                val streamId = soundStreamIds.remove(id) ?: return@Runnable
+                silenceStream(streamId)
+            }
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) silence.run() else mainHandler.post(silence)
     }
 
-    private fun stopAllSounds() {
-        soundStreamIds.values.forEach { streamId -> soundPool?.stop(streamId) }
-        soundStreamIds.clear()
+    private fun stopAllSounds(force: Boolean = false) {
+        if (!force && searchSessionActive()) return
+        // Flag first, on this thread, so a tag read cannot start another loop.
+        searchSoundEnabled = false
+        searchToneGeneration++
+        val silence = Runnable { silenceMappedStreams() }
+        if (Looper.myLooper() == Looper.getMainLooper()) silence.run() else mainHandler.post(silence)
+    }
+
+    private fun silenceMappedStreams() {
+        val streamIds: List<Int>
+        synchronized(soundLock) {
+            streamIds = ArrayList(soundStreamIds.values)
+            soundStreamIds.clear()
+            bestSearchSoundId = -1
+            lastSearchSoundId = -1
+        }
+        streamIds.forEach { silenceStream(it) }
+    }
+
+    /** Looping search tones ignore a plain stop. Mute, end the loop, pause, then stop. */
+    private fun silenceStream(streamId: Int) {
+        if (streamId == 0) return
+        val pool = soundPool ?: return
+        try {
+            pool.setVolume(streamId, 0f, 0f)
+        } catch (_: Throwable) {
+        }
+        try {
+            pool.setLoop(streamId, 0)
+        } catch (_: Throwable) {
+        }
+        try {
+            pool.pause(streamId)
+        } catch (_: Throwable) {
+        }
+        try {
+            pool.stop(streamId)
+        } catch (_: Throwable) {
+        }
     }
 
     /**
      * Sparkle SearchViewModel RSSI → sound id buckets:
      * abs(rssi) <50 → fourty(4), <60 → sixty(2), <70 → found2(5), else barcodebeep(1).
-     * Keep the close tone while the gun stays on the tag; only move to a farther
-     * tone after weaker RSSI lasts past [holdCloseSearchMs] (or a closer tone).
+     * A closer read may replace the tone. A weaker read must not stop it.
+     * The tone ends only when the user stops scanning.
      */
     private fun playRssiSearchSound(rssi: String) {
+        if (!searchSoundEnabled || !isScanning) return
         val rssiAbs = try {
             kotlin.math.abs(rssi.trim().toDouble())
         } catch (_: Exception) {
             0.0
         }
-        var id = when {
+        val id = when {
             rssiAbs > 0 && rssiAbs < 50 -> 4
             rssiAbs > 50 && rssiAbs < 60 -> 2
             rssiAbs > 60 && rssiAbs < 70 -> 5
             rssiAbs > 70 -> 1
             else -> -1
         }
-        if (id == -1) return
+        if (id == -1) {
+            keepSearchSound()
+            return
+        }
+        if (bestSearchSoundId > 0 && searchSoundRank(id) >= searchSoundRank(bestSearchSoundId)) {
+            keepSearchSound()
+            return
+        }
         val now = System.currentTimeMillis()
-        val closer = lastSearchSoundId <= 0 || searchSoundRank(id) < searchSoundRank(lastSearchSoundId)
-        if (searchSoundRank(id) <= 1) {
-            lastCloseSearchSoundAt = now
-        }
-        if (!closer && now - lastCloseSearchSoundAt < holdCloseSearchMs && lastSearchSoundId > 0) {
-            id = lastSearchSoundId
-        }
-        if (id == lastSearchSoundId) {
-            if (now - lastSearchSoundPlayAt < searchSoundMinIntervalMs) return
-        } else if (now - lastSearchSoundPlayAt < searchSoundSwitchMinMs) {
+        if (bestSearchSoundId > 0 && now - lastSearchSoundPlayAt < searchSoundSwitchMinMs) {
+            keepSearchSound()
             return
         }
         lastSearchSoundPlayAt = now
-        if (lastSearchSoundId > 0 && lastSearchSoundId != id) {
-            stopSound(lastSearchSoundId)
+        if (searchSoundRank(id) <= 1) lastCloseSearchSoundAt = now
+        if (bestSearchSoundId > 0 && bestSearchSoundId != id) {
+            stopSound(bestSearchSoundId, force = true)
         }
+        bestSearchSoundId = id
         lastSearchSoundId = id
         playSearchTone(id)
     }
 
+    /** Restart the tone already reached if a gap silenced it. Never picks a weaker one. */
+    private fun keepSearchSound() {
+        if (!searchSoundEnabled || !isScanning) return
+        val id = if (bestSearchSoundId > 0) bestSearchSoundId else lastSearchSoundId
+        if (id <= 0) return
+        if (soundStreamIds.containsKey(id)) return
+        playSearchTone(id)
+    }
+
     /**
-     * Search RSSI beep without [playSound]'s stop-all. Restarting every tag read
-     * after LED blink mode made the tone choppy.
+     * Search tone loops until the user stops the search, or a closer/farther
+     * RSSI bucket replaces it. Restarting it on every tag read was cutting it off.
      */
     private fun playSearchTone(id: Int) {
+        if (!searchSoundEnabled || !isScanning) return
+        if (soundStreamIds.containsKey(id)) return
+        val generation = searchToneGeneration
+        val play = Runnable {
+            if (generation != searchToneGeneration || !searchSoundEnabled || !isScanning) return@Runnable
+            playSearchToneNow(id, generation)
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) play.run() else mainHandler.post(play)
+    }
+
+    private fun playSearchToneNow(id: Int, generation: Int) {
+        if (generation != searchToneGeneration || !searchSoundEnabled || !isScanning) return
         try {
             ensureSoundPool()
             val soundId = soundMap[id] ?: return
             if (soundId == 0) return
-            soundStreamIds[id]?.let { prev ->
-                soundPool?.stop(prev)
-                soundStreamIds.remove(id)
+            synchronized(soundLock) {
+                if (soundStreamIds.containsKey(id)) return
             }
             val maxVol = audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC)?.toFloat() ?: 1f
             val curVol = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC)?.toFloat() ?: 1f
@@ -2325,10 +2419,21 @@ class HardwareControllerImpl(
                 volumeRatio,
                 volumeRatio,
                 1,
-                0,
+                -1,
                 1f,
             ) ?: return
-            soundStreamIds[id] = streamId
+            // Stop can land while play() is in flight. A plain stop leaves loop=-1 running.
+            if (generation != searchToneGeneration || !searchSoundEnabled || !isScanning) {
+                silenceStream(streamId)
+                return
+            }
+            synchronized(soundLock) {
+                if (generation != searchToneGeneration || !searchSoundEnabled || !isScanning) {
+                    silenceStream(streamId)
+                    return
+                }
+                soundStreamIds[id] = streamId
+            }
         } catch (e: Throwable) {
             e.printStackTrace()
         }

@@ -262,6 +262,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   bool _isInit = false;
   bool _isLoadingItems = false;
   bool _isSaving = false;
+  /// One frame after save, so the spinner can leave before the list rebuilds.
+  bool _releaseSaveSpinner = false;
   bool _isPrinting = false;
 
   List<ScannedBulkItem> _scannedItems = [];
@@ -338,10 +340,15 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   List<ScannedBulkItem>? _cachedFilteredItems;
   List<_GroupBucket>? _cachedGroupedBuckets;
   int _cachedViewHash = 0;
+  int _cachedStructureHash = 0;
   int _cachedMatchedCount = 0;
   int _cachedTotalCount = 0;
   double _cachedTotalGrossWt = 0;
   double _cachedTotalMatchedWt = 0;
+  int _visibleTotalCount = 0;
+  int _visibleMatchedCount = 0;
+  double _visibleGrossWt = 0;
+  double _visibleMatchedWt = 0;
 
   int _matchedCount = 0;
   double _totalGrossWt = 0.0;
@@ -487,7 +494,10 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       if (_allUnmatchedCount > 0) _allUnmatchedCount--;
       _needsAutoStopCheck = true;
       // RFID handheld: cut loop sound the instant the last visible/filtered scope item matches.
+      // One catalog walk only when the running count says nothing is left.
+      // Walking every item on each tag stops the UART session.
       if (_isUartRfidHandheld &&
+          _scopeUnmatchedRemaining <= 0 &&
           _allCatalogItemsMatched()) {
         _silenceScanAudio();
         _checkAutoStopScan();
@@ -609,7 +619,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     });
   }
 
-  int _viewStateHash() {
+  int _structureHash() {
     return Object.hash(
       _currentLevel,
       _selectedMenu,
@@ -620,11 +630,17 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       _selectedCategories.length,
       _selectedProducts.length,
       _selectedDesigns.length,
-      _matchedEpcSet.length,
-      _scannedItems.length,
       _stockTakingDate?.millisecondsSinceEpoch ?? 0,
       _dateShowMatched,
       _dateShowUnmatched,
+    );
+  }
+
+  int _viewStateHash() {
+    return Object.hash(
+      _structureHash(),
+      _matchedEpcSet.length,
+      _scannedItems.length,
     );
   }
 
@@ -711,6 +727,15 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         _cachedDateUnmatched = const [];
       }
       _cachedViewHash = _viewStateHash();
+      _cachedStructureHash = _structureHash();
+      final visible = _totalsForVisibleRows(
+        _cachedFilteredItems ?? const <ScannedBulkItem>[],
+        _cachedGroupedBuckets ?? const <_GroupBucket>[],
+      );
+      _visibleTotalCount = visible.total;
+      _visibleMatchedCount = visible.matched;
+      _visibleGrossWt = visible.gross;
+      _visibleMatchedWt = visible.matchedWt;
     }
 
     _cachedMatchedCount = _matchedCount;
@@ -719,10 +744,24 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   }
 
   void _ensureDisplayCache() {
-    final hash = _viewStateHash();
-    if (_cachedFilteredItems == null ||
-        _cachedGroupedBuckets == null ||
-        hash != _cachedViewHash) {
+    if (_cachedFilteredItems == null || _cachedGroupedBuckets == null) {
+      _recalculateScopeCounts();
+      _refreshDisplayCache(forceListRefresh: true);
+      return;
+    }
+    // Saving already walked the list once. Rebuilding it again here keeps
+    // the spinner on screen and makes Save feel slow.
+    if (_isSaving || _releaseSaveSpinner) return;
+    // Each new tag changes the match count. Rebuilding the whole catalog
+    // inside build stalls the reader, so the scan timer owns that refresh.
+    if (_isScanning) {
+      if (_structureHash() != _cachedStructureHash) {
+        _recalculateScopeCounts();
+        _refreshDisplayCache(forceListRefresh: true);
+      }
+      return;
+    }
+    if (_viewStateHash() != _cachedViewHash) {
       _recalculateScopeCounts();
       _refreshDisplayCache(forceListRefresh: true);
     }
@@ -1020,7 +1059,13 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       return;
     }
     // RFID handheld only — Tray / R6 keep their existing start path.
-    if (_isUartRfidHandheld && _allCatalogItemsMatched()) {
+    // Use the count already kept while loading. Do not walk the catalog
+    // before the radio starts; that walk was stopping the reader.
+    if (_isUartRfidHandheld &&
+        _cachedFilteredItems != null &&
+        _scannedItems.isNotEmpty &&
+        _selectedMenu != 'UNLABELLED' &&
+        _scopeUnmatchedRemaining <= 0) {
       _showToast(context.sRead.allItemsMatchedScanStopped);
       return;
     }
@@ -1030,7 +1075,6 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     if (mounted) setState(() => _isScanning = true);
     _trayScanSession.reset();
     _needsAutoStopCheck = false;
-    _recountScopeUnmatched();
 
     try {
       final pendingStop = _stopInFlight;
@@ -1102,23 +1146,31 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       if (identical(_stopInFlight, done.future)) _stopInFlight = null;
     }
 
-    scheduleMicrotask(() {
-      if (!mounted || epoch != _scanEpoch) return;
-      _syncItemStatusesFromMatchedSet();
-      var unmatchedLeft = 0;
-      for (final item in _scannedItems) {
-        if (item.currentScannedStatus != 'Matched') unmatchedLeft++;
-      }
-      _allUnmatchedCount = unmatchedLeft;
-      _recountScopeUnmatched();
-      final incomplete = fromUser && _scannedItems.isNotEmpty && unmatchedLeft > 0;
-      if (!mounted || epoch != _scanEpoch) return;
-      setState(() {
-        _isScanning = false;
-        _showResumeOnScanButton = incomplete;
-        _recalculateScopeCounts();
-        _refreshDisplayCache(forceListRefresh: true);
-      });
+    final fromSave = _isSaving;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _finishStoppedScanUi(epoch, fromUser, fromSave: fromSave);
+    });
+  }
+
+  /// Catalog refresh after the reader stops. A save already refreshes once
+  /// after the spinner paints, so this must not walk the catalog again.
+  void _finishStoppedScanUi(int epoch, bool fromUser, {bool fromSave = false}) {
+    if (!mounted || epoch != _scanEpoch) return;
+    if (fromSave) return;
+    _syncItemStatusesFromMatchedSet();
+    var unmatchedLeft = 0;
+    for (final item in _scannedItems) {
+      if (item.currentScannedStatus != 'Matched') unmatchedLeft++;
+    }
+    _allUnmatchedCount = unmatchedLeft;
+    _recountScopeUnmatched();
+    final incomplete = fromUser && _scannedItems.isNotEmpty && unmatchedLeft > 0;
+    if (!mounted || epoch != _scanEpoch) return;
+    setState(() {
+      _isScanning = false;
+      _showResumeOnScanButton = incomplete;
+      _recalculateScopeCounts();
+      _refreshDisplayCache(forceListRefresh: true);
     });
   }
 
@@ -1350,8 +1402,15 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
   void _saveScanResults() async {
     if (_isSaving) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final s = context.sRead;
     setState(() => _isSaving = true);
-    _stopScanning();
+    String? toast;
+    var savedOk = false;
+    try {
+    // Do not wait on the reader stop. Waiting walked the whole catalog and
+    // blocked the next Scan from starting.
+    unawaited(_stopScanning());
     // Apply Unmatched Search ticks first, then take the session rows.
     // Previously matched Inventory items are not in the search list.
     _syncMatchedFromUnmatchedSearch();
@@ -1366,8 +1425,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     final employee = dashboardViewModel.employee;
 
     if (employee == null || employee.clientCode == null) {
-      setState(() => _isSaving = false);
-      _showToast(context.sRead.errorSessionExpired);
+      toast = s.errorSessionExpired;
+      _showSaveResult(messenger, toast);
       return;
     }
 
@@ -1379,7 +1438,6 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         if (!mounted) return;
         if (_sessionLocation == null || !_sessionLocation!.isValid) {
           if (!await _ensureBranchCounterForWholesale()) {
-            if (mounted) setState(() => _isSaving = false);
             return;
           }
         }
@@ -1398,8 +1456,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
             if (!mounted) return;
           }
           if (sendBranchId <= 0) {
-            setState(() => _isSaving = false);
-            _showToast(context.sRead.pleaseSelectBranch);
+            toast = s.pleaseSelectBranch;
+            _showSaveResult(messenger, toast);
             return;
           }
           sendBranchName = _branchNameForId(assigned, sendBranchId);
@@ -1498,27 +1556,41 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       final success = await uploadFuture;
 
       if (!mounted) return;
-      setState(() => _isSaving = false);
-
-      if (success) {
-        _showResumeOnScanButton = false;
-        _showToast(context.sRead.stockVerificationUploaded);
-      } else {
-        _showToast(
-          UserFacingError.fromMessage(
-            viewModel.errorMessage,
-            fallback: context.sRead.verificationUploadFailed(''),
-            noInternetMessage: context.sRead.noInternetConnection,
-          ),
-        );
-      }
+      savedOk = success;
+      toast = success
+          ? s.stockVerificationUploaded
+          : UserFacingError.fromMessage(
+              viewModel.errorMessage,
+              fallback: s.verificationUploadFailed(''),
+              noInternetMessage: s.noInternetConnection,
+            );
     } catch (e) {
-      if (!mounted) return;
-      setState(() => _isSaving = false);
-      _showToast(UserFacingError.isNetwork(e)
-          ? context.sRead.noInternetConnection
-          : context.sRead.verificationUploadFailed(UserFacingError.of(e)));
+      toast = UserFacingError.isNetwork(e)
+          ? s.noInternetConnection
+          : s.verificationUploadFailed(UserFacingError.of(e));
     }
+    } catch (e) {
+      toast = UserFacingError.isNetwork(e)
+          ? s.noInternetConnection
+          : s.verificationUploadFailed(UserFacingError.of(e));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+          _releaseSaveSpinner = true;
+          if (savedOk) _showResumeOnScanButton = false;
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          // The list is already showing the scanned rows. Do not walk the
+          // whole catalog here — that froze the screen and left the loader up.
+          _releaseSaveSpinner = false;
+          _cachedViewHash = _viewStateHash();
+          _cachedStructureHash = _structureHash();
+        });
+      }
+    }
+    _showSaveResult(messenger, toast);
   }
 
   void _bindUnmatchedSearchActions() {
@@ -1558,6 +1630,23 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         duration: const Duration(seconds: 2),
       ),
     );
+  }
+
+  /// Shown after the save spinner is gone, so the result is not covered by it.
+  void _showSaveResult(ScaffoldMessengerState messenger, String message) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!messenger.mounted) return;
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(message, style: AppFonts.poppins()),
+            duration: const Duration(seconds: 5),
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          ),
+        );
+    });
   }
 
   bool get _canPrintInventoryReport =>
@@ -1880,6 +1969,48 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     final buckets = grouped.values.toList();
     buckets.sort((a, b) => _alphaCompare(a.label, b.label));
     return buckets;
+  }
+
+  /// Total row follows the rows on screen, so Qty is the sum of the visible
+  /// category, product, or design counts after a counter or list filter.
+  ({int total, int matched, double gross, double matchedWt}) _totalsForVisibleRows(
+    List<ScannedBulkItem> filteredItems,
+    List<_GroupBucket> groupedBuckets,
+  ) {
+    final itemRows = _currentLevel == 'DesignItems' ||
+        _selectedMenu == 'UNLABELLED' ||
+        _dateListActive;
+    if (!itemRows) {
+      var total = 0;
+      var matched = 0;
+      var gross = 0.0;
+      var matchedWt = 0.0;
+      for (final bucket in groupedBuckets) {
+        total += bucket.items.length;
+        matched += bucket.matchedQty;
+        gross += bucket.totalWt;
+        matchedWt += bucket.matchedWt;
+      }
+      return (total: total, matched: matched, gross: gross, matchedWt: matchedWt);
+    }
+
+    var matched = 0;
+    var gross = 0.0;
+    var matchedWt = 0.0;
+    for (final item in filteredItems) {
+      final weight = item.parsedGrossWt;
+      gross += weight;
+      if (item.currentScannedStatus == 'Matched') {
+        matched++;
+        matchedWt += weight;
+      }
+    }
+    return (
+      total: filteredItems.length,
+      matched: matched,
+      gross: gross,
+      matchedWt: matchedWt,
+    );
   }
 
 
@@ -2344,11 +2475,13 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     final filteredItems = _cachedFilteredItems!;
     final groupedBuckets = _cachedGroupedBuckets!;
 
-    final totalCount = _cachedTotalCount;
-    final matchedCount = _cachedMatchedCount;
+    final menuMatchedCount = _cachedMatchedCount;
+    final menuUnmatchedCount = _cachedTotalCount - menuMatchedCount;
+    final totalCount = _visibleTotalCount;
+    final matchedCount = _visibleMatchedCount;
     final unmatchedCount = totalCount - matchedCount;
-    final totalGrossWt = _cachedTotalGrossWt;
-    final totalMatchedWt = _cachedTotalMatchedWt;
+    final totalGrossWt = _visibleGrossWt;
+    final totalMatchedWt = _visibleMatchedWt;
     final totalUnmatchedWt = totalGrossWt - totalMatchedWt;
 
     return PopScope(
@@ -2527,8 +2660,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
             if (_showMenu)
               ScanDisplayListMenuOverlay(
-                matchedCount: matchedCount,
-                unmatchedCount: unmatchedCount,
+                matchedCount: menuMatchedCount,
+                unmatchedCount: menuUnmatchedCount,
                 unlabelledCount: 0,
                 unlabelledEnabled: false,
                 onDismiss: () => setState(() => _showMenu = false),
@@ -3939,6 +4072,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                                     : null;
                               }
                             });
+                            _recalculateScopeCounts();
                             _setFilteredItemsForScan();
                             _refreshDisplayCache(forceListRefresh: true);
                             Navigator.pop(context);

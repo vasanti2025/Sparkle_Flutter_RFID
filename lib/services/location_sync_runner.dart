@@ -47,6 +47,13 @@ class LocationSyncRunner {
     if (!prefService.isLocationSyncEnabled()) {
       return const LocationSyncResult(uploaded: false, serverCount: 0, error: 'Location sync disabled');
     }
+    if (!prefService.isBackgroundLocationConsentGranted()) {
+      return const LocationSyncResult(
+        uploaded: false,
+        serverCount: 0,
+        error: 'Background location consent not granted',
+      );
+    }
 
     final employee = prefService.getEmployee();
     if (employee == null) {

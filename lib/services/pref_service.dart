@@ -533,6 +533,12 @@ class PrefService {
   bool isLocationSyncEnabled() => _store.getBool(keyLocationSync) ?? true;
   Future<void> setLocationSyncEnabled(bool value) async => _store.setBool(keyLocationSync, value);
 
+  static const String keyBackgroundLocationConsent = 'background_location_consent';
+  bool isBackgroundLocationConsentGranted() =>
+      _store.getBool(keyBackgroundLocationConsent) ?? false;
+  Future<void> setBackgroundLocationConsent(bool value) async =>
+      _store.setBool(keyBackgroundLocationConsent, value);
+
   static const String keyDeviceId = 'stable_device_id';
   Future<void> saveDeviceId(String val) async => _store.setString(keyDeviceId, val);
   String getDeviceId() => _store.getString(keyDeviceId) ?? '';

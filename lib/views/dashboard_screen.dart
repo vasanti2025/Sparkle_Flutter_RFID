@@ -5,8 +5,11 @@ import 'package:provider/provider.dart';
 import '../app_navigator.dart';
 import '../l10n/l10n_extension.dart';
 import '../services/app_warmup_service.dart' deferred as warmup;
+import '../services/location_sync_service.dart';
+import '../services/pref_service.dart';
 import '../services/rfid_service.dart';
 import '../services/session_lifecycle.dart';
+import '../utils/background_location_consent.dart';
 import '../session_vm_hooks.dart' deferred as vm_hooks;
 import '../viewmodels/dashboard_view_model.dart';
 import '../viewmodels/login_view_model.dart';
@@ -53,6 +56,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       unawaited(SessionLifecycle.instance.startMonitoring());
       RfidService().checkBluetoothAfterLogin();
       unawaited(_startWarmup());
+      unawaited(_offerBackgroundLocationConsent());
     });
     // Do NOT prefetch all list APIs here — it competes with navigation and
     // freezes/hangs the handheld. Each list screen loads when opened.
@@ -72,6 +76,21 @@ class _DashboardScreenState extends State<DashboardScreen>
         context.read<DashboardViewModel>().loadUser();
       } catch (_) {}
     }
+  }
+
+  Future<void> _offerBackgroundLocationConsent() async {
+    if (!mounted) return;
+    final pref = context.read<PrefService>();
+    if (!pref.isLoggedIn() || !pref.isLocationSyncEnabled()) return;
+    if (pref.isBackgroundLocationConsentGranted()) return;
+    final allowed = await BackgroundLocationConsent.request(context);
+    if (!mounted) return;
+    if (!allowed) {
+      await pref.setLocationSyncEnabled(false);
+      await LocationSyncService.applySettings(false);
+      return;
+    }
+    await LocationSyncService.initializeIfEnabled();
   }
 
   String _titleForKey(String key, dynamic s) {

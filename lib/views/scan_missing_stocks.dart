@@ -449,7 +449,11 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
         branchName: _branchName,
       );
       if (branchAddress.isEmpty) {
-        if (!mounted || req != _loadReq || _rows.isNotEmpty) return;
+        if (!mounted || req != _loadReq) return;
+        if (_rows.isNotEmpty) {
+          _clearMissingSpinner(req);
+          return;
+        }
         setState(() {
           _loading = false;
           _rows.clear();
@@ -463,15 +467,27 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
         branchAddress: branchAddress,
         stockTakingDate: date,
       );
-      if (!mounted || req != _loadReq || _scanning) return;
+      if (!mounted || req != _loadReq) return;
+      if (_scanning) {
+        _clearMissingSpinner(req);
+        return;
+      }
       final already = await _readMatchedKeys(cacheKey);
-      if (!mounted || req != _loadReq || _scanning) return;
+      if (!mounted || req != _loadReq) return;
+      if (_scanning) {
+        _clearMissingSpinner(req);
+        return;
+      }
       final items = _dropMatchedItems(parseStockTakingRows(raw), already);
       _missingStockMemory[cacheKey] = items;
       unawaited(_writeMissingStockCache(cacheKey, items));
       _publishRows(items);
     } catch (e) {
-      if (!mounted || req != _loadReq || _rows.isNotEmpty) return;
+      if (!mounted || req != _loadReq) return;
+      if (_rows.isNotEmpty) {
+        _clearMissingSpinner(req);
+        return;
+      }
       setState(() {
         _rows.clear();
         _matchedKeys.clear();
@@ -625,6 +641,9 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
       return;
     }
     await _stopScan();
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final s = context.sRead;
     setState(() => _saving = true);
 
     final viewModel = context.read<ProductViewModel>();
@@ -632,10 +651,12 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
     final clientCode = emp?.clientCode ?? '';
     if (clientCode.isEmpty) {
       setState(() => _saving = false);
-      _toast(context.sRead.errorSessionExpired);
+      _showSaveResult(messenger, s.errorSessionExpired);
       return;
     }
 
+    var savedOk = false;
+    String? toast;
     try {
       final payload = <Map<String, dynamic>>[];
       final seen = <String>{};
@@ -684,22 +705,41 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
         deviceCode: deviceCode,
       );
       if (!mounted) return;
-      setState(() => _saving = false);
-      if (success) {
-        _toast(context.sRead.stockVerificationUploaded);
-        await _loadMissingStocks();
-      } else {
-        _toast(UserFacingError.isNetwork(viewModel.errorMessage ?? '')
-            ? context.sRead.noInternetConnection
-            : context.sRead.verificationUploadFailed(viewModel.errorMessage ?? ''));
-      }
+      savedOk = success;
+      toast = success
+          ? s.stockVerificationUploaded
+          : (UserFacingError.isNetwork(viewModel.errorMessage ?? '')
+              ? s.noInternetConnection
+              : s.verificationUploadFailed(viewModel.errorMessage ?? ''));
     } catch (e) {
-      if (!mounted) return;
-      setState(() => _saving = false);
-      _toast(UserFacingError.isNetwork(e)
-          ? context.sRead.noInternetConnection
-          : context.sRead.verificationUploadFailed(UserFacingError.of(e)));
+      toast = UserFacingError.isNetwork(e)
+          ? s.noInternetConnection
+          : s.verificationUploadFailed(UserFacingError.of(e));
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
+    _showSaveResult(messenger, toast);
+    if (savedOk && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_loadMissingStocks());
+      });
+    }
+  }
+
+  void _showSaveResult(ScaffoldMessengerState messenger, String message) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!messenger.mounted) return;
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(message, style: AppFonts.poppins()),
+            duration: const Duration(seconds: 5),
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          ),
+        );
+    });
   }
 
   void _toast(String msg) {
@@ -707,6 +747,11 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg, style: AppFonts.poppins()), duration: const Duration(seconds: 2)),
     );
+  }
+
+  void _clearMissingSpinner(int req) {
+    if (!mounted || req != _loadReq || !_loading) return;
+    setState(() => _loading = false);
   }
 
   @override

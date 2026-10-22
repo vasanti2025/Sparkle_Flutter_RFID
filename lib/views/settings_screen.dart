@@ -9,6 +9,7 @@ import '../services/locale_service.dart';
 import '../services/pref_service.dart';
 import '../utils/app_dropdown.dart';
 import '../viewmodels/settings_view_model.dart';
+import '../utils/background_location_consent.dart';
 import '../utils/user_facing_error.dart';
 import 'widgets/product_form_widgets.dart';
 
@@ -657,13 +658,26 @@ class _LocationRow extends StatelessWidget {
       trailing: Switch(
         value: vm.locationSyncEnabled,
         onChanged: (value) async {
-          await vm.setLocationSyncEnabled(value);
-          if (!context.mounted) return;
-          if (value) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Location sync enabled â€” saving every 15 minutes')),
-            );
+          if (!value) {
+            await vm.setLocationSyncEnabled(false);
+            return;
           }
+          final allowed = await BackgroundLocationConsent.request(context);
+          if (!context.mounted) return;
+          if (!allowed) {
+            await vm.setLocationSyncEnabled(false);
+            if (context.mounted && vm.pref.isBackgroundLocationConsentGranted()) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(context.sRead.backgroundLocationDenied)),
+              );
+            }
+            return;
+          }
+          await vm.setLocationSyncEnabled(true);
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Location sync enabled — saving every 15 minutes')),
+          );
         },
       ),
       onTap: () async {

@@ -57,17 +57,19 @@ class SearchItem {
     normHex = normalizeScanKey(hex);
   }
 
-  /// Hold the strongest recent reading. LED blink makes RSSI jump, so the
-  /// number rises immediately but only eases down while the gun stays close.
-  /// [onlyRaise] keeps the highest percentage reached and ignores weaker reads.
+  /// Keep the highest percent reached. LED blink makes RSSI jump, and a
+  /// weaker read must not pull the bar or its color back down. The user
+  /// uses that color to see which items were already searched.
+  /// [onlyRaise] ignores any sample that is not higher than the bar.
   bool applyStableProximity(String rssi, int rawPercent, {bool onlyRaise = false}) {
-    this.rssi = rssi;
     final sample = (rawPercent.clamp(0, 100) / 5).round() * 5;
     if (onlyRaise) {
       if (sample <= proximityPercent) return false;
+      this.rssi = rssi;
       proximityPercent = sample;
       return true;
     }
+    this.rssi = rssi;
     final now = DateTime.now().millisecondsSinceEpoch;
     _peakWindow.add((now, sample));
     _peakWindow.removeWhere((e) => now - e.$1 > 4000);
@@ -86,21 +88,6 @@ class SearchItem {
     _lastFallMs = now;
     proximityPercent = next;
     return true;
-  }
-
-  void decayTowardZero() {
-    if (proximityPercent <= 0) return;
-    _peakWindow.clear();
-    if (proximityPercent > 75) {
-      proximityPercent = 75;
-    } else if (proximityPercent > 50) {
-      proximityPercent = 50;
-    } else if (proximityPercent > 25) {
-      proximityPercent = 25;
-    } else {
-      proximityPercent = 0;
-      rssi = '';
-    }
   }
 
   void clearScan() {
@@ -414,11 +401,11 @@ class _SearchScreenState extends State<SearchScreen> {
     _proximityDecayTimer = null;
   }
 
-  /// Drop progress only after the tag has been silent for 2s (out of field).
-  /// Inventory gaps of a few hundred ms are normal and must not move the bar.
-  /// Stopped scans stay frozen.
+  /// A quiet tag leaves the unmatched top strip. The percent and color stay
+  /// at the highest value reached so searched items remain visible.
   void _decayStaleProximity() {
     if (!_isScanning || !mounted) return;
+    if (_listKey != 'unmatchedItems') return;
     final now = DateTime.now().millisecondsSinceEpoch;
     var any = false;
     for (final entry in _lastRssiUpdateMs.entries) {
@@ -427,14 +414,8 @@ class _SearchScreenState extends State<SearchScreen> {
       final item = _searchItems[i];
       if (item.proximityPercent <= 0) continue;
       if (now - entry.value < 4000) continue;
-      if (_listKey == 'unmatchedItems') {
-        // Out of range: leave the top strip. Keep the highest percentage.
-        if (!_hotSet.contains(i)) continue;
-        _dirtyIndices.add(i);
-        any = true;
-        continue;
-      }
-      item.decayTowardZero();
+      // Out of range: leave the top strip. Keep the highest percentage.
+      if (!_hotSet.contains(i)) continue;
       _dirtyIndices.add(i);
       any = true;
     }
@@ -778,9 +759,10 @@ class _SearchScreenState extends State<SearchScreen> {
       }
       _stopProximityDecay();
       _homeScanOnlyIndex = null;
-      await _rfidService.stopScanning();
-      await _rfidService.stopInventorySound();
+      // Cut the tone before the reader stop, which can take a moment.
       await _rfidService.stopSound();
+      await _rfidService.stopInventorySound();
+      await _rfidService.stopScanning();
       if (mounted) {
         _displayIndexValid = false;
         setState(() => _isScanning = false);
@@ -1070,7 +1052,7 @@ class _SearchScreenState extends State<SearchScreen> {
       final changed = item.applyStableProximity(
         rssi,
         proximity,
-        onlyRaise: false,
+        onlyRaise: true,
       );
       final reentered = _listKey == 'unmatchedItems' && !_hotSet.contains(index);
       if (changed || reentered) {
