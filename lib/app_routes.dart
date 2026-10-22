@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'models/guide_video.dart';
 import 'models/stock_transfer_models.dart';
 import 'utils/deferred_screen.dart';
 import 'utils/fast_page_route.dart';
@@ -11,6 +12,8 @@ import 'views/bulk_product_screen.dart';
 import 'views/delivery_challan_list_screen.dart';
 import 'views/delivery_challan_screen.dart';
 import 'views/edit_product_screen.dart';
+import 'views/guide_video_player_screen.dart';
+import 'views/how_to_use_screen.dart';
 import 'views/inventory_menu_screen.dart';
 import 'views/location_list_screen.dart';
 import 'views/order_list_screen.dart';
@@ -36,6 +39,7 @@ import 'views/stock_verification_batch_details_screen.dart';
 import 'views/stock_verification_detail_screen.dart';
 import 'views/stock_verification_report_screen.dart';
 import 'views/todays_rate_screen.dart';
+import 'views/tutorial_pager_screen.dart';
 import 'views/wholesale_option_screen.dart';
 
 // Rarely opened — keep deferred to limit cold-start size.
@@ -61,6 +65,18 @@ Widget? _buildRoutePage(RouteSettings settings) {
       return const LoginScreen();
     case '/dashboard':
       return const DashboardScreen();
+    case '/tutorial':
+      final args = settings.arguments;
+      final toDashboard = args is Map && args['loggedIn'] == true;
+      return TutorialPagerScreen(continueToDashboard: toDashboard);
+    case '/how_to_use':
+      return const HowToUseScreen();
+    case '/guide_video':
+      final video = settings.arguments;
+      if (video is GuideVideo) {
+        return GuideVideoPlayerScreen(video: video);
+      }
+      return const HowToUseScreen();
     case '/face_login':
       return _defer(face_login.loadLibrary, () => face_login.FaceLoginScreen());
     case '/add_face':

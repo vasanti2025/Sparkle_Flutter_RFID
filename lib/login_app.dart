@@ -17,6 +17,7 @@ import 'viewmodels/dashboard_view_model.dart';
 import 'viewmodels/login_view_model.dart';
 import 'views/dashboard_screen.dart';
 import 'views/login_screen.dart';
+import 'views/tutorial_pager_screen.dart';
 
 /// Replaces the first-frame logo with Login or Dashboard.
 void runBootApp({
@@ -244,9 +245,10 @@ class _LoginAppRootState extends State<_LoginAppRoot> {
           child: child ?? const SizedBox.shrink(),
         );
       },
-      home: showDashboard
-          ? const DashboardScreen()
-          : const LoginScreen(),
+      home: launchHomeScreen(
+        pref: widget.prefService,
+        loggedIn: showDashboard,
+      ),
       onGenerateRoute: (settings) {
         final generator = _routeGenerator;
         if (generator != null) {
@@ -254,6 +256,11 @@ class _LoginAppRootState extends State<_LoginAppRoot> {
           if (route != null) return route;
         }
         switch (settings.name) {
+          case '/tutorial':
+            return FastPageRoute(
+              settings: settings,
+              child: TutorialPagerScreen(continueToDashboard: showDashboard),
+            );
           case '/login':
             return FastPageRoute(
               settings: settings,

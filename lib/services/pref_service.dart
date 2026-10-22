@@ -48,6 +48,8 @@ class PrefService {
   static const String keyNotificationsEnabled = 'notifications_enabled';
   static const String keyAppLanguage = 'app_language';
   static const String keyLocationSync = 'location_sync';
+  static const String keyHomeShowcaseSeen = 'home_showcase_seen';
+  static const String keyOnboardingTutorialSeen = 'onboarding_tutorial_seen';
 
   static const Map<String, int> powerDefaults = {
     keyProductCount: 5,
@@ -532,6 +534,15 @@ class PrefService {
 
   bool isLocationSyncEnabled() => _store.getBool(keyLocationSync) ?? true;
   Future<void> setLocationSyncEnabled(bool value) async => _store.setBool(keyLocationSync, value);
+
+  bool hasSeenHomeShowcase() => _store.getBool(keyHomeShowcaseSeen) ?? false;
+  Future<void> setHomeShowcaseSeen(bool value) async =>
+      _store.setBool(keyHomeShowcaseSeen, value);
+
+  bool hasSeenOnboardingTutorial() =>
+      _store.getBool(keyOnboardingTutorialSeen) ?? false;
+  Future<void> setOnboardingTutorialSeen(bool value) async =>
+      _store.setBool(keyOnboardingTutorialSeen, value);
 
   static const String keyDeviceId = 'stable_device_id';
   Future<void> saveDeviceId(String val) async => _store.setString(keyDeviceId, val);

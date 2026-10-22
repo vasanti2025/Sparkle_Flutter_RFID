@@ -1,10 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
+import 'package:showcaseview/showcaseview.dart';
 import '../app_navigator.dart';
+import '../l10n/app_strings.dart';
 import '../l10n/l10n_extension.dart';
 import '../services/app_warmup_service.dart' deferred as warmup;
+import '../services/pref_service.dart';
 import '../services/rfid_service.dart';
 import '../services/session_lifecycle.dart';
 import '../session_vm_hooks.dart' deferred as vm_hooks;
@@ -21,7 +25,18 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen>
     with WidgetsBindingObserver {
+  static const _showcaseScope = 'home_dashboard';
+
   bool _navigating = false;
+  bool _homeShowcaseStarted = false;
+  ShowcaseView? _showcaseView;
+  String _appVersion = '';
+
+  final GlobalKey _howToUseKey = GlobalKey();
+  final GlobalKey _productKey = GlobalKey();
+  final GlobalKey _inventoryKey = GlobalKey();
+  final GlobalKey _searchKey = GlobalKey();
+  final GlobalKey _settingsKey = GlobalKey();
 
   static const _menuDefs = [
     {'key': 'product', 'icon': Icons.shopping_bag, 'route': '/product_management'},
@@ -47,12 +62,15 @@ class _DashboardScreenState extends State<DashboardScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _registerHomeShowcase();
+    unawaited(_loadAppVersion());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<DashboardViewModel>().loadUser();
       unawaited(SessionLifecycle.instance.startMonitoring());
       RfidService().checkBluetoothAfterLogin();
       unawaited(_startWarmup());
+      _startHomeShowcaseIfNeeded();
     });
     // Do NOT prefetch all list APIs here — it competes with navigation and
     // freezes/hangs the handheld. Each list screen loads when opened.
@@ -61,7 +79,91 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _showcaseView?.unregister();
     super.dispose();
+  }
+
+  void _registerHomeShowcase() {
+    final lang = PrefService.instanceOrNull?.getAppLanguage() ?? 'en';
+    final s = AppStrings.of(lang);
+    _showcaseView = ShowcaseView.register(
+      scope: _showcaseScope,
+      enableAutoScroll: true,
+      disableMovingAnimation: true,
+      blurValue: 1,
+      globalTooltipActionConfig: const TooltipActionConfig(
+        position: TooltipActionPosition.inside,
+        alignment: MainAxisAlignment.spaceBetween,
+        actionGap: 12,
+      ),
+      globalTooltipActions: [
+        TooltipActionButton(
+          type: TooltipDefaultActionType.skip,
+          name: s.skip,
+          textStyle: const TextStyle(color: Colors.white, fontSize: 13),
+        ),
+        TooltipActionButton(
+          type: TooltipDefaultActionType.next,
+          textStyle: const TextStyle(color: Colors.white, fontSize: 13),
+        ),
+      ],
+    );
+  }
+
+  void _startHomeShowcaseIfNeeded() {
+    if (!mounted || _homeShowcaseStarted) return;
+    PrefService? pref = PrefService.instanceOrNull;
+    if (pref == null && context.mounted) {
+      try {
+        pref = context.read<PrefService>();
+      } catch (_) {
+        return;
+      }
+    }
+    if (pref == null || pref.hasSeenHomeShowcase()) return;
+
+    _homeShowcaseStarted = true;
+    unawaited(pref.setHomeShowcaseSeen(true));
+    _showcaseView?.startShowCase(
+      [
+        _howToUseKey,
+        _productKey,
+        _inventoryKey,
+        _searchKey,
+        _settingsKey,
+      ],
+      delay: const Duration(milliseconds: 400),
+    );
+  }
+
+  String _showcaseDesc(String key, dynamic s) {
+    switch (key) {
+      case 'product':
+        return s.showcaseProductDesc as String;
+      case 'inventory':
+        return s.showcaseInventoryDesc as String;
+      case 'search':
+        return s.showcaseSearchDesc as String;
+      case 'settings':
+        return s.showcaseSettingsDesc as String;
+      default:
+        return '';
+    }
+  }
+
+  GlobalKey? _showcaseKeyFor(String key) {
+    switch (key) {
+      case 'product':
+        return _productKey;
+      case 'inventory':
+        return _inventoryKey;
+      case 'search':
+        return _searchKey;
+      case 'settings':
+        return _settingsKey;
+      default:
+        return null;
+    }
   }
 
   @override
@@ -124,6 +226,16 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
       if (mounted) _navigating = false;
     }
+  }
+
+  Future<void> _loadAppVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      final version = info.version.trim();
+      if (version.isEmpty) return;
+      setState(() => _appVersion = 'v$version');
+    } catch (_) {}
   }
 
   Future<void> _startWarmup() async {
@@ -220,12 +332,41 @@ class _DashboardScreenState extends State<DashboardScreen>
             elevation: 0,
             title: Text(
               s.home,
-              style: TextStyle(
+              style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w600,
               ),
             ),
             iconTheme: const IconThemeData(color: Colors.white),
+            actions: [
+              Showcase(
+                key: _howToUseKey,
+                scope: _showcaseScope,
+                title: s.howToUse,
+                description: s.showcaseHowToUseDesc,
+                tooltipBackgroundColor: Colors.white,
+                targetBorderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: TextButton.icon(
+                    onPressed: () => unawaited(_pushNamed(context, '/how_to_use')),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                    icon: const Icon(Icons.ondemand_video, size: 18),
+                    label: Text(
+                      s.howToUse,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -348,7 +489,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                       ),
                       itemBuilder: (context, index) {
                         final item = menuItems[index];
-                        return Card(
+                        final menuKey = item['key'] as String;
+                        final card = Card(
                           color: Colors.white,
                           elevation: 4,
                           shadowColor: Colors.black26,
@@ -389,7 +531,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                                   const SizedBox(height: 8),
                                   Text(
                                     item['title'] as String,
-                                    style: TextStyle(
+                                    style: const TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w500,
                                       color: Colors.black87,
@@ -402,6 +544,17 @@ class _DashboardScreenState extends State<DashboardScreen>
                               ),
                             ),
                           ),
+                        );
+                        final showcaseKey = _showcaseKeyFor(menuKey);
+                        if (showcaseKey == null) return card;
+                        return Showcase(
+                          key: showcaseKey,
+                          scope: _showcaseScope,
+                          title: item['title'] as String,
+                          description: _showcaseDesc(menuKey, s),
+                          tooltipBackgroundColor: Colors.white,
+                          targetBorderRadius: BorderRadius.circular(12),
+                          child: card,
                         );
                       },
                     );
@@ -420,6 +573,17 @@ class _DashboardScreenState extends State<DashboardScreen>
                   letterSpacing: 1.2,
                 ),
               ),
+              if (_appVersion.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  _appVersion,
+                  style: TextStyle(
+                    color: Colors.grey[400],
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
               const SizedBox(height: 8),
             ],
           ),

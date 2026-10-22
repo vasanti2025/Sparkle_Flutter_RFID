@@ -69,6 +69,9 @@ dependencies:
       url: https://github.com/RFID-Devs/rfid_flutter_plugin.git
       path: rfid_flutter_android
       ref: main
+  showcaseview: ^5.1.0
+  video_player: ^2.14.1
+  package_info_plus: ^9.0.1
 
 
 dev_dependencies:
@@ -107,6 +110,7 @@ flutter:
   assets:
     - assets/mobile_face_net.tflite
     - assets/branding/
+    - assets/tutorial/
     - google_fonts/
 
   # An image asset can refer to one or more resolution-specific "variants", see

@@ -152,6 +152,7 @@ class MainActivity : FlutterActivity() {
                 "tray_device_address" to (s("tray_device_address") ?: ""),
                 "r6_mode_enabled" to b("r6_mode_enabled"),
                 "r6_device_address" to (s("r6_device_address") ?: ""),
+                "onboarding_tutorial_seen" to b("onboarding_tutorial_seen"),
             )
             for (key in listOf(
                     "product_count", "inventory_count", "search_count",

@@ -16,6 +16,7 @@ import 'viewmodels/dashboard_view_model.dart';
 import 'viewmodels/login_view_model.dart';
 import 'views/dashboard_screen.dart';
 import 'views/login_screen.dart';
+import 'views/tutorial_pager_screen.dart';
 
 /// Real Login/Dashboard tree — Dashboard is loaded after Login first frame.
 Widget buildReadyApp({
@@ -185,11 +186,19 @@ class _StartupApp extends StatelessWidget {
           child: child ?? const SizedBox.shrink(),
         );
       },
-      home: loggedIn ? const DashboardScreen() : const LoginScreen(),
+      home: launchHomeScreen(
+        pref: context.read<PrefService>(),
+        loggedIn: loggedIn,
+      ),
       onGenerateRoute: (settings) {
         final generator = routeGenerator;
         if (generator != null) return generator(settings);
         switch (settings.name) {
+          case '/tutorial':
+            return FastPageRoute(
+              settings: settings,
+              child: TutorialPagerScreen(continueToDashboard: loggedIn),
+            );
           case '/login':
             return FastPageRoute(
               settings: settings,
