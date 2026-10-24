@@ -10,6 +10,7 @@ import '../l10n/l10n_extension.dart';
 import '../models/employee.dart';
 import '../models/user_permission.dart';
 import '../services/api_service.dart';
+import '../services/app_version_service.dart';
 import '../services/pref_service.dart';
 import '../services/face_recognition_service.dart';
 import '../utils/camera_permission_util.dart';
@@ -368,6 +369,8 @@ class _FaceLoginScreenState extends State<FaceLoginScreen>
     }
 
     if (mounted) {
+      final allowed = await context.read<AppVersionService>().ensureAllowed();
+      if (!mounted || !allowed) return;
       context.read<DashboardViewModel>().loadUser();
       context.read<StockTransferViewModel>().resetSession();
       unawaited(context.read<ProductViewModel>().syncProducts(force: true));

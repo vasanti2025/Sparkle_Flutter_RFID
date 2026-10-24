@@ -69,6 +69,7 @@ dependencies:
       url: https://github.com/RFID-Devs/rfid_flutter_plugin.git
       path: rfid_flutter_android
       ref: main
+  package_info_plus: ^9.0.1
 
 
 dev_dependencies:

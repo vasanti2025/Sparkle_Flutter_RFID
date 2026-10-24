@@ -17,6 +17,7 @@ import 'viewmodels/dashboard_view_model.dart';
 import 'viewmodels/login_view_model.dart';
 import 'views/dashboard_screen.dart';
 import 'views/login_screen.dart';
+import 'views/widgets/app_version_gate.dart';
 
 /// Replaces the first-frame logo with Login or Dashboard.
 void runBootApp({
@@ -241,7 +242,7 @@ class _LoginAppRootState extends State<_LoginAppRoot> {
       builder: (context, child) {
         return Directionality(
           textDirection: localeService.textDirection,
-          child: child ?? const SizedBox.shrink(),
+          child: AppVersionGate(child: child ?? const SizedBox.shrink()),
         );
       },
       home: showDashboard

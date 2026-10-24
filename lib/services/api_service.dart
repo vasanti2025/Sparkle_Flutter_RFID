@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
+import '../models/app_version_info.dart';
 import '../models/login_request.dart';
 import '../models/login_response.dart';
 import '../models/location_item.dart';
@@ -38,6 +39,11 @@ class ApiService {
     _dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) {
         options.baseUrl = _prefService.getEffectiveApiBaseUrl();
+
+        if (options.extra['skip_auth'] == true) {
+          options.headers.remove('Authorization');
+          return handler.next(options);
+        }
         
         // Add auth token if available
         final token = _prefService.getToken();
@@ -51,7 +57,10 @@ class ApiService {
         final status = err.response?.statusCode;
         final path = err.requestOptions.path.toLowerCase();
         final isLoginCall = path.contains('clientonboardinglogin');
-        if ((status == 401 || status == 403) && !isLoginCall) {
+        final skipAuth = err.requestOptions.extra['skip_auth'] == true ||
+            path.contains('getappversion') ||
+            path.contains('saveappversionconfig');
+        if ((status == 401 || status == 403) && !isLoginCall && !skipAuth) {
           if (err.requestOptions.extra['session_retried'] == true) {
             return handler.next(err);
           }
@@ -2127,5 +2136,120 @@ class ApiService {
       debugPrint('Error getAllUserPermissionsAll: $e');
       return [];
     }
+  }
+
+  Options _appVersionOptions() => Options(
+        connectTimeout: const Duration(seconds: 12),
+        receiveTimeout: const Duration(seconds: 12),
+        sendTimeout: const Duration(seconds: 12),
+        extra: {
+          'skip_auth': true,
+          'session_retried': true,
+        },
+      );
+
+  Map<String, String> _clientCodeBody(String clientCode) => {
+        'clientCode': clientCode,
+        'ClientCode': clientCode,
+      };
+
+  /// POST `api/ClientOnboarding/GetAppVersionConfig`
+  /// Body: `{ "clientCode": "..." }`
+  Future<AppVersionInfo> getAppVersionConfig({
+    required String clientCode,
+    required bool ios,
+  }) async {
+    const path = 'api/ClientOnboarding/GetAppVersionConfig';
+    final body = _clientCodeBody(clientCode);
+    _logAppVersionBox(
+      emoji: '📦',
+      title: 'GetAppVersionConfig REQUEST',
+      lines: [
+        'POST $path',
+        'platform: ${ios ? 'ios' : 'android'}',
+        _prettyJson(body),
+      ],
+    );
+    try {
+      final response = await _dio.post(
+        path,
+        data: body,
+        options: _appVersionOptions(),
+      );
+      _logAppVersionBox(
+        emoji: '✅',
+        title: 'GetAppVersionConfig RESPONSE',
+        lines: [
+          'statusCode: ${response.statusCode}',
+          _prettyJson(response.data),
+        ],
+      );
+      if (response.statusCode != 200) {
+        throw Exception('Server returned status: ${response.statusCode}');
+      }
+      final parsed = AppVersionInfo.fromConfigResponse(response.data, ios: ios);
+      if (parsed == null || !parsed.hasVersion) {
+        throw Exception('Invalid app version configuration');
+      }
+      return parsed;
+    } catch (e) {
+      _logAppVersionBox(
+        emoji: '❌',
+        title: 'GetAppVersionConfig ERROR',
+        lines: [e.toString()],
+      );
+      rethrow;
+    }
+  }
+
+  static String _prettyJson(Object? data) {
+    try {
+      return const JsonEncoder.withIndent('  ').convert(data);
+    } catch (_) {
+      return data.toString();
+    }
+  }
+
+  static void _logAppVersionBox({
+    required String emoji,
+    required String title,
+    required List<String> lines,
+  }) {
+    const edge = '════════════════════════════════════════';
+    debugPrint('╔$edge');
+    debugPrint('║ $emoji $title');
+    debugPrint('╟$edge');
+    for (final line in lines) {
+      for (final row in line.split('\n')) {
+        debugPrint('║ $row');
+      }
+    }
+    debugPrint('╚$edge');
+  }
+
+  /// POST `api/ClientOnboarding/SaveAppVersionConfig`
+  Future<bool> saveAppVersionConfig({
+    required String clientCode,
+    required AppVersionInfo android,
+    required AppVersionInfo ios,
+  }) async {
+    final response = await _dio.post(
+      'api/ClientOnboarding/SaveAppVersionConfig',
+      data: {
+        ..._clientCodeBody(clientCode),
+        'android': android.toPlatformJson(),
+        'ios': ios.toPlatformJson(),
+      },
+      options: _appVersionOptions(),
+    );
+    if (response.statusCode != 200) return false;
+    final data = response.data;
+    if (data is Map) {
+      final status = data['status'] ?? data['Status'];
+      if (status is bool) return status;
+      final text = status?.toString().toLowerCase();
+      if (text == 'true' || text == 'success') return true;
+    }
+    return true;
   }
 }

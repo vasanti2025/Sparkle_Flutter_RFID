@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../l10n/l10n_extension.dart';
+import '../services/app_version_service.dart';
 import '../services/pref_service.dart';
 import '../viewmodels/dashboard_view_model.dart';
 import '../viewmodels/login_view_model.dart';
@@ -120,8 +121,11 @@ class _LoginScreenState extends State<LoginScreen> {
     ScaffoldMessenger.of(context).clearSnackBars();
   }
 
-  void _navigateAfterLogin(BuildContext context) {
+  Future<void> _navigateAfterLogin(BuildContext context) async {
     _lastShownError = null;
+    final allowed = await context.read<AppVersionService>().ensureAllowed();
+    if (!context.mounted) return;
+    if (!allowed) return;
     final messenger = ScaffoldMessenger.of(context);
     messenger.clearSnackBars();
     messenger.showSnackBar(

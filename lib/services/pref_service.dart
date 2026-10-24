@@ -48,6 +48,10 @@ class PrefService {
   static const String keyNotificationsEnabled = 'notifications_enabled';
   static const String keyAppLanguage = 'app_language';
   static const String keyLocationSync = 'location_sync';
+  static const String keyRequiredAppVersion = 'required_app_version';
+  static const String keyRequiredAppBuild = 'required_app_build';
+  static const String keyForceUpdateRequired = 'force_update_required';
+  static const String keyForceUpdateStoreUrl = 'force_update_store_url';
 
   static const Map<String, int> powerDefaults = {
     keyProductCount: 5,
@@ -379,6 +383,16 @@ class PrefService {
     }
   }
 
+  String getClientCode() {
+    final fromEmployee = getEmployee()?.clientCode?.trim();
+    if (fromEmployee != null && fromEmployee.isNotEmpty) return fromEmployee;
+    final fromNested = getEmployee()?.clients?.clientCode?.trim();
+    if (fromNested != null && fromNested.isNotEmpty) return fromNested;
+    final fromClient = getClient()?.clientCode?.trim();
+    if (fromClient != null && fromClient.isNotEmpty) return fromClient;
+    return '';
+  }
+
   /// Organisation / company name for PDFs and Bluetooth print headers.
   String? getOrganisationName() {
     final saved = _store.getString(_keyOrg);
@@ -532,6 +546,30 @@ class PrefService {
 
   bool isLocationSyncEnabled() => _store.getBool(keyLocationSync) ?? true;
   Future<void> setLocationSyncEnabled(bool value) async => _store.setBool(keyLocationSync, value);
+
+  String getCachedRequiredAppVersion() =>
+      _store.getString(keyRequiredAppVersion) ?? '';
+  int? getCachedRequiredAppBuild() => _store.getInt(keyRequiredAppBuild);
+  bool isCachedForceUpdateRequired() =>
+      _store.getBool(keyForceUpdateRequired) ?? false;
+  String getCachedForceUpdateStoreUrl() =>
+      _store.getString(keyForceUpdateStoreUrl) ?? '';
+
+  Future<void> saveAppVersionCheck({
+    required String version,
+    int? buildNumber,
+    required bool forceUpdate,
+    String? storeUrl,
+  }) async {
+    await _store.setString(keyRequiredAppVersion, version);
+    if (buildNumber != null) {
+      await _store.setInt(keyRequiredAppBuild, buildNumber);
+    }
+    await _store.setBool(keyForceUpdateRequired, forceUpdate);
+    if (storeUrl != null && storeUrl.trim().isNotEmpty) {
+      await _store.setString(keyForceUpdateStoreUrl, storeUrl.trim());
+    }
+  }
 
   static const String keyDeviceId = 'stable_device_id';
   Future<void> saveDeviceId(String val) async => _store.setString(keyDeviceId, val);

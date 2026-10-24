@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'services/api_service.dart';
+import 'services/app_version_service.dart';
 import 'services/db_service.dart';
 import 'services/locale_service.dart';
 import 'services/pref_service.dart';
@@ -29,6 +32,16 @@ Widget buildStartupProviders({
     providers: [
       Provider<PrefService>.value(value: prefService),
       Provider<ApiService>.value(value: apiService),
+      ChangeNotifierProvider<AppVersionService>(
+        create: (_) {
+          final service = AppVersionService(
+            apiService: apiService,
+            prefService: prefService,
+          );
+          unawaited(service.check());
+          return service;
+        },
+      ),
       Provider<DbService>.value(value: dbService),
       ChangeNotifierProvider<LocaleService>.value(value: localeService),
       ChangeNotifierProvider<LoginViewModel>(

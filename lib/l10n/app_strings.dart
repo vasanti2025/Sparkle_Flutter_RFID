@@ -131,6 +131,9 @@ class AppStrings {
   String get expiryWarning => _t('expiryWarning');
   String get welcomeTo => _t('welcomeTo');
   String get sparkleRfid => _t('sparkleRfid');
+  String get updateRequired => _t('updateRequired');
+  String get updateRequiredMessage => _t('updateRequiredMessage');
+  String get updateNow => _t('updateNow');
   String get pleaseLoginToContinue => _t('pleaseLoginToContinue');
   String get rememberMe => _t('rememberMe');
   String get forgotPassword => _t('forgotPassword');
@@ -1250,6 +1253,10 @@ class AppStrings {
       'headerChallanNo': 'Challan No',
       'welcomeTo': 'Welcome To',
       'sparkleRfid': 'Sparkle RFID',
+      'updateRequired': 'Update Required',
+      'updateRequiredMessage':
+          'A new version of the application is available. Please update the app to continue.',
+      'updateNow': 'Update Now',
       'pleaseLoginToContinue': 'Please log in to continue',
       'rememberMe': 'Remember Me',
       'forgotPassword': 'Forgot Password?',
@@ -1801,6 +1808,10 @@ class AppStrings {
       'headerChallanNo': 'चालान नंबर',
       'welcomeTo': 'आपका स्वागत है',
       'sparkleRfid': 'स्पार्कल RFID',
+      'updateRequired': 'अपडेट आवश्यक है',
+      'updateRequiredMessage':
+          'एप्लिकेशन का नया वर्शन उपलब्ध है। जारी रखने के लिए कृपया ऐप अपडेट करें।',
+      'updateNow': 'अभी अपडेट करें',
       'pleaseLoginToContinue': 'जारी रखने के लिए कृपया लॉग इन करें',
       'rememberMe': 'मुझे याद रखें',
       'forgotPassword': 'पासवर्ड भूल गए?',
@@ -2347,6 +2358,10 @@ class AppStrings {
       'headerChallanNo': 'رقم الإيصال',
       'welcomeTo': 'مرحباً بك في',
       'sparkleRfid': 'سباركل RFID',
+      'updateRequired': 'التحديث مطلوب',
+      'updateRequiredMessage':
+          'يتوفر إصدار جديد من التطبيق. يرجى تحديث التطبيق للمتابعة.',
+      'updateNow': 'حدّث الآن',
       'pleaseLoginToContinue': 'يرجى تسجيل الدخول للمتابعة',
       'rememberMe': 'تذكرني',
       'forgotPassword': 'هل نسيت كلمة المرور؟',

@@ -16,6 +16,7 @@ import 'viewmodels/dashboard_view_model.dart';
 import 'viewmodels/login_view_model.dart';
 import 'views/dashboard_screen.dart';
 import 'views/login_screen.dart';
+import 'views/widgets/app_version_gate.dart';
 
 /// Real Login/Dashboard tree — Dashboard is loaded after Login first frame.
 Widget buildReadyApp({
@@ -182,7 +183,7 @@ class _StartupApp extends StatelessWidget {
       builder: (context, child) {
         return Directionality(
           textDirection: localeService.textDirection,
-          child: child ?? const SizedBox.shrink(),
+          child: AppVersionGate(child: child ?? const SizedBox.shrink()),
         );
       },
       home: loggedIn ? const DashboardScreen() : const LoginScreen(),
