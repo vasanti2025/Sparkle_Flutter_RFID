@@ -1015,6 +1015,7 @@ class HardwareControllerImpl(
                 // setInventoryCallback before the poller thread is up.
                 isScanning = true
                 searchSoundEnabled = true
+                armSearchRangeWatch()
                 attachSearchLedTagCallback()
                 if (playStartSound) playSound(1, 0)
             }
@@ -2067,7 +2068,7 @@ class HardwareControllerImpl(
         val rssiOut = rssi
         if (searchHit && isScanning && scanningPermitted) {
             lastSearchHitAt = SystemClock.elapsedRealtime()
-            if (!rssiMissing) playRssiSearchSound(rssiOut) else keepSearchSound()
+            if (!rssiMissing) playRssiSearchSound(rssiOut)
             noteFoundSearchLed(cleanEpc)
         }
 
@@ -2335,11 +2336,27 @@ class HardwareControllerImpl(
         }
     }
 
+    /** Silence the search tone once reads stop, without ending the search. */
+    private val searchRangeWatch = object : Runnable {
+        override fun run() {
+            if (!searchSoundEnabled || !isScanning) return
+            val last = lastSearchHitAt
+            if (last != 0L && SystemClock.elapsedRealtime() - last >= 1000L) {
+                silenceMappedStreams()
+            }
+            mainHandler.postDelayed(this, 400L)
+        }
+    }
+
+    private fun armSearchRangeWatch() {
+        mainHandler.removeCallbacks(searchRangeWatch)
+        mainHandler.postDelayed(searchRangeWatch, 400L)
+    }
+
     /**
      * Sparkle SearchViewModel RSSI → sound id buckets:
      * abs(rssi) <50 → fourty(4), <60 → sixty(2), <70 → found2(5), else barcodebeep(1).
-     * A closer read may replace the tone. A weaker read must not stop it.
-     * The tone ends only when the user stops scanning.
+     * The tone follows the tag's current range and stops when it leaves range.
      */
     private fun playRssiSearchSound(rssi: String) {
         if (!searchSoundEnabled || !isScanning) return
@@ -2355,11 +2372,8 @@ class HardwareControllerImpl(
             rssiAbs > 70 -> 1
             else -> -1
         }
-        if (id == -1) {
-            keepSearchSound()
-            return
-        }
-        if (bestSearchSoundId > 0 && searchSoundRank(id) >= searchSoundRank(bestSearchSoundId)) {
+        if (id == -1) return
+        if (id == bestSearchSoundId) {
             keepSearchSound()
             return
         }

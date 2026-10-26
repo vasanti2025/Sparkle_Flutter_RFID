@@ -1753,11 +1753,9 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       'listKey': 'unmatchedItems',
     });
     _unmatchedSearchActive = false;
-    if (mounted) {
-      setState(() {
-        _syncMatchedFromUnmatchedSearch();
-      });
-    }
+    // Ticks stay on the search screen until its Save button. Back and the
+    // menu must not copy them into the inventory match list.
+    if (mounted) setState(() {});
   }
 
   /// One row per chip. The same RFID/EPC/TID must not be searched again as a new line.
@@ -1845,7 +1843,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     if (catalog.items.isEmpty) return;
     bool anyAdded = false;
     for (final searchItem in catalog.items) {
-      if (searchItem.manuallyMatched && searchItem.proximityPercent > 0) {
+      if (searchItem.rangeTicked ||
+          (searchItem.manuallyMatched && searchItem.proximityPercent > 0)) {
         for (final rawKey in [
           searchItem.epc,
           searchItem.rfid,

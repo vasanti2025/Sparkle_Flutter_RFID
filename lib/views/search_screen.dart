@@ -37,6 +37,8 @@ class SearchItem {
   bool positionLocked;
   /// User tapped the row's match button. Scanning must not clear this.
   bool manuallyMatched;
+  /// Set on the first in-range read. Stays checked after the tag leaves range.
+  bool rangeTicked;
 
   SearchItem({
     required this.epc,
@@ -49,6 +51,7 @@ class SearchItem {
     this.proximityPercent = 0,
     this.positionLocked = false,
     this.manuallyMatched = false,
+    this.rangeTicked = false,
   }) {
     normEpc = normalizeScanKey(epc);
     normRfid = normalizeScanKey(rfid);
@@ -90,10 +93,25 @@ class SearchItem {
     return true;
   }
 
+  /// The bar follows the current range bucket. A raw RSSI twitch must not
+  /// schedule a list rebuild — that stalled the reader.
+  bool applyLiveRange(String rssi, int rawPercent) {
+    if (rawPercent <= 0) return false;
+    final sample = (rawPercent.clamp(0, 100) / 5).round() * 5;
+    if (sample <= 0) return false;
+    final firstTick = !rangeTicked;
+    rangeTicked = true;
+    if (sample == proximityPercent) return firstTick;
+    this.rssi = rssi;
+    proximityPercent = sample;
+    return true;
+  }
+
   void clearScan() {
     rssi = '';
     proximityPercent = 0;
     positionLocked = false;
+    rangeTicked = false;
     _peakWindow.clear();
   }
 
@@ -109,16 +127,11 @@ class SearchItem {
   }
 }
 
-/// One Unmatched Search read. Never lowers a percent already on the row.
-/// A positive read that would round to 0%, or a chip read with no RSSI, still
-/// counts as seen at the smallest bar step (5). Later stronger reads only rise.
+/// One search read. Progress and color follow this sample only while the
+/// tag is in range. A read with no RSSI leaves the bar where it is.
 bool applyUnmatchedRead(SearchItem item, int proximity, String rssi) {
-  if (proximity <= 0) {
-    if (item.proximityPercent > 0) return false;
-    return item.applyStableProximity(rssi, 5, onlyRaise: true);
-  }
-  final sample = proximity < 3 ? 3 : proximity;
-  return item.applyStableProximity(rssi, sample, onlyRaise: true);
+  if (proximity < 0) return false;
+  return item.applyLiveRange(rssi, proximity);
 }
 
 /// First row keeps a shared key. A later row must not steal it and hide the first.
@@ -401,26 +414,9 @@ class _SearchScreenState extends State<SearchScreen> {
     _proximityDecayTimer = null;
   }
 
-  /// A quiet tag leaves the unmatched top strip. The percent and color stay
-  /// at the highest value reached so searched items remain visible.
-  void _decayStaleProximity() {
-    if (!_isScanning || !mounted) return;
-    if (_listKey != 'unmatchedItems') return;
-    final now = DateTime.now().millisecondsSinceEpoch;
-    var any = false;
-    for (final entry in _lastRssiUpdateMs.entries) {
-      final i = entry.key;
-      if (i < 0 || i >= _searchItems.length) continue;
-      final item = _searchItems[i];
-      if (item.proximityPercent <= 0) continue;
-      if (now - entry.value < 4000) continue;
-      // Out of range: leave the top strip. Keep the highest percentage.
-      if (!_hotSet.contains(i)) continue;
-      _dirtyIndices.add(i);
-      any = true;
-    }
-    if (any) _scheduleSearchUiUpdate();
-  }
+  /// Do not drop searched rows from the list. Clearing them here left only
+  /// the few tags still in range on screen.
+  void _decayStaleProximity() {}
 
   void _rebuildTagIndex() {
     _tagIndexMap.clear();
@@ -557,13 +553,7 @@ class _SearchScreenState extends State<SearchScreen> {
       if (i < 0 || i >= _searchItems.length) continue;
       final prox = _searchItems[i].proximityPercent;
       if (prox > 0) {
-        final seenAt = _lastRssiUpdateMs[i] ?? 0;
-        final stillInRange = DateTime.now().millisecondsSinceEpoch - seenAt < 4000;
-        if (_listKey == 'unmatchedItems' && !stillInRange) {
-          _hotSet.remove(i);
-        } else {
-          _hotSet.add(i);
-        }
+        _hotSet.add(i);
       } else {
         _hotSet.remove(i);
       }
@@ -946,6 +936,7 @@ class _SearchScreenState extends State<SearchScreen> {
     final started = DateTime.now().microsecondsSinceEpoch;
     if (proximity <= 0) _unmatchedRssiMissing++;
     final changed = applyUnmatchedRead(item, proximity, rssi);
+    final counted = _countRangeMatch(item);
     final first = _unmatchedSeen.add(index);
     if (first) {
       debugPrint(
@@ -954,7 +945,7 @@ class _SearchScreenState extends State<SearchScreen> {
       );
     }
     final reentered = !_hotSet.contains(index);
-    if (changed || first || reentered) {
+    if (changed || counted || first || reentered) {
       _dirtyIndices.add(index);
       if (_unmatchedOldestDirtyMs == 0) _unmatchedOldestDirtyMs = now;
       if (!item.positionLocked) {
@@ -1046,14 +1037,10 @@ class _SearchScreenState extends State<SearchScreen> {
         _applyUnmatchedTag(index, item, epc, proximity, rssi, now);
         return;
       }
-      // LED reads often report RSSI 0. Keep the last percent; do not flash 50%.
+      // No RSSI means the tag is not in range. Leave the bar and color alone.
       if (proximity < 0) return;
       final prev = item.proximityPercent;
-      final changed = item.applyStableProximity(
-        rssi,
-        proximity,
-        onlyRaise: true,
-      );
+      final changed = item.applyLiveRange(rssi, proximity);
       final reentered = _listKey == 'unmatchedItems' && !_hotSet.contains(index);
       if (changed || reentered) {
         _dirtyIndices.add(index);
@@ -1992,7 +1979,11 @@ class _SearchScreenState extends State<SearchScreen> {
             ? [
                 _buildDataCell('${index + 1}', 1),
                 _buildDataCell(item.rfid, 2),
-                _buildProgressCell(item.proximityPercent, 3),
+                _buildProgressCell(
+                  item.proximityPercent,
+                  3,
+                  persistentTick: item.rangeTicked,
+                ),
                 _buildDataCell('${item.proximityPercent}%', 1),
               ]
             : [
@@ -2002,7 +1993,8 @@ class _SearchScreenState extends State<SearchScreen> {
                 _buildProgressCell(
                   item.proximityPercent,
                   3,
-                  showAutoTick: _listKey != 'unmatchedItems',
+                  showAutoTick: false,
+                  persistentTick: _listKey != 'unmatchedItems' && item.rangeTicked,
                 ),
                 _buildDataCell('${item.proximityPercent}%', 1),
                 if (_listKey == 'unmatchedItems') _buildManualMatchButton(item),
@@ -2024,13 +2016,13 @@ class _SearchScreenState extends State<SearchScreen> {
       _ensureShuffledOrder();
       for (final i in _displayOrder) {
         if (i < 0 || i >= _searchItems.length) continue;
-        if (_searchItems[i].manuallyMatched == wantMatched) next.add(i);
+        if (_isSearchMatched(_searchItems[i]) == wantMatched) next.add(i);
       }
     } else {
       if (!_displayIndexValid) _rebuildDisplayIndices();
       for (final i in _visibleOrder) {
         if (i < 0 || i >= _searchItems.length) continue;
-        if (_searchItems[i].manuallyMatched == wantMatched) next.add(i);
+        if (_isSearchMatched(_searchItems[i]) == wantMatched) next.add(i);
       }
     }
     _statusOrder = next;
@@ -2109,13 +2101,28 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
+  bool _isSearchMatched(SearchItem item) =>
+      item.manuallyMatched || item.rangeTicked;
+
+  /// Green tick joins the match list and leaves the unmatch count.
+  bool _countRangeMatch(SearchItem item) {
+    if (!item.rangeTicked || item.manuallyMatched) return false;
+    item.manuallyMatched = true;
+    _manualMatchedCount++;
+    _statusOrderDirty = true;
+    return true;
+  }
+
   void _toggleSearchedItem(SearchItem item) {
-    if (!item.manuallyMatched && item.proximityPercent <= 0) return;
-    if (item.manuallyMatched) {
+    final matched = _isSearchMatched(item);
+    if (!matched && item.proximityPercent <= 0) return;
+    if (matched) {
+      if (item.manuallyMatched && _manualMatchedCount > 0) _manualMatchedCount--;
       item.manuallyMatched = false;
-      if (_manualMatchedCount > 0) _manualMatchedCount--;
+      item.rangeTicked = false;
     } else {
       item.manuallyMatched = true;
+      item.rangeTicked = true;
       _manualMatchedCount++;
     }
     _statusOrderDirty = true;
@@ -2123,7 +2130,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildManualMatchButton(SearchItem item) {
-    final matched = item.manuallyMatched;
+    final matched = item.manuallyMatched || item.rangeTicked;
     final canMark = matched || item.proximityPercent > 0;
     return SizedBox(
       width: 28,
@@ -2168,9 +2175,14 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _buildProgressCell(int proximity, int flex, {bool showAutoTick = true}) {
+  Widget _buildProgressCell(
+    int proximity,
+    int flex, {
+    bool showAutoTick = true,
+    bool persistentTick = false,
+  }) {
     final value = proximity / 100.0;
-    final isMatched = showAutoTick && proximity >= 80;
+    final isMatched = persistentTick || (showAutoTick && proximity >= 80);
     return Expanded(
       flex: flex,
       child: Row(
