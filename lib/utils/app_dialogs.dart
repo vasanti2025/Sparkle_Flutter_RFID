@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'fast_page_route.dart';
+
 /// Dialog without the default Material scale/zoom animation.
 Future<T?> showAppDialog<T>({
   required BuildContext context,
@@ -25,7 +27,7 @@ Future<T?> showAppDialog<T>({
   );
 }
 
-/// Page transition with no zoom/scale — instant cut on RFID handhelds.
+/// Light slide + fade (no Material zoom) — used by [ThemeData.pageTransitionsTheme].
 class NoZoomPageTransitionsBuilder extends PageTransitionsBuilder {
   const NoZoomPageTransitionsBuilder();
 
@@ -37,6 +39,14 @@ class NoZoomPageTransitionsBuilder extends PageTransitionsBuilder {
     Animation<double> secondaryAnimation,
     Widget child,
   ) {
-    return child;
+    // Keep dialogs / fullscreen dialogs snappy without slide.
+    if (route.fullscreenDialog) {
+      return FadeTransition(opacity: animation, child: child);
+    }
+    return buildAppPageTransition(
+      animation: animation,
+      secondaryAnimation: secondaryAnimation,
+      child: child,
+    );
   }
 }

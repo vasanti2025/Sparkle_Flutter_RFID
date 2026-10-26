@@ -57,6 +57,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
   bool _showItemSuggestions = false;
   int _power = 10; // Reader power (1-30), shown in the top-bar counter box
   bool _isSingleScan = false;
+  bool _scanStartInProgress = false;
 
   // Item-code suggestion results (SQL search — no full inventory in RAM).
   List<BulkItem> _itemSuggestions = [];
@@ -372,28 +373,37 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
 
   // Toggle simulation or hardware sweeps (Gscan)
   void _toggleGscan(OrderViewModel vm) async {
+    if (_scanStartInProgress) return;
     if (_rfidService.isScanning) {
       await _stopGscan(vm);
       return;
     }
 
     if (!mounted) return;
-    await _rfidService.clearSearchTags();
-    await _rfidService.clearMatchEpcs();
+    setState(() => _scanStartInProgress = true);
+    try {
+      await _rfidService.clearSearchTags();
+      await _rfidService.clearMatchEpcs();
 
-    final started = await _rfidService.startScanning(
-      power: _power,
-      inventory: !_isSingleScan,
-    );
-    if (started && _rfidService.isScanning) {
-      vm.beginLiveScan();
-      _trayAutoStop.onScanStarted();
-    }
-    if (mounted) setState(() {});
-    if (!started && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.sRead.failedToStartRfidScanner)),
+      final started = await _rfidService.startScanning(
+        power: _power,
+        inventory: !_isSingleScan,
       );
+      if (started && _rfidService.isScanning) {
+        vm.beginLiveScan();
+        _trayAutoStop.onScanStarted();
+      }
+      if (!started && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.sRead.failedToStartRfidScanner)),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _scanStartInProgress = false);
+      } else {
+        _scanStartInProgress = false;
+      }
     }
   }
 
@@ -1074,6 +1084,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
         // Center "Scan" button shows Stop only for a single-tag scan; the
         // "Gscan" button shows Stop for a continuous (bulk) scan.
         isScanning: _rfidService.isScanning && _isSingleScan,
+        isStarting: _scanStartInProgress && _isSingleScan && !_rfidService.isScanning,
         isBulkScanning: _rfidService.isScanning && !_isSingleScan,
         isEditMode: vm.isEditMode,
         onSave: () async {

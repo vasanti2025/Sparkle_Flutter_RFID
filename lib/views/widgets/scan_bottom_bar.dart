@@ -72,59 +72,258 @@ Widget _buildOverlappingScanButton({
   required dynamic s,
   bool showResume = false,
   bool enabled = true,
+  /// True from tap until the RFID reader actually starts.
+  bool isStarting = false,
 }) {
-  final bool showStop = isScanning;
-  final String label = showStop
-      ? s.stop
-      : (showResume ? s.resume : s.scanBtn);
-  final IconData icon = showStop
-      ? Icons.close
-      : (showResume ? Icons.play_arrow : Icons.qr_code_scanner);
-  return Opacity(
-    opacity: enabled ? 1 : 0.4,
-    child: GestureDetector(
-      onTap: enabled ? onTap : null,
-      child: Container(
-      width: 65,
-      height: 65,
-      decoration: const BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          colors: [Color(0xFF5231A7), Color(0xFFD32940)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black26,
-            blurRadius: 4,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
-      alignment: Alignment.center,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            icon,
-            color: Colors.white,
-            size: 26,
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: GoogleFonts.poppins(
-              color: Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-    ),
-    ),
+  return _OverlappingScanButton(
+    isScanning: isScanning,
+    isStarting: isStarting,
+    showResume: showResume,
+    enabled: enabled,
+    onTap: onTap,
+    s: s,
   );
+}
+
+class _OverlappingScanButton extends StatefulWidget {
+  final bool isScanning;
+  final bool isStarting;
+  final bool showResume;
+  final bool enabled;
+  final VoidCallback onTap;
+  final dynamic s;
+
+  const _OverlappingScanButton({
+    required this.isScanning,
+    required this.isStarting,
+    required this.showResume,
+    required this.enabled,
+    required this.onTap,
+    required this.s,
+  });
+
+  @override
+  State<_OverlappingScanButton> createState() => _OverlappingScanButtonState();
+}
+
+class _OverlappingScanButtonState extends State<_OverlappingScanButton>
+    with TickerProviderStateMixin {
+  late final AnimationController _line;
+  late final AnimationController _orbit;
+
+  @override
+  void initState() {
+    super.initState();
+    _line = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+    _orbit = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1600),
+    );
+    if (widget.isStarting) _startAnim();
+  }
+
+  void _startAnim() {
+    _line.repeat(reverse: true);
+    _orbit.repeat();
+  }
+
+  void _stopAnim() {
+    _line
+      ..stop()
+      ..value = 0;
+    _orbit
+      ..stop()
+      ..value = 0;
+  }
+
+  @override
+  void didUpdateWidget(covariant _OverlappingScanButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isStarting && !_line.isAnimating) {
+      _startAnim();
+    } else if (!widget.isStarting && _line.isAnimating) {
+      _stopAnim();
+    }
+  }
+
+  @override
+  void dispose() {
+    _line.dispose();
+    _orbit.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final starting = widget.isStarting && !widget.isScanning;
+    final bool showStop = widget.isScanning && !starting;
+    final String label = showStop
+        ? widget.s.stop
+        : (widget.showResume ? widget.s.resume : widget.s.scanBtn);
+    final IconData icon = showStop
+        ? Icons.close
+        : (widget.showResume ? Icons.play_arrow : Icons.qr_code_scanner);
+
+    return Opacity(
+      opacity: widget.enabled ? 1 : 0.4,
+      child: GestureDetector(
+        onTap: widget.enabled && !starting ? widget.onTap : null,
+        child: SizedBox(
+          width: 86,
+          height: 86,
+          child: AnimatedBuilder(
+            animation: Listenable.merge([_line, _orbit]),
+            builder: (context, _) {
+              final breathe = starting ? 0.96 + (0.04 * _line.value) : 1.0;
+              return Transform.scale(
+                scale: breathe,
+                child: Stack(
+                  alignment: Alignment.center,
+                  clipBehavior: Clip.none,
+                  children: [
+                    if (starting) ...[
+                      _OrbitDot(progress: _orbit.value, index: 0),
+                      _OrbitDot(progress: _orbit.value, index: 1),
+                      _OrbitDot(progress: _orbit.value, index: 2),
+                    ],
+                    Container(
+                      width: 65,
+                      height: 65,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          colors: starting
+                              ? const [Color(0xFF6B3FD1), Color(0xFFE23A55)]
+                              : const [Color(0xFF5231A7), Color(0xFFD32940)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: starting
+                                ? const Color(0xFF5231A7).withValues(alpha: 0.5)
+                                : Colors.black26,
+                            blurRadius: starting ? 14 : 4,
+                            spreadRadius: starting ? 0.5 : 0,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: starting
+                          ? Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                const Center(
+                                  child: Icon(
+                                    Icons.qr_code_scanner,
+                                    color: Colors.white,
+                                    size: 22,
+                                  ),
+                                ),
+                                // Horizontal scan beam sweeping top ↔ bottom.
+                                Align(
+                                  alignment: Alignment(
+                                    0,
+                                    -1 + (2 * Curves.easeInOut.transform(_line.value)),
+                                  ),
+                                  child: Container(
+                                    height: 3,
+                                    margin: const EdgeInsets.symmetric(horizontal: 10),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(2),
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          Colors.white.withValues(alpha: 0.0),
+                                          Colors.white.withValues(alpha: 0.95),
+                                          Colors.white.withValues(alpha: 0.0),
+                                        ],
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.white.withValues(alpha: 0.7),
+                                          blurRadius: 6,
+                                          spreadRadius: 1,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                // Soft vignette so the beam feels like a laser pass.
+                                IgnorePointer(
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      gradient: RadialGradient(
+                                        colors: [
+                                          Colors.transparent,
+                                          Colors.black.withValues(alpha: 0.18),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(icon, color: Colors.white, size: 26),
+                                const SizedBox(height: 2),
+                                Text(
+                                  label,
+                                  style: GoogleFonts.poppins(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OrbitDot extends StatelessWidget {
+  final double progress;
+  final int index;
+
+  const _OrbitDot({required this.progress, required this.index});
+
+  @override
+  Widget build(BuildContext context) {
+    const tau = 6.283185307179586;
+    final angle = (progress * tau) + (index * tau / 3);
+    final offset = Offset.fromDirection(angle, 38);
+    final pulse = 0.5 + 0.5 * (((progress * 2) + index / 3) % 1.0);
+    return Transform.translate(
+      offset: offset,
+      child: Container(
+        width: 7,
+        height: 7,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white.withValues(alpha: 0.4 + 0.5 * pulse),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFFD32940).withValues(alpha: 0.55),
+              blurRadius: 5,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// Overlapping background scaffold to hold the buttons.
@@ -183,6 +382,8 @@ class ScanBottomBar extends StatelessWidget {
   final VoidCallback onGscan;
   final VoidCallback onReset;
   final bool isScanning;
+  /// True from Scan tap until the reader reports started.
+  final bool isStarting;
   final bool isEditMode;
   final bool isScreen;
   final bool isBulkScanning;
@@ -201,6 +402,7 @@ class ScanBottomBar extends StatelessWidget {
     required this.onGscan,
     required this.onReset,
     required this.isScanning,
+    this.isStarting = false,
     this.isEditMode = false,
     this.isScreen = false,
     this.isBulkScanning = false,
@@ -243,6 +445,7 @@ class ScanBottomBar extends StatelessWidget {
           : const SizedBox(width: 64),
       centerButton: _buildOverlappingScanButton(
         isScanning: isScanning,
+        isStarting: isStarting,
         onTap: onScan,
         s: s,
       ),
@@ -270,6 +473,8 @@ class ScanBottomBarInventory extends StatelessWidget {
   final VoidCallback onEmail;
   final VoidCallback onReset;
   final bool isScanning;
+  /// True from Scan tap until the reader reports started.
+  final bool isStarting;
   /// Scan Display only: after user Stop with unmatched items still left.
   final bool showResume;
   /// When false, Scan is greyed out and ignored (e.g. while Save is running).
@@ -283,6 +488,7 @@ class ScanBottomBarInventory extends StatelessWidget {
     required this.onEmail,
     required this.onReset,
     required this.isScanning,
+    this.isStarting = false,
     this.showResume = false,
     this.scanEnabled = true,
   });
@@ -303,7 +509,8 @@ class ScanBottomBarInventory extends StatelessWidget {
       ),
       centerButton: _buildOverlappingScanButton(
         isScanning: isScanning,
-        showResume: showResume && !isScanning,
+        isStarting: isStarting,
+        showResume: showResume && !isScanning && !isStarting,
         onTap: onScan,
         s: s,
         enabled: scanEnabled,
@@ -326,6 +533,7 @@ class ScanBottomBarMissingStocks extends StatelessWidget {
   final VoidCallback onSave;
   final VoidCallback onScan;
   final bool isScanning;
+  final bool isStarting;
   final bool scanEnabled;
   final bool saveEnabled;
 
@@ -334,6 +542,7 @@ class ScanBottomBarMissingStocks extends StatelessWidget {
     required this.onSave,
     required this.onScan,
     required this.isScanning,
+    this.isStarting = false,
     this.scanEnabled = true,
     this.saveEnabled = true,
   });
@@ -351,6 +560,7 @@ class ScanBottomBarMissingStocks extends StatelessWidget {
       leftButton2: const SizedBox(width: 64),
       centerButton: _buildOverlappingScanButton(
         isScanning: isScanning,
+        isStarting: isStarting,
         onTap: onScan,
         s: s,
         enabled: scanEnabled,
@@ -368,6 +578,7 @@ class ScanBottomBarDesktop extends StatelessWidget {
   final VoidCallback onGscan;
   final VoidCallback onReset;
   final bool isScanning;
+  final bool isStarting;
   final bool isBulkScanning;
   final bool isEditMode;
 
@@ -379,6 +590,7 @@ class ScanBottomBarDesktop extends StatelessWidget {
     required this.onGscan,
     required this.onReset,
     required this.isScanning,
+    this.isStarting = false,
     this.isBulkScanning = false,
     this.isEditMode = false,
   });
@@ -401,6 +613,7 @@ class ScanBottomBarDesktop extends StatelessWidget {
       ),
       centerButton: _buildOverlappingScanButton(
         isScanning: isScanning,
+        isStarting: isStarting,
         onTap: onScan,
         s: s,
       ),

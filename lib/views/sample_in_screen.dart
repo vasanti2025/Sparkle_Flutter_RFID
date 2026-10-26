@@ -189,7 +189,11 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
       return;
     }
 
-    _scanStartInProgress = true;
+    if (mounted) {
+      setState(() => _scanStartInProgress = true);
+    } else {
+      _scanStartInProgress = true;
+    }
     _tagsDuringStart.clear();
     try {
       await Future.wait([
@@ -230,7 +234,6 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
         vm.beginLiveScan();
         _trayAutoStop.onScanStarted();
       }
-      _scanStartInProgress = false;
       if (_tagsDuringStart.isNotEmpty) {
         _tagBatcher.addAll(_tagsDuringStart);
         _tagsDuringStart.clear();
@@ -246,7 +249,11 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
         );
       }
     } finally {
-      _scanStartInProgress = false;
+      if (mounted) {
+        setState(() => _scanStartInProgress = false);
+      } else {
+        _scanStartInProgress = false;
+      }
     }
   }
 
@@ -729,6 +736,7 @@ class _SampleInScreenState extends State<SampleInScreen> with BarcodeScanMixin {
       ),
       bottomNavigationBar: ScanBottomBar(
         isScanning: _rfidService.isScanning && _isSingleScan,
+        isStarting: _scanStartInProgress && _isSingleScan && !_rfidService.isScanning,
         isBulkScanning: _rfidService.isScanning && !_isSingleScan,
         isEditMode: false,
         onSave: () async {

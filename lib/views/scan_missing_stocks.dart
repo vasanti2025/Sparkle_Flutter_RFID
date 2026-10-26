@@ -608,19 +608,36 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
       return;
     }
     if (_scanning || _scanStartInProgress) return;
-    _scanStartInProgress = true;
-    if (mounted) setState(() => _scanning = true);
+    if (mounted) {
+      setState(() => _scanStartInProgress = true);
+    } else {
+      _scanStartInProgress = true;
+    }
     try {
       final started = await _rfid.startInventoryScanning(power: _power);
       if (!mounted) return;
       if (!started) {
-        setState(() => _scanning = false);
+        setState(() {
+          _scanning = false;
+          _scanStartInProgress = false;
+        });
         await _rfid.stopInventorySound();
         await _rfid.haltScan();
         _toast(context.sRead.failedToStartRfidScanner);
+      } else {
+        setState(() {
+          _scanning = true;
+          _scanStartInProgress = false;
+        });
       }
     } finally {
-      _scanStartInProgress = false;
+      if (_scanStartInProgress) {
+        if (mounted) {
+          setState(() => _scanStartInProgress = false);
+        } else {
+          _scanStartInProgress = false;
+        }
+      }
     }
   }
 
@@ -822,6 +839,7 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
         onSave: _save,
         onScan: _toggleScan,
         isScanning: _scanning,
+        isStarting: _scanStartInProgress && !_scanning,
         scanEnabled: !_saving,
         saveEnabled: !_saving && !_loading && _rows.isNotEmpty,
       ),

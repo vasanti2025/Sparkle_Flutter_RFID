@@ -30,6 +30,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
   final Set<String> _checkedKeys = {};
   bool _isBulkScanning = false;
   bool _isSingleScan = false;
+  bool _scanStartInProgress = false;
   int _power = 10;
   final Map<String, String> _rfidToItemKey = {};
   String? _rfidIndexToken;
@@ -177,6 +178,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
 
   /// Center Scan button — short inventory window @ power 20 (Sparkle).
   Future<void> _startSingleScan() async {
+    if (_scanStartInProgress) return;
     if (_rfid.isScanning && !_isSingleScan) {
       await _stopScanning();
     }
@@ -184,23 +186,41 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
       await _stopScanning();
       return;
     }
-    _isSingleScan = true;
-    _isBulkScanning = false;
-    final started = await _rfid.startScanning(power: 20, playStartSound: false);
-    if (!mounted) return;
-    setState(() {});
-    if (!started) {
-      setState(() => _isSingleScan = false);
-      return;
+    if (mounted) {
+      setState(() {
+        _scanStartInProgress = true;
+        _isSingleScan = true;
+        _isBulkScanning = false;
+      });
+    } else {
+      _scanStartInProgress = true;
+      _isSingleScan = true;
+      _isBulkScanning = false;
     }
-    Future.delayed(const Duration(seconds: 2), () async {
-      if (!mounted || !_isSingleScan) return;
-      await _stopScanning();
-    });
+    try {
+      final started = await _rfid.startScanning(power: 20, playStartSound: false);
+      if (!mounted) return;
+      setState(() {});
+      if (!started) {
+        setState(() => _isSingleScan = false);
+        return;
+      }
+      Future.delayed(const Duration(seconds: 2), () async {
+        if (!mounted || !_isSingleScan) return;
+        await _stopScanning();
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _scanStartInProgress = false);
+      } else {
+        _scanStartInProgress = false;
+      }
+    }
   }
 
   /// Gscan — continuous inventory @ stock-transfer power (Sparkle).
   Future<void> _startGscan() async {
+    if (_scanStartInProgress) return;
     if (_rfid.isScanning && _isSingleScan) {
       await _stopScanning();
     }
@@ -208,12 +228,28 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
       await _stopScanning();
       return;
     }
-    _isSingleScan = false;
-    await _rfid.stopScanning();
-    _trayGscanSession.reset();
-    final started = await _rfid.startScanning(power: _power);
     if (mounted) {
-      setState(() => _isBulkScanning = started);
+      setState(() {
+        _scanStartInProgress = true;
+        _isSingleScan = false;
+      });
+    } else {
+      _scanStartInProgress = true;
+      _isSingleScan = false;
+    }
+    try {
+      await _rfid.stopScanning();
+      _trayGscanSession.reset();
+      final started = await _rfid.startScanning(power: _power);
+      if (mounted) {
+        setState(() => _isBulkScanning = started);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _scanStartInProgress = false);
+      } else {
+        _scanStartInProgress = false;
+      }
     }
   }
 
@@ -609,6 +645,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                 ScanBottomBar(
                   isScreen: true,
                   isScanning: _rfid.isScanning && _isSingleScan,
+                  isStarting: _scanStartInProgress && _isSingleScan && !_rfid.isScanning,
                   isBulkScanning: _isBulkScanning || (_rfid.isScanning && !_isSingleScan),
                   onSave: () {
                     if ((vm.selectedFrom == StockTransferViewModel.fromPlaceholder) ||

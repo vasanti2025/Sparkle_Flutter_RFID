@@ -31,6 +31,7 @@ class _AddProductScreenState extends State<AddProductScreen> with BarcodeScanMix
   bool _isScanning = false;
   bool _isBulkScanning = false;
   bool _isSingleScan = false;
+  bool _scanStartInProgress = false;
   bool _barcodeScanActive = false;
   String? _focusedField;
   int _power = 5;
@@ -313,44 +314,80 @@ class _AddProductScreenState extends State<AddProductScreen> with BarcodeScanMix
   }
 
   Future<void> _startSingleScan() async {
+    if (_scanStartInProgress) return;
     if (_isScanning && _isSingleScan && !_isBulkScanning) {
       await _stopScanning();
       return;
     }
     if (_isScanning) await _rfidService.stopScanning();
     _barcodeScanActive = false;
-    _isBulkScanning = false;
-    _isSingleScan = true;
-    final started = await _rfidService.startScanning(power: _power, playStartSound: false);
     if (mounted) {
-      setState(() => _isScanning = started);
+      setState(() {
+        _scanStartInProgress = true;
+        _isBulkScanning = false;
+        _isSingleScan = true;
+      });
+    } else {
+      _scanStartInProgress = true;
+      _isBulkScanning = false;
+      _isSingleScan = true;
     }
-    if (!started && mounted) {
-      setState(() => _isSingleScan = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.sRead.tr('failedToStartRfidScanner'))),
-      );
+    try {
+      final started = await _rfidService.startScanning(power: _power, playStartSound: false);
+      if (mounted) {
+        setState(() => _isScanning = started);
+      }
+      if (!started && mounted) {
+        setState(() => _isSingleScan = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.sRead.tr('failedToStartRfidScanner'))),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _scanStartInProgress = false);
+      } else {
+        _scanStartInProgress = false;
+      }
     }
   }
 
   Future<void> _startGscan() async {
+    if (_scanStartInProgress) return;
     if (_isScanning && _isBulkScanning) {
       await _stopScanning();
       return;
     }
     if (_isScanning) await _rfidService.stopScanning();
     _barcodeScanActive = false;
-    _isSingleScan = false;
-    _isBulkScanning = true;
-    final started = await _rfidService.startScanning(power: _power);
     if (mounted) {
-      setState(() => _isScanning = started);
+      setState(() {
+        _scanStartInProgress = true;
+        _isSingleScan = false;
+        _isBulkScanning = true;
+      });
+    } else {
+      _scanStartInProgress = true;
+      _isSingleScan = false;
+      _isBulkScanning = true;
     }
-    if (!started && mounted) {
-      setState(() => _isBulkScanning = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.sRead.tr('failedToStartRfidScanner'))),
-      );
+    try {
+      final started = await _rfidService.startScanning(power: _power);
+      if (mounted) {
+        setState(() => _isScanning = started);
+      }
+      if (!started && mounted) {
+        setState(() => _isBulkScanning = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.sRead.tr('failedToStartRfidScanner'))),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _scanStartInProgress = false);
+      } else {
+        _scanStartInProgress = false;
+      }
     }
   }
 
@@ -545,6 +582,7 @@ class _AddProductScreenState extends State<AddProductScreen> with BarcodeScanMix
                   onGscan: _startGscan,
                   onReset: _resetForm,
                   isScanning: _isScanning && _isSingleScan && !_isBulkScanning,
+                  isStarting: _scanStartInProgress && _isSingleScan && !_isScanning,
                   isBulkScanning: _isScanning && _isBulkScanning,
                 ),
               ],

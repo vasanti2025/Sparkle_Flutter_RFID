@@ -456,16 +456,19 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
       return;
     }
 
-    _scanBusy = true;
-    _singleScanTimer?.cancel();
-    final gen = ++_scanGeneration;
     if (mounted) {
       setState(() {
-        _isScanning = true;
+        _scanBusy = true;
         _isSingleScan = true;
         _tagScannedInSession = false;
       });
+    } else {
+      _scanBusy = true;
+      _isSingleScan = true;
+      _tagScannedInSession = false;
     }
+    _singleScanTimer?.cancel();
+    final gen = ++_scanGeneration;
 
     try {
       // Same UART start as Inventory. startScanning waits on a Bluetooth
@@ -491,6 +494,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
         return;
       }
 
+      if (mounted) setState(() => _isScanning = true);
       _singleScanTimer = Timer(const Duration(seconds: 2), () {
         if (_isSingleScan && _isScanning) {
           unawaited(_stopScanning());
@@ -510,15 +514,17 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
       return;
     }
 
-    _scanBusy = true;
-    _singleScanTimer?.cancel();
-    final gen = ++_scanGeneration;
     if (mounted) {
       setState(() {
-        _isScanning = true;
+        _scanBusy = true;
         _isSingleScan = false;
       });
+    } else {
+      _scanBusy = true;
+      _isSingleScan = false;
     }
+    _singleScanTimer?.cancel();
+    final gen = ++_scanGeneration;
 
     try {
       final started = await _rfidService.startInventoryScanning(
@@ -536,6 +542,8 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
 
       if (!started && mounted) {
         setState(() => _isScanning = false);
+      } else if (started && mounted) {
+        setState(() => _isScanning = true);
       }
     } finally {
       _scanBusy = false;
@@ -1056,6 +1064,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
                 onGscan: () => unawaited(_startGScan()),
                 onReset: () => unawaited(_resetScanning()),
                 isScanning: _isScanning && _isSingleScan,
+                isStarting: _scanBusy && _isSingleScan && !_isScanning,
                 isBulkScanning: _isScanning && !_isSingleScan,
               ),
             ],

@@ -50,6 +50,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
   bool _showItemSuggestions = false;
   int _power = 30;
   bool _isSingleScan = false;
+  bool _scanStartInProgress = false;
 
   List<BulkItem> _itemSuggestions = [];
   late final TrayGscanAutoStopController _trayAutoStop;
@@ -318,28 +319,37 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
   }
 
   void _toggleGscan(QuotationViewModel vm) async {
+    if (_scanStartInProgress) return;
     if (_rfidService.isScanning) {
       await _stopGscan(vm);
       return;
     }
 
     if (!mounted) return;
-    await _rfidService.clearSearchTags();
-    await _rfidService.clearMatchEpcs();
+    setState(() => _scanStartInProgress = true);
+    try {
+      await _rfidService.clearSearchTags();
+      await _rfidService.clearMatchEpcs();
 
-    final started = await _rfidService.startScanning(
-      power: _power,
-      inventory: !_isSingleScan,
-    );
-    if (started && _rfidService.isScanning) {
-      vm.beginLiveScan();
-      _trayAutoStop.onScanStarted();
-    }
-    if (mounted) setState(() {});
-    if (!started && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.sRead.failedToStartRfidScanner)),
+      final started = await _rfidService.startScanning(
+        power: _power,
+        inventory: !_isSingleScan,
       );
+      if (started && _rfidService.isScanning) {
+        vm.beginLiveScan();
+        _trayAutoStop.onScanStarted();
+      }
+      if (!started && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.sRead.failedToStartRfidScanner)),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _scanStartInProgress = false);
+      } else {
+        _scanStartInProgress = false;
+      }
     }
   }
 
@@ -980,6 +990,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
         ),
         bottomNavigationBar: ScanBottomBar(
           isScanning: _rfidService.isScanning && _isSingleScan,
+          isStarting: _scanStartInProgress && _isSingleScan && !_rfidService.isScanning,
           isBulkScanning: _rfidService.isScanning && !_isSingleScan,
           isEditMode: vm.isEditMode,
           onSave: () async {

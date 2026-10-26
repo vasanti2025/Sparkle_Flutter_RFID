@@ -504,6 +504,7 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
             onGscan: () => unawaited(_toggleGscan(vm)),
             onReset: () => unawaited(_resetAll(vm)),
             isScanning: vm.isScanning && !vm.isBulkMode,
+            isStarting: _scanBusy && !vm.isBulkMode && !vm.isScanning,
             isBulkScanning: vm.isScanning && vm.isBulkMode,
           ),
         ],

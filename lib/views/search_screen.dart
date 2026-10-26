@@ -1087,7 +1087,11 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     }
 
-    _scanBusy = true;
+    if (mounted) {
+      setState(() => _scanBusy = true);
+    } else {
+      _scanBusy = true;
+    }
     try {
       List<String>? tagsToSend;
       if (!(_isLargeUnmatched && _searchQuery.trim().isEmpty)) {
@@ -1100,7 +1104,7 @@ class _SearchScreenState extends State<SearchScreen> {
       }
 
       final held = _holdCurrentSearchProgress();
-      setState(() => _isScanning = true);
+      // Keep _isScanning false until the radio starts so the Scan button animates.
       if (held == null) {
         unawaited(_rfidService.playBeep());
         _atMaxProximity.clear();
@@ -1124,7 +1128,6 @@ class _SearchScreenState extends State<SearchScreen> {
         if (onlyTags.isEmpty) {
           _homeScanOnlyIndex = null;
           _stopProximityDecay();
-          if (mounted) setState(() => _isScanning = false);
           _showToast(context.sRead.noSearchableIdentifiersFound);
           return;
         }
@@ -1144,7 +1147,6 @@ class _SearchScreenState extends State<SearchScreen> {
           if (onlyTags.isEmpty) {
             _homeScanOnlyIndex = null;
             _stopProximityDecay();
-            if (mounted) setState(() => _isScanning = false);
             _showToast(context.sRead.noSearchableIdentifiersFound);
             return;
           }
@@ -1197,6 +1199,8 @@ class _SearchScreenState extends State<SearchScreen> {
         await _rfidService.stopScanning();
         if (!mounted) return;
         _showToast(context.sRead.failedToStartRfidScanner);
+      } else if (mounted) {
+        setState(() => _isScanning = true);
       }
     } catch (e) {
       if (mounted) {
@@ -1206,7 +1210,11 @@ class _SearchScreenState extends State<SearchScreen> {
         _showToast(context.sRead.failedToStartRfidScanner);
       }
     } finally {
-      _scanBusy = false;
+      if (mounted) {
+        setState(() => _scanBusy = false);
+      } else {
+        _scanBusy = false;
+      }
     }
   }
 
@@ -1919,6 +1927,7 @@ class _SearchScreenState extends State<SearchScreen> {
               },
               onReset: _resetSearch,
               isScanning: _isScanning,
+              isStarting: _scanBusy && !_isScanning,
               scanEnabled: !_isHandingOff,
             )
           else
@@ -1931,6 +1940,7 @@ class _SearchScreenState extends State<SearchScreen> {
               onGscan: () {},
               onReset: _resetSearch,
               isScanning: _isScanning,
+              isStarting: _scanBusy && !_isScanning,
               saveEnabled: false,
               gscanEnabled: false,
             ),

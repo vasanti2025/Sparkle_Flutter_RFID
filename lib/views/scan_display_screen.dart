@@ -1070,9 +1070,12 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       return;
     }
 
-    _scanStartInProgress = true;
-    // Claim session immediately so trigger cannot double-start.
-    if (mounted) setState(() => _isScanning = true);
+    // Show button loading animation until the radio is actually up.
+    if (mounted) {
+      setState(() => _scanStartInProgress = true);
+    } else {
+      _scanStartInProgress = true;
+    }
     _trayScanSession.reset();
     _needsAutoStopCheck = false;
 
@@ -1083,9 +1086,6 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         if (!mounted) return;
       }
       _scanEpoch++;
-      if (mounted && !_isScanning) {
-        setState(() => _isScanning = true);
-      }
 
       if (_selectedMenu == 'UNLABELLED') {
         _filteredDbEpcSet = {};
@@ -1101,14 +1101,26 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
       if (!mounted) return;
       if (!started) {
-        setState(() => _isScanning = false);
+        setState(() {
+          _isScanning = false;
+          _scanStartInProgress = false;
+        });
         await _rfidService.stopInventorySound();
         await _rfidService.haltScan();
-      } else if (!_isScanning) {
-        setState(() => _isScanning = true);
+      } else {
+        setState(() {
+          _isScanning = true;
+          _scanStartInProgress = false;
+        });
       }
     } finally {
-      _scanStartInProgress = false;
+      if (_scanStartInProgress) {
+        if (mounted) {
+          setState(() => _scanStartInProgress = false);
+        } else {
+          _scanStartInProgress = false;
+        }
+      }
     }
   }
 
@@ -4463,6 +4475,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       onEmail: _openEmailReport,
       onReset: _resetScanning,
       isScanning: _isScanning,
+      isStarting: _scanStartInProgress && !_isScanning,
       showResume: _showResumeOnScanButton,
       scanEnabled: !_isSaving,
     );

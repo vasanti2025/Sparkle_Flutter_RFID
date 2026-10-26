@@ -39,6 +39,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
   bool _showItemSuggestions = false;
   int _power = 30; // Default dBm reader power
   bool _isSingleScan = false;
+  bool _scanStartInProgress = false;
 
   List<BulkItem> _itemSuggestions = [];
   late final TrayGscanAutoStopController _trayAutoStop;
@@ -202,26 +203,36 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
   }
 
   void _toggleGscan(DeliveryChallanViewModel vm) async {
+    if (_scanStartInProgress) return;
     if (_rfidService.isScanning) {
       await _stopGscan(vm);
       return;
     }
 
-    await _rfidService.clearSearchTags();
-    await _rfidService.clearMatchEpcs();
-    final started = await _rfidService.startScanning(
-      power: _power,
-      inventory: !_isSingleScan,
-    );
-    if (started && _rfidService.isScanning) {
-      vm.beginLiveScan();
-      _trayAutoStop.onScanStarted();
-    }
-    if (mounted) setState(() {});
-    if (!started && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.sRead.failedToStartRfidScanner)),
+    if (!mounted) return;
+    setState(() => _scanStartInProgress = true);
+    try {
+      await _rfidService.clearSearchTags();
+      await _rfidService.clearMatchEpcs();
+      final started = await _rfidService.startScanning(
+        power: _power,
+        inventory: !_isSingleScan,
       );
+      if (started && _rfidService.isScanning) {
+        vm.beginLiveScan();
+        _trayAutoStop.onScanStarted();
+      }
+      if (!started && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.sRead.failedToStartRfidScanner)),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _scanStartInProgress = false);
+      } else {
+        _scanStartInProgress = false;
+      }
     }
   }
 
@@ -1056,6 +1067,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
         // Center "Scan" button shows Stop only for a single-tag scan; the
         // "Gscan" button shows Stop for a continuous (bulk) scan.
         isScanning: _rfidService.isScanning && _isSingleScan,
+        isStarting: _scanStartInProgress && _isSingleScan && !_rfidService.isScanning,
         isBulkScanning: _rfidService.isScanning && !_isSingleScan,
         isEditMode: isEditMode,
         onSave: () async {
