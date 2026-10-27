@@ -210,7 +210,6 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
     final now = DateTime.now();
     _stockDate = DateTime(now.year, now.month, now.day);
     _power = context.read<PrefService>().inventoryPower.clamp(1, 30);
-    _rfid.preWarmReader();
     _rfid.clearSearchTags();
     _tagsSub = _rfid.tagsStream.listen(_onTag);
     _triggerSub = _rfid.triggerStream.listen((_) {

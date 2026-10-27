@@ -19,8 +19,9 @@ class AppWarmupService {
   }
 
   Future<void> _warmDatabase(GlobalKey<NavigatorState> navigatorKey) async {
-    // Avoid competing with first dashboard paint (handheld ANR if DB opens too early).
-    await Future<void>.delayed(const Duration(seconds: 2));
+    // Avoid competing with first dashboard paint. Opening the database at
+    // 2 seconds overlapped that paint and closed the app on some runs.
+    await Future<void>.delayed(const Duration(seconds: 8));
     final ctx = navigatorKey.currentContext;
     if (ctx == null) return;
     try {

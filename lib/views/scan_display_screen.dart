@@ -359,7 +359,6 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   void initState() {
     super.initState();
     _selectedPower = context.read<PrefService>().inventoryPower.clamp(1, 30);
-    _rfidService.preWarmReader();
     _rfidService.clearSearchTags();
     _tagsSubscription = _rfidService.tagsStream.listen(_onTagScanned);
     // Subscribe to physical trigger key presses
@@ -490,6 +489,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       item.currentScannedStatus = 'Matched';
       _matchedCount++;
       _totalMatchedWt += item.parsedGrossWt;
+      _noteLiveMatch(item);
       if (_scopeUnmatchedRemaining > 0) _scopeUnmatchedRemaining--;
       if (_allUnmatchedCount > 0) _allUnmatchedCount--;
       _needsAutoStopCheck = true;
@@ -515,16 +515,6 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     for (final item in _scannedItems) {
       item.currentScannedStatus = _statusForItem(item);
     }
-  }
-
-  /// Full status sync is O(n); avoid on every tag tick when catalog is large.
-  void _syncItemStatusesFromMatchedSetChunked() {
-    if (_scannedItems.length <= 2500) {
-      _syncItemStatusesFromMatchedSet();
-      return;
-    }
-    // Large catalog: _registerMatchForItem already sets currentScannedStatus.
-    // Skipping O(n) walks keeps the UART inventory session alive under 10k load.
   }
 
   void _buildLookupMaps() {
@@ -767,29 +757,63 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     }
   }
 
+  /// Paint the matched count from the tag that just matched.
+  /// Rebuilding the whole catalog on this path is what held the count
+  /// for a long time after only one or two tags were read.
+  void _noteLiveMatch(ScannedBulkItem item) {
+    final weight = item.parsedGrossWt;
+    _visibleMatchedCount++;
+    _visibleMatchedWt += weight;
+    _cachedMatchedCount = _matchedCount;
+    _cachedTotalMatchedWt = _totalMatchedWt;
+    if (_dateListActive ||
+        _currentLevel == 'DesignItems' ||
+        _selectedMenu == 'UNLABELLED' ||
+        _selectedMenu == 'MATCHED' ||
+        _selectedMenu == 'UNMATCHED') {
+      return;
+    }
+    final buckets = _cachedGroupedBuckets;
+    if (buckets == null) return;
+    final label = _currentLevel == 'Category'
+        ? _inventoryGroupLabel(item.category)
+        : (_currentLevel == 'Product'
+            ? _inventoryGroupLabel(item.productName)
+            : _inventoryGroupLabel(item.design));
+    for (final bucket in buckets) {
+      if (bucket.label != label) continue;
+      bucket.matchedQty++;
+      bucket.matchedWt += weight;
+      break;
+    }
+  }
+
   void _scheduleScanUiUpdate() {
     final now = DateTime.now().millisecondsSinceEpoch;
-    final n = _scannedItems.length;
-    final minInterval = n > 20000 ? 280 : (n > 2500 ? 200 : 80);
-    if (now - _lastScanUiUpdateMs >= minInterval) {
-      _lastScanUiUpdateMs = now;
-      _scanUiFlushTimer?.cancel();
+    const minInterval = 40;
+    void paint() {
       _scanUiFlushTimer = null;
-      _syncItemStatusesFromMatchedSetChunked();
-      _refreshDisplayCache();
+      _lastScanUiUpdateMs = DateTime.now().millisecondsSinceEpoch;
+      final detail = _currentLevel == 'DesignItems' ||
+          _selectedMenu == 'MATCHED' ||
+          _selectedMenu == 'UNMATCHED' ||
+          _selectedMenu == 'UNLABELLED' ||
+          _dateListActive;
+      if (detail) {
+        _refreshDisplayCache();
+      }
       if (mounted) setState(() {});
       _checkAutoStopScan();
+    }
+
+    if (now - _lastScanUiUpdateMs >= minInterval) {
+      _scanUiFlushTimer?.cancel();
+      _scanUiFlushTimer = null;
+      paint();
     } else {
       _scanUiFlushTimer ??= Timer(
         Duration(milliseconds: (minInterval - (now - _lastScanUiUpdateMs)).clamp(1, minInterval)),
-        () {
-          _scanUiFlushTimer = null;
-          _lastScanUiUpdateMs = DateTime.now().millisecondsSinceEpoch;
-          _syncItemStatusesFromMatchedSetChunked();
-          _refreshDisplayCache();
-          if (mounted) setState(() {});
-          _checkAutoStopScan();
-        },
+        paint,
       );
     }
   }

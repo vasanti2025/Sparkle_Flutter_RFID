@@ -35,7 +35,11 @@ class MainActivity : FlutterActivity() {
     private val PRINTER_CHANNEL = "com.loyalstring.rfid/printer"
 
     private var eventSink: EventChannel.EventSink? = null
-    private var hardware: HardwareController? = null
+    @Volatile private var hardware: HardwareController? = null
+    /** First DeviceAPI load must not run on the UI thread ("isn't responding"). */
+    private val hardwareLoader = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "uhf-load").apply { isDaemon = true }
+    }
     private var printerManager: Any? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var posConnectInited = false
@@ -79,6 +83,13 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         ensureLaunchPrefsRead()
+        // The system splash icon scales up as it leaves. Remove it in place
+        // so splash, home, and the next screen do not zoom.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            splashScreen.setOnExitAnimationListener { splashScreenView ->
+                splashScreenView.remove()
+            }
+        }
         // Native LaunchTheme stays until Flutter's first frame (Login/Home).
         // Never load DeviceAPI / POSConnect here.
         super.onCreate(savedInstanceState)
@@ -100,6 +111,24 @@ class MainActivity : FlutterActivity() {
             encodeDartArg(launchUsername),
             encodeDartArg(launchPassword),
         )
+    }
+
+    /** Gradle versionName written into the installed manifest. */
+    private fun readAppVersionName(): String {
+        return try {
+            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getPackageInfo(
+                    packageName,
+                    PackageManager.PackageInfoFlags.of(0),
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, 0)
+            }
+            info.versionName?.trim().orEmpty()
+        } catch (_: Throwable) {
+            ""
+        }
     }
 
     /** Fast synchronous read for Dart instant boot — keys match PrefService (no flutter. prefix). */
@@ -172,12 +201,51 @@ class MainActivity : FlutterActivity() {
     private fun hw(): HardwareController {
         val existing = hardware
         if (existing != null) return existing
-        val clazz = Class.forName("com.loyalstring.rfid.rfid_flutter.HardwareControllerImpl")
-        val inst = clazz.getConstructor(FlutterActivity::class.java)
-            .newInstance(this) as HardwareController
-        inst.setEventSink(eventSink)
-        hardware = inst
-        return inst
+        synchronized(this) {
+            val again = hardware
+            if (again != null) return again
+            val clazz = Class.forName("com.loyalstring.rfid.rfid_flutter.HardwareControllerImpl")
+            val inst = clazz.getConstructor(FlutterActivity::class.java)
+                .newInstance(this) as HardwareController
+            inst.setEventSink(eventSink)
+            hardware = inst
+            return inst
+        }
+    }
+
+    /**
+     * Class-loading DeviceAPI on the platform thread blocks the UI for many
+     * seconds after a previous scan was killed. Load it in the background,
+     * then run the method on the platform thread.
+     */
+    private fun withHardware(
+        result: MethodChannel.Result,
+        block: (HardwareController) -> Unit,
+    ) {
+        val existing = hardware
+        if (existing != null) {
+            block(existing)
+            return
+        }
+        hardwareLoader.execute {
+            val inst = try {
+                hw()
+            } catch (e: Throwable) {
+                mainHandler.post {
+                    Log.e("MainActivity", "UHF load failed", e)
+                    result.error("HARDWARE", e.message ?: "Hardware error", null)
+                }
+                return@execute
+            }
+            mainHandler.post {
+                try {
+                    block(inst)
+                } catch (e: Throwable) {
+                    Log.e("MainActivity", "UHF channel failed", e)
+                    result.error("HARDWARE", e.message ?: "Hardware error", null)
+                }
+            }
+        }
     }
 
     private fun printer(): PrinterManager {
@@ -206,6 +274,7 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, BOOTSTRAP_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "getSnapshot" -> result.success(readBootstrapSnapshot())
+                "getAppVersion" -> result.success(readAppVersionName())
                 else -> result.notImplemented()
             }
         }
@@ -216,11 +285,13 @@ class MainActivity : FlutterActivity() {
                 result.success(true)
                 return@setMethodCallHandler
             }
-            try {
-                hw().handleMethod(call, result)
-            } catch (e: Throwable) {
-                Log.e("MainActivity", "UHF channel ${call.method} failed", e)
-                result.error("HARDWARE", e.message ?: "Hardware error", null)
+            withHardware(result) { controller ->
+                try {
+                    controller.handleMethod(call, result)
+                } catch (e: Throwable) {
+                    Log.e("MainActivity", "UHF channel ${call.method} failed", e)
+                    result.error("HARDWARE", e.message ?: "Hardware error", null)
+                }
             }
         }
 

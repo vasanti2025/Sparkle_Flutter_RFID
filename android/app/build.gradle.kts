@@ -92,10 +92,50 @@ android {
             )
         }
     }
+
+    sourceSets.getByName("main").res.srcDir(
+        layout.buildDirectory.dir("generated/splash_version/res"),
+    )
 }
 
 flutter {
     source = "../.."
+}
+
+// Splash "Version x.y.z" is a bitmap. Draw it from the same versionName that
+// is written into the app bundle, so it cannot drift from the drawer.
+val generateSplashVersion = tasks.register("generateSplashVersion") {
+    val versionName = flutter.versionName
+    val outDir = layout.buildDirectory.dir("generated/splash_version/res/drawable-nodpi")
+    val classesDir = layout.buildDirectory.dir("splashVersionClasses")
+    inputs.property("versionName", versionName)
+    inputs.file("splash/SplashVersionPng.java")
+    outputs.dir(outDir)
+    doLast {
+        val classes = classesDir.get().asFile
+        classes.mkdirs()
+        val javac = org.gradle.internal.jvm.Jvm.current().javacExecutable.absolutePath
+        exec {
+            commandLine(
+                javac,
+                "-d",
+                classes.absolutePath,
+                file("splash/SplashVersionPng.java").absolutePath,
+            )
+        }
+        val png = outDir.get().asFile.resolve("splash_version.png")
+        val stale = layout.buildDirectory.dir("generated/splash_version/res/drawable-mdpi").get().asFile
+        if (stale.exists()) stale.deleteRecursively()
+        javaexec {
+            classpath = files(classes)
+            mainClass.set("SplashVersionPng")
+            args(versionName, png.absolutePath)
+        }
+    }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(generateSplashVersion)
 }
 
 // Plugin ships its own DeviceAPI. Keep the app AAR so the existing reader is unchanged.

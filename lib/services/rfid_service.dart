@@ -1029,10 +1029,20 @@ class RfidService {
   bool _bleCheckScheduled = false;
 
   /// One Bluetooth tray/R6 check after login. Does not block the screen that calls it.
+  /// Waits until Home has painted. Starting this in the first seconds loaded
+  /// the reader library on the main thread and the app closed on some runs.
   void checkBluetoothAfterLogin() {
     if (_bleCheckScheduled) return;
     _bleCheckScheduled = true;
-    unawaited(autoAttachSystemBluetoothReader());
+    Future<void>.delayed(const Duration(seconds: 6), () {
+      unawaited(() async {
+        try {
+          await autoAttachSystemBluetoothReader();
+        } catch (e, st) {
+          debugPrint('Bluetooth check after login skipped: $e\n$st');
+        }
+      }());
+    });
   }
 
   /// Scan Display inventory start — minimal handoff (mirrors Sparkle).

@@ -28,6 +28,7 @@ import java.util.LinkedHashMap
 import java.util.LinkedHashSet
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * Owns UART/BLE RFID, barcode, sounds, and tag polling.
@@ -42,7 +43,7 @@ class HardwareControllerImpl(
     private lateinit var barcodeManager: BarcodeManager
     private lateinit var trayManager: TrayReaderManager
 
-    private var isScanning = false
+    @Volatile private var isScanning = false
     private var executorService: ExecutorService? = null
     private var lastBarcodeKeyMs = 0L
 
@@ -107,9 +108,11 @@ class HardwareControllerImpl(
     @Volatile private var uartPollPaused = false
     @Volatile private var pollerActive = false
     @Volatile private var pollerParked = true
+    @Volatile private var pollerThread: Thread? = null
+    @Volatile private var pollerBeatAt = 0L
     private var matchEpcs = HashSet<String>()
-    private var inventoryScanMode = false
-    private var scanningPermitted = false
+    @Volatile private var inventoryScanMode = false
+    @Volatile private var scanningPermitted = false
     private val inventoryScopeEpcs = HashSet<String>()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val pendingTagEvents = ArrayList<String>()
@@ -253,7 +256,7 @@ class HardwareControllerImpl(
     private var r6DeviceAddress = ""
     private var lastR6TriggerMs = 0L
     private var lastScanPower = 5
-    private var activeInventorySession = false
+    @Volatile private var activeInventorySession = false
     private var soundPoolReady = false
 
     override fun setEventSink(sink: EventChannel.EventSink?) {
@@ -277,14 +280,28 @@ class HardwareControllerImpl(
     }
 
     override fun release() {
+        isScanning = false
+        scanningPermitted = false
+        pollerActive = false
         try {
-            uartExecutor.submit<Boolean> { stopRfidInventory() }
-                .get(3, java.util.concurrent.TimeUnit.SECONDS)
-        } catch (_: Throwable) {
+            // Same UART thread as start/stop. free() only if this process
+            // still owns the module, so the next launch can open the port.
+            // Cap the wait so destroy cannot sit on the UI thread.
+            val closing = uartExecutor.submit {
+                try {
+                    stopRfidInventory()
+                } catch (_: Throwable) {
+                }
+                try {
+                    uhfFacade?.closeQuietly()
+                } catch (_: Throwable) {
+                }
+            }
             try {
-                stopRfidInventory()
+                closing.get(1500L, TimeUnit.MILLISECONDS)
             } catch (_: Throwable) {
             }
+        } catch (_: Throwable) {
         }
         if (::trayManager.isInitialized) {
             trayManager.disconnect()
@@ -323,7 +340,12 @@ class HardwareControllerImpl(
             }
             "haltScan" -> {
                 haltScan()
-                result.success(true)
+                // Same queue as start/stop. A main-thread clear used to land
+                // while start was opening the reader and then drop every tag.
+                uartExecutor.execute {
+                    scanningPermitted = false
+                    mainHandler.post { result.success(true) }
+                }
             }
             "startScanning" -> {
                 val power = call.argument<Int>("power") ?: 5
@@ -926,7 +948,6 @@ class HardwareControllerImpl(
     }
 
     private fun haltScan() {
-        scanningPermitted = false
         holdLedSolid = false
         inventoryScanMode = false
         inventoryScopeEpcs.clear()
@@ -938,6 +959,55 @@ class HardwareControllerImpl(
         stopInventoryLoopSound()
     }
 
+    /**
+     * Scan Display UART start, same sequence as main: open, set power, start once.
+     * Does not clear Search LED filters and does not power the module off.
+     */
+    private fun startPlainUartInventory(power: Int): Boolean {
+        inventoryScanMode = true
+        scanningPermitted = true
+        uhf().initHardware()
+        uhf().prepareInventory(power)
+        drainStaleBuffer()
+        clearSearchLedTagCallback()
+        startInventoryLoopSound()
+        var started = uhf().startInventory()
+        if (!started) {
+            try {
+                uhf().stopInventory()
+            } catch (_: Throwable) {
+            }
+            try {
+                Thread.sleep(100L)
+            } catch (_: InterruptedException) {
+            }
+            uhf().prepareInventory(power)
+            drainStaleBuffer()
+            started = uhf().startInventory()
+            Log.i(TAG, "startInventory retry => $started")
+        }
+        if (!started && uhf().reopenStalePort()) {
+            uhf().prepareInventory(power)
+            drainStaleBuffer()
+            started = uhf().startInventory()
+            Log.i(TAG, "startInventory after reopen => $started")
+        }
+        if (started) {
+            inventoryScanMode = true
+            scanningPermitted = true
+            isScanning = true
+            scanArmedAt = SystemClock.elapsedRealtime()
+            firstTagLogged = false
+            droppedTagEvents = 0
+            Log.i(TAG, "RFID reader-started inventory=true")
+            startPollingThread(inventory = true, useTray = false)
+        } else {
+            isScanning = false
+            stopInventoryLoopSound()
+        }
+        return started
+    }
+
     private fun startRfidInventory(power: Int, inventory: Boolean, playStartSound: Boolean = true): Boolean {
         scanningPermitted = true
         lastScanPower = power
@@ -947,7 +1017,7 @@ class HardwareControllerImpl(
             // stopRfidInventory clears holdLedSolid; this start already asked to keep it.
             val keepSolid = holdLedSolid
             if (trayModeEnabled || r6ModeEnabled) {
-                if (trayManager.isReallyConnected() && pollerActive) {
+                if (trayManager.isReallyConnected() && pollerHealthy()) {
                     return true
                 }
                 Log.w(TAG, "Stale BLE isScanning — restart inventory")
@@ -957,12 +1027,14 @@ class HardwareControllerImpl(
                 stopRfidInventory(restoreEpc = !keepSolid)
                 holdLedSolid = keepSolid
                 scanningPermitted = true
-            } else if (!activeInventorySession) {
-                // Leftover search must not count as an inventory session.
-                stopRfidInventory(restoreEpc = true)
-                scanningPermitted = true
-            } else {
+            } else if (
+                uhf().modulePowered() && uhf().isInventorying() && pollerHealthy()
+            ) {
                 return true
+            } else {
+                Log.w(TAG, "Stale UART inventory — restart")
+                stopRfidInventory()
+                scanningPermitted = true
             }
         }
         searchSoundEnabled = false
@@ -988,36 +1060,48 @@ class HardwareControllerImpl(
         }
         return try {
             ensureSoundPool()
-            if (!uhf().initHardware()) {
+            if (inventory) {
+                return startPlainUartInventory(power)
+            }
+            if (!uhf().initHardware() && !uhf().recoverHardware()) {
                 Log.e(TAG, "startRfidInventory: initHardware failed")
                 stopInventoryLoopSound()
                 return false
             }
-            applySearchLedBlinkModeIfNeeded(inventory)
+            applySearchLedBlinkModeIfNeeded(false)
             clearSearchLedTagCallback()
-            if (inventory) {
-                uhf().prepareScan(power)
-                startInventoryLoopSound()
-                isScanning = true
-                attachInventoryTagCallback()
-            } else {
-                // Stop leftover inventory so LED Tag mode + filter apply cleanly.
+            // Stop leftover inventory so LED Tag mode + filter apply cleanly.
+            try {
+                uhf().stopInventory()
+            } catch (_: Throwable) {
+            }
+            try {
+                Thread.sleep(15L)
+            } catch (_: InterruptedException) {
+            }
+            prepareSearchRadio(power)
+            // Accept callback tags immediately. LED chips often arrive on
+            // setInventoryCallback before the poller thread is up.
+            isScanning = true
+            searchSoundEnabled = true
+            armSearchRangeWatch()
+            attachSearchLedTagCallback()
+            if (playStartSound) playSound(1, 0)
+            // A leftover "already start" flag is not a live read. Wait until
+            // it clears, then open a real inventory. Do not power the module off.
+            if (uhf().isInventorying()) {
                 try {
                     uhf().stopInventory()
                 } catch (_: Throwable) {
                 }
-                try {
-                    Thread.sleep(15L)
-                } catch (_: InterruptedException) {
+                val waitFrom = SystemClock.elapsedRealtime()
+                while (uhf().isInventorying() && SystemClock.elapsedRealtime() - waitFrom < 300L) {
+                    try {
+                        Thread.sleep(20L)
+                    } catch (_: InterruptedException) {
+                        break
+                    }
                 }
-                prepareSearchRadio(power)
-                // Accept callback tags immediately. LED chips often arrive on
-                // setInventoryCallback before the poller thread is up.
-                isScanning = true
-                searchSoundEnabled = true
-                armSearchRangeWatch()
-                attachSearchLedTagCallback()
-                if (playStartSound) playSound(1, 0)
             }
             var started = uhf().startInventory()
             Log.i(TAG, "startInventory attempt=1 => $started")
@@ -1041,6 +1125,25 @@ class HardwareControllerImpl(
                 Log.i(TAG, "startInventory attempt=2 => $started")
             }
             if (!started) {
+                try {
+                    uhf().stopInventory()
+                } catch (_: Throwable) {
+                }
+                try {
+                    Thread.sleep(250L)
+                } catch (_: InterruptedException) {
+                }
+                if (inventory) {
+                    uhf().prepareScan(power)
+                    attachInventoryTagCallback()
+                } else {
+                    prepareSearchRadio(power)
+                    attachSearchLedTagCallback()
+                }
+                started = uhf().startInventory()
+                Log.i(TAG, "startInventory attempt=3 => $started")
+            }
+            if (!started) {
                 Log.w(TAG, "startInventory failed — recoverHardware")
                 if (uhf().recoverHardware()) {
                     if (inventory) {
@@ -1051,10 +1154,23 @@ class HardwareControllerImpl(
                         attachSearchLedTagCallback()
                     }
                     started = uhf().startInventory()
-                    Log.i(TAG, "startInventory attempt=3 recover => $started")
+                    Log.i(TAG, "startInventory attempt=4 recover => $started")
                 }
             }
+            if (!started && uhf().reopenStalePort()) {
+                if (inventory) {
+                    uhf().prepareScan(power)
+                    attachInventoryTagCallback()
+                } else {
+                    prepareSearchRadio(power)
+                    attachSearchLedTagCallback()
+                }
+                started = uhf().startInventory()
+                Log.i(TAG, "startInventory attempt=5 reopen => $started")
+            }
             if (started) {
+                // A stop that landed while init was running must not swallow tags.
+                scanningPermitted = true
                 isScanning = true
                 scanArmedAt = SystemClock.elapsedRealtime()
                 firstTagLogged = false
@@ -1080,7 +1196,7 @@ class HardwareControllerImpl(
     private fun startR6InventoryGuarded(power: Int, inventory: Boolean, playStartSound: Boolean = true): Boolean {
         scanningPermitted = true
         if (isScanning) {
-            if (trayManager.isReallyConnected() && pollerActive) {
+            if (trayManager.isReallyConnected() && pollerHealthy()) {
                 return true
             }
             Log.w(TAG, "Stale R6 isScanning — restart inventory")
@@ -1529,13 +1645,8 @@ class HardwareControllerImpl(
         }
         if (found.isEmpty()) return
         if (searchLedMulti) {
-            val live = currentListLedEpcs()
-            if (live.isEmpty()) return
-            // Already solid on every chip we have. A newly read list tag falls
-            // through and is added, instead of leaving the 3rd dark.
-            if (ledFilterCovers(live)) return
-            val debounceDone = foundLedGatherUntil > 0L && now >= foundLedGatherUntil
-            if (debounceDone) requestSearchLedHandoff(live)
+            // Leave this scan in EPC. Locking the LED select stops the reader
+            // and later tags never update their percent. Do not stop it here.
             return
         }
         if (searchLedKey(found) == searchLedAppliedKey) return
@@ -1967,6 +2078,7 @@ class HardwareControllerImpl(
     /** Let the poller leave JNI before any UART stop. shutdownNow() here crashes DeviceAPI. */
     private fun stopPollingThread() {
         pollerActive = false
+        pollerBeatAt = 0L
         uartPollPaused = true
         val t0 = SystemClock.elapsedRealtime()
         while (!pollerParked && SystemClock.elapsedRealtime() - t0 < 400L) {
@@ -1990,13 +2102,21 @@ class HardwareControllerImpl(
         }
     }
 
+    private fun pollerHealthy(): Boolean {
+        val thread = pollerThread
+        return pollerActive && thread != null && thread.isAlive
+    }
+
     private fun startPollingThread(inventory: Boolean, useTray: Boolean) {
         pollerActive = true
         pollerParked = false
+        pollerBeatAt = 0L
         executorService = Executors.newSingleThreadExecutor()
         executorService?.execute {
+            pollerThread = Thread.currentThread()
             try {
                 while (pollerActive && isScanning) {
+                    pollerBeatAt = SystemClock.elapsedRealtime()
                     try {
                         if (uartPollPaused) {
                             pollerParked = true
@@ -2055,6 +2175,7 @@ class HardwareControllerImpl(
                 }
             } finally {
                 pollerParked = true
+                if (pollerThread === Thread.currentThread()) pollerThread = null
             }
         }
     }
@@ -2366,9 +2487,9 @@ class HardwareControllerImpl(
             0.0
         }
         val id = when {
-            rssiAbs > 0 && rssiAbs < 50 -> 4
+            rssiAbs > 0 && rssiAbs < 50 -> if (searchLedMulti) 5 else 4
             rssiAbs > 50 && rssiAbs < 60 -> 2
-            rssiAbs > 60 && rssiAbs < 70 -> 5
+            rssiAbs > 60 && rssiAbs < 70 -> if (searchLedMulti) 4 else 5
             rssiAbs > 70 -> 1
             else -> -1
         }
@@ -2453,13 +2574,24 @@ class HardwareControllerImpl(
         }
     }
 
-    /** 0 = closest (fourty), 3 = farthest (barcodebeep). */
-    private fun searchSoundRank(id: Int): Int = when (id) {
-        4 -> 0
-        2 -> 1
-        5 -> 2
-        1 -> 3
-        else -> 4
+    /** 0 = closest, 3 = farthest. Unmatched list swaps the 1st and 3rd tones. */
+    private fun searchSoundRank(id: Int): Int {
+        if (searchLedMulti) {
+            return when (id) {
+                5 -> 0
+                2 -> 1
+                4 -> 2
+                1 -> 3
+                else -> 4
+            }
+        }
+        return when (id) {
+            4 -> 0
+            2 -> 1
+            5 -> 2
+            1 -> 3
+            else -> 4
+        }
     }
 
     companion object {

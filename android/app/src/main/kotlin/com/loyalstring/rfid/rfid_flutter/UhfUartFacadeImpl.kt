@@ -8,6 +8,8 @@ interface UhfFacade {
     fun setPower(power: Int): Boolean
     /** setPower + Chainway inventory defaults (focus/fastID/dynamicDistance). */
     fun prepareScan(power: Int): Boolean
+    /** Scan Display inventory: power only. Does not change Search LED mode or filters. */
+    fun prepareInventory(power: Int): Boolean
     /**
      * Search: uhf-uart-demo Tag LED Inventory with Solid.
      * Non-empty [epcs] = checked rows (only those light). Empty = first pass (LED+normal scan).
@@ -20,7 +22,18 @@ interface UhfFacade {
     /** @return epc to rssi, or null if buffer empty */
     fun readTagFromBuffer(): Pair<String, String>?
     fun isReady(): Boolean
+    /** True while the SDK is already running an inventory. startInventoryTag returns false in that case. */
+    fun isInventorying(): Boolean
+    /** Java power flag. False after the SDK frees the module (background / other app). */
+    fun modulePowered(): Boolean
     fun recoverHardware(): Boolean
+    /**
+     * startInventory failed while this process still thinks the UART is open.
+     * One SDK free(), then a real init(). Not used when init() itself failed.
+     */
+    fun reopenStalePort(): Boolean
+    /** Process is leaving. free() only if this process powered the module. */
+    fun closeQuietly()
     /**
      * Demo Tag LED "Solid" + checked EPCs: setFilter then MODE_LED_TAG (14).
      * Empty [epcs] returns false — use [applyLedBlinkInventoryNoFilter] for the first pass.
@@ -65,40 +78,195 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
     override fun isReady(): Boolean = ready && reader != null
 
     override fun initHardware(): Boolean {
-        if (ready && reader != null) return true
+        // API 36 init() runs UHFVerify before it checks power. A second init
+        // on a live module returns "no permission" and the next scan never starts.
+        // If the SDK freed the module (screen off, other app, process resume),
+        // power is off and we must open again.
+        if (reader != null && moduleIsOn()) {
+            ready = true
+            return true
+        }
+        ready = false
         return try {
             if (reader == null) {
                 reader = com.rscja.deviceapi.RFIDWithUHFUART.getInstance()
             }
-            val ok = reader?.init(context) ?: false
+            clearStuckWorkingFlag(reader)
+            val opened = try {
+                reader?.init(context) == true
+            } catch (_: Throwable) {
+                false
+            }
+            // A failed UHFVerify can leave isPowerOn true. Do not free() that
+            // module — free() then makes the next init fail for good.
+            val ok = opened || moduleIsOn()
             ready = ok
+            if (!ok) {
+                android.util.Log.e("UhfUartFacade", "reader init failed")
+            }
             ok
         } catch (e: Throwable) {
             e.printStackTrace()
+            ready = false
             false
         }
     }
 
-    override fun recoverHardware(): Boolean {
-        ready = false
+    private fun openReader(): Boolean {
+        if (reader == null) {
+            reader = com.rscja.deviceapi.RFIDWithUHFUART.getInstance()
+        }
+        val r = reader ?: return false
+        // Always ask the SDK to open. If Android 16 rejects init while the
+        // module is already powered, that module is still usable.
+        val opened = try {
+            r.init(context)
+        } catch (_: Throwable) {
+            false
+        }
+        if (opened) return true
+        return moduleIsOn()
+    }
+
+    /** True only after the SDK has powered the UART module. A power reading alone is not enough. */
+    private fun moduleIsOn(): Boolean {
+        val r = reader ?: return false
+        return try {
+            r.isPowerOn
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * stopInventory() returns without clearing isWorking when power is already
+     * off, so every later startInventoryTag logs "already start!" and returns
+     * false. The flag is private. Clear it only in that stuck state.
+     */
+    private fun clearStuckWorkingFlag(r: com.rscja.deviceapi.RFIDWithUHFUART?) {
+        val reader = r ?: return
+        val powered = try {
+            reader.isPowerOn
+        } catch (_: Throwable) {
+            false
+        }
+        val working = try {
+            reader.isInventorying
+        } catch (_: Throwable) {
+            false
+        }
+        if (powered || !working) return
         try {
-            reader?.stopInventory()
+            val field = reader.javaClass.getDeclaredField("isWorking")
+            field.isAccessible = true
+            field.setBoolean(reader, false)
+            android.util.Log.i("UhfUartFacade", "cleared stuck isWorking")
+        } catch (e: Throwable) {
+            android.util.Log.w("UhfUartFacade", "clear isWorking failed: ${e.message}")
+        }
+    }
+
+    private fun releaseReader() {
+        ready = false
+        val r = reader ?: return
+        try {
+            r.stopInventory()
         } catch (_: Throwable) {
         }
-        try {
-            val free = reader?.javaClass?.methods?.firstOrNull {
-                it.name == "free" && it.parameterTypes.isEmpty()
-            }
-            free?.invoke(reader)
+        val powered = try {
+            r.isPowerOn
         } catch (_: Throwable) {
+            false
+        }
+        if (powered) {
+            // Process is leaving. UHFFree releases the daemon port so the
+            // next launch can UHFInit. Do not Module.powerOff.
+            try {
+                r.free()
+            } catch (_: Throwable) {
+            }
+        } else {
+            clearStuckWorkingFlag(r)
         }
         reader = null
+    }
+
+    override fun isInventorying(): Boolean {
+        val r = reader ?: return false
+        return try {
+            r.isInventorying
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    override fun modulePowered(): Boolean = moduleIsOn()
+
+    override fun recoverHardware(): Boolean {
+        // Never free() here. init() failed, and free() on a powered module
+        // makes the next open return "no permission".
+        val r = reader ?: return initHardware()
+        try {
+            r.stopInventory()
+        } catch (_: Throwable) {
+        }
+        try {
+            Thread.sleep(80L)
+        } catch (_: InterruptedException) {
+        }
+        if (moduleIsOn()) {
+            ready = true
+            return true
+        }
+        clearStuckWorkingFlag(r)
+        ready = false
         return initHardware()
+    }
+
+    override fun reopenStalePort(): Boolean {
+        val r = reader ?: return initHardware()
+        try {
+            r.stopInventory()
+        } catch (_: Throwable) {
+        }
+        try {
+            Thread.sleep(80L)
+        } catch (_: InterruptedException) {
+        }
+        if (!moduleIsOn()) {
+            clearStuckWorkingFlag(r)
+            ready = false
+            return initHardware()
+        }
+        android.util.Log.w("UhfUartFacade", "reopen stale UART")
+        try {
+            r.free()
+        } catch (_: Throwable) {
+        }
+        ready = false
+        return initHardware()
+    }
+
+    override fun closeQuietly() {
+        releaseReader()
     }
 
     override fun setPower(power: Int): Boolean {
         return try {
             reader?.setPower(power) ?: false
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    override fun prepareInventory(power: Int): Boolean {
+        return try {
+            val r = reader ?: return false
+            r.setPower(power)
+            r.setTagFocus(false)
+            r.setFastID(false)
+            r.setDynamicDistance(0)
+            true
         } catch (_: Throwable) {
             false
         }
@@ -496,4 +664,5 @@ class UhfUartFacadeImpl(private val context: Context) : UhfFacade {
         } catch (_: Throwable) {
         }
     }
+
 }

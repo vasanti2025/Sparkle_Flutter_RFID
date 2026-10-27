@@ -177,7 +177,7 @@ class _LoginAppRootState extends State<_LoginAppRoot> {
         try {
           if (mounted) db = context.read<DbService>();
         } catch (_) {}
-        Future<void>.delayed(const Duration(seconds: 2), () async {
+        Future<void>.delayed(const Duration(seconds: 8), () async {
           try {
             await warmup.loadLibrary();
             await warmup.warmAfterFirstFrame(widget.prefService, db);
@@ -239,9 +239,13 @@ class _LoginAppRootState extends State<_LoginAppRoot> {
         ),
       ),
       builder: (context, child) {
-        return Directionality(
-          textDirection: localeService.textDirection,
-          child: child ?? const SizedBox.shrink(),
+        final media = MediaQuery.of(context);
+        return MediaQuery(
+          data: media.copyWith(textScaler: TextScaler.noScaling),
+          child: Directionality(
+            textDirection: localeService.textDirection,
+            child: child ?? const SizedBox.shrink(),
+          ),
         );
       },
       home: showDashboard

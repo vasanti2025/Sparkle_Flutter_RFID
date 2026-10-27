@@ -106,7 +106,7 @@ class _ExtendedProvidersLoaderState extends State<_ExtendedProvidersLoader> {
         try {
           db = context.read<DbService>();
         } catch (_) {}
-        Future<void>.delayed(const Duration(seconds: 2), () {
+        Future<void>.delayed(const Duration(seconds: 8), () {
           unawaited(warmAfterFirstFrame(widget.prefService, db));
         });
       }
@@ -180,9 +180,13 @@ class _StartupApp extends StatelessWidget {
         ),
       ),
       builder: (context, child) {
-        return Directionality(
-          textDirection: localeService.textDirection,
-          child: child ?? const SizedBox.shrink(),
+        final media = MediaQuery.of(context);
+        return MediaQuery(
+          data: media.copyWith(textScaler: TextScaler.noScaling),
+          child: Directionality(
+            textDirection: localeService.textDirection,
+            child: child ?? const SizedBox.shrink(),
+          ),
         );
       },
       home: loggedIn ? const DashboardScreen() : const LoginScreen(),

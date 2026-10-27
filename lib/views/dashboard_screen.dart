@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../app_navigator.dart';
 import '../l10n/l10n_extension.dart';
 import '../services/app_warmup_service.dart' deferred as warmup;
+import '../services/bootstrap_channel.dart';
 import '../services/location_sync_service.dart';
 import '../services/pref_service.dart';
 import '../services/rfid_service.dart';
@@ -25,6 +26,7 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen>
     with WidgetsBindingObserver {
   bool _navigating = false;
+  String _appVersion = '';
 
   static const _menuDefs = [
     {'key': 'product', 'icon': Icons.shopping_bag, 'route': '/product_management'},
@@ -56,7 +58,11 @@ class _DashboardScreenState extends State<DashboardScreen>
       unawaited(SessionLifecycle.instance.startMonitoring());
       RfidService().checkBluetoothAfterLogin();
       unawaited(_startWarmup());
-      unawaited(_offerBackgroundLocationConsent());
+      unawaited(_loadAppVersion());
+      unawaited(Future<void>.delayed(const Duration(seconds: 6), () async {
+        if (!mounted) return;
+        await _offerBackgroundLocationConsent();
+      }));
     });
     // Do NOT prefetch all list APIs here — it competes with navigation and
     // freezes/hangs the handheld. Each list screen loads when opened.
@@ -76,6 +82,12 @@ class _DashboardScreenState extends State<DashboardScreen>
         context.read<DashboardViewModel>().loadUser();
       } catch (_) {}
     }
+  }
+
+  Future<void> _loadAppVersion() async {
+    final version = await BootstrapChannel.getAppVersion();
+    if (!mounted || version.isEmpty) return;
+    setState(() => _appVersion = version);
   }
 
   Future<void> _offerBackgroundLocationConsent() async {
@@ -306,6 +318,16 @@ class _DashboardScreenState extends State<DashboardScreen>
                         fontWeight: FontWeight.w500,
                       ),
                     ),
+                    subtitle: item['isLogout'] == true && _appVersion.isNotEmpty
+                        ? Text(
+                            '($_appVersion)',
+                            style: TextStyle(
+                              color: Colors.grey[500],
+                              fontSize: 12,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          )
+                        : null,
                     onTap: () async {
                       if (item['isLogout'] == true) {
                         final dashVm = context.read<DashboardViewModel>();

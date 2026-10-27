@@ -6,6 +6,17 @@ import 'package:flutter/services.dart';
 class BootstrapChannel {
   static const _channel = MethodChannel('com.loyalstring.rfid/bootstrap');
 
+  /// Android versionName from the built manifest (Gradle `versionName`).
+  static Future<String> getAppVersion() async {
+    if (!Platform.isAndroid) return '';
+    try {
+      final name = await _channel.invokeMethod<String>('getAppVersion');
+      return name?.trim() ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
+
   static Future<Map<String, dynamic>?> getSnapshot() async {
     if (!Platform.isAndroid) return null;
     try {

@@ -196,6 +196,7 @@ class _SearchScreenState extends State<SearchScreen> {
   Timer? _uiFlushTimer;
   Timer? _proximityDecayTimer;
   bool _scanBusy = false;
+  bool _scanStarting = false;
 
   bool _isInit = false;
   bool _isLoading = false;
@@ -213,8 +214,10 @@ class _SearchScreenState extends State<SearchScreen> {
   // O(1) tag lookup — mirrors Kotlin SearchViewModel.epcToIndex
   final Map<String, int> _tagIndexMap = {};
   final Map<int, int> _lastRssiUpdateMs = {};
+  int _rangeArmedAt = 0;
   int _lastSearchUiUpdateUs = 0;
   int _lastCatalogUiUpdateUs = 0;
+  bool _paintOutOfRange = false;
   final Set<int> _dirtyIndices = {};
   final Set<int> _hotSet = {};
   final Set<int> _atMaxProximity = {};
@@ -240,6 +243,7 @@ class _SearchScreenState extends State<SearchScreen> {
   _SearchCountFilter _countFilter = _SearchCountFilter.all;
   List<int> _statusOrder = [];
   bool _statusOrderDirty = true;
+  bool _listScrolling = false;
   final ValueNotifier<int> _nearbyTick = ValueNotifier<int>(0);
 
   bool get _isLargeUnmatched =>
@@ -412,11 +416,39 @@ class _SearchScreenState extends State<SearchScreen> {
   void _stopProximityDecay() {
     _proximityDecayTimer?.cancel();
     _proximityDecayTimer = null;
+    _rangeArmedAt = 0;
   }
 
-  /// Do not drop searched rows from the list. Clearing them here left only
-  /// the few tags still in range on screen.
-  void _decayStaleProximity() {}
+  /// Keep every found bar while tags are still arriving or the list is moving.
+  /// A short gap, including a scroll, must not wipe them. Clear only after the
+  /// field has actually gone quiet. Does not rebuild order or touch the reader.
+  void _decayStaleProximity() {
+    if (!_isScanning || !mounted || _scanStarting || _listScrolling) return;
+    if (_listKey != 'unmatchedItems' || _rangeArmedAt == 0) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _rangeArmedAt < 1500) return;
+    var newest = 0;
+    for (final ms in _lastRssiUpdateMs.values) {
+      if (ms > newest) newest = ms;
+    }
+    if (newest == 0) return;
+    final seen = _unmatchedSeen.length;
+    if (seen > 8 && now - newest < 5000) return;
+    final quietMs = seen > 8 ? 5000 : 3000;
+    var any = false;
+    for (final entry in _lastRssiUpdateMs.entries) {
+      if (now - entry.value < quietMs) continue;
+      final i = entry.key;
+      if (i < 0 || i >= _searchItems.length) continue;
+      final item = _searchItems[i];
+      if (item.proximityPercent <= 0 && item.rssi.isEmpty) continue;
+      item.rssi = '';
+      item.proximityPercent = 0;
+      any = true;
+    }
+    if (!any || !mounted || _listScrolling) return;
+    setState(() {});
+  }
 
   void _rebuildTagIndex() {
     _tagIndexMap.clear();
@@ -726,7 +758,10 @@ class _SearchScreenState extends State<SearchScreen> {
     }
     final now = DateTime.now().microsecondsSinceEpoch;
     final catalogUs = _isLargeUnmatched && _searchQuery.trim().isEmpty ? 120000 : 0;
+    final paintOutOfRange = _paintOutOfRange;
+    _paintOutOfRange = false;
     if (catalogUs == 0 ||
+        paintOutOfRange ||
         _lastCatalogUiUpdateUs == 0 ||
         now - _lastCatalogUiUpdateUs >= catalogUs) {
       _lastCatalogUiUpdateUs = now;
@@ -831,15 +866,19 @@ class _SearchScreenState extends State<SearchScreen> {
 
   /// Same buckets as native playRssiSearchSound. Percent is the fallback when
   /// the last RSSI text was cleared but the bar is still showing.
+  /// Unmatched list swaps the 1st and 3rd range tones only.
   int _soundIdForRssi(String rssi, int percent) {
     final rssiAbs = double.tryParse(rssi.trim())?.abs() ?? 0;
-    if (rssiAbs > 0 && rssiAbs < 50) return 4;
+    final swap = _listKey == 'unmatchedItems' && _homeScanOnlyIndex == null;
+    final closest = swap ? 5 : 4;
+    final third = swap ? 4 : 5;
+    if (rssiAbs > 0 && rssiAbs < 50) return closest;
     if (rssiAbs > 50 && rssiAbs < 60) return 2;
-    if (rssiAbs > 60 && rssiAbs < 70) return 5;
+    if (rssiAbs > 60 && rssiAbs < 70) return third;
     if (rssiAbs > 70) return 1;
-    if (percent >= 75) return 4;
+    if (percent >= 75) return closest;
     if (percent >= 50) return 2;
-    if (percent >= 25) return 5;
+    if (percent >= 25) return third;
     if (percent > 0) return 1;
     return -1;
   }
@@ -883,16 +922,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _playRssiSearchSound(String rssi) {
-    final rssiAbs = double.tryParse(rssi.trim())?.abs() ?? 0;
-    final id = rssiAbs > 0 && rssiAbs < 50
-        ? 4
-        : rssiAbs > 50 && rssiAbs < 60
-            ? 2
-            : rssiAbs > 60 && rssiAbs < 70
-                ? 5
-                : rssiAbs > 70
-                    ? 1
-                    : -1;
+    final id = _soundIdForRssi(rssi, 0);
     if (id == -1) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     if (id == _lastRssiSoundId && now - _lastRssiSoundMs < 40) return;
@@ -1088,6 +1118,9 @@ class _SearchScreenState extends State<SearchScreen> {
     }
 
     _scanBusy = true;
+    if (_listKey == 'unmatchedItems' && mounted) {
+      setState(() => _scanStarting = true);
+    }
     try {
       List<String>? tagsToSend;
       if (!(_isLargeUnmatched && _searchQuery.trim().isEmpty)) {
@@ -1102,7 +1135,9 @@ class _SearchScreenState extends State<SearchScreen> {
       final held = _holdCurrentSearchProgress();
       setState(() => _isScanning = true);
       if (held == null) {
-        unawaited(_rfidService.playBeep());
+        if (_listKey != 'unmatchedItems') {
+          unawaited(_rfidService.playBeep());
+        }
         _atMaxProximity.clear();
         _hotSet.clear();
         _hotIndices.clear();
@@ -1184,6 +1219,17 @@ class _SearchScreenState extends State<SearchScreen> {
       );
 
       if (!mounted) return;
+      if (started && _listKey == 'unmatchedItems') {
+        final armed = DateTime.now().millisecondsSinceEpoch;
+        _rangeArmedAt = armed;
+        for (final entry in _lastRssiUpdateMs.entries) {
+          final i = entry.key;
+          if (i < 0 || i >= _searchItems.length) continue;
+          if (_searchItems[i].proximityPercent > 0) {
+            _lastRssiUpdateMs[i] = armed;
+          }
+        }
+      }
       if (started && held != null) {
         final soundId = _soundIdForRssi(held.rssi, held.percent);
         if (soundId > 0) {
@@ -1207,6 +1253,10 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     } finally {
       _scanBusy = false;
+      if (_scanStarting) {
+        _scanStarting = false;
+        if (mounted) setState(() {});
+      }
     }
   }
 
@@ -1650,9 +1700,19 @@ class _SearchScreenState extends State<SearchScreen> {
       } else {
         for (var i = 0; i < _searchItems.length; i++) {
           final item = _searchItems[i];
-          if (item.proximityPercent != 0 || item.rssi.isNotEmpty || item.positionLocked) {
+          final clearTick = _listKey == 'unmatchedItems' &&
+              (item.rangeTicked || item.manuallyMatched);
+          if (item.proximityPercent != 0 ||
+              item.rssi.isNotEmpty ||
+              item.positionLocked ||
+              clearTick) {
             item.clearScan();
+            if (clearTick) item.manuallyMatched = false;
           }
+        }
+        if (_listKey == 'unmatchedItems') {
+          _manualMatchedCount = 0;
+          _statusOrderDirty = true;
         }
       }
       _invalidateDisplayOrder();
@@ -1872,7 +1932,16 @@ class _SearchScreenState extends State<SearchScreen> {
                           textAlign: TextAlign.center,
                         ),
                       )
-                    : ListView.builder(
+                    : NotificationListener<ScrollNotification>(
+                        onNotification: (notification) {
+                          if (notification is ScrollStartNotification) {
+                            _listScrolling = true;
+                          } else if (notification is ScrollEndNotification) {
+                            _listScrolling = false;
+                          }
+                          return false;
+                        },
+                        child: ListView.builder(
                         itemCount: catalogCount +
                             ((isUnmatchedList && !statusFiltered)
                                 ? _nearbyPinnedCount()
@@ -1902,6 +1971,7 @@ class _SearchScreenState extends State<SearchScreen> {
                           return _buildSearchRow(item, index);
                         },
                       ),
+                    ),
           ),
 
           // Bottom Navigation Bar
@@ -1962,6 +2032,13 @@ class _SearchScreenState extends State<SearchScreen> {
               },
               onSearchUnmatched: () => setState(() => _showMenu = false),
             ),
+          if (isUnmatchedList && _scanStarting)
+            const ModalBarrier(
+              dismissible: false,
+              color: Color(0x33000000),
+            ),
+          if (isUnmatchedList && _scanStarting)
+            const Center(child: CircularProgressIndicator()),
         ],
       ),
     ),
