@@ -2,9 +2,9 @@
 <resources>
     <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowSplashScreenBackground">@android:color/white</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_logo_inset</item>
+        <!-- Real logo stays in windowBackground. The system icon slot scales up for 1–2s. -->
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_icon_blank</item>
         <item name="android:windowSplashScreenIconBackgroundColor">@android:color/white</item>
-        <item name="android:windowSplashScreenBrandingImage">@drawable/splash_version</item>
         <item name="android:windowSplashScreenAnimationDuration">0</item>
         <item name="android:windowBackground">@drawable/launch_background</item>
         <item name="android:windowFullscreen">false</item>

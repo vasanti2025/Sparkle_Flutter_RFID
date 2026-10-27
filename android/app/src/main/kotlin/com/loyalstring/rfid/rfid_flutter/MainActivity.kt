@@ -83,10 +83,12 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         ensureLaunchPrefsRead()
-        // The system splash icon scales up as it leaves. Remove it in place
-        // so splash, home, and the next screen do not zoom.
+        // Android 12 scales the splash icon, then the first Flutter screen, for
+        // about a second. Drop that animation so splash, home, and Scan Display
+        // stay one size.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             splashScreen.setOnExitAnimationListener { splashScreenView ->
+                splashScreenView.iconView?.visibility = android.view.View.GONE
                 splashScreenView.remove()
             }
         }

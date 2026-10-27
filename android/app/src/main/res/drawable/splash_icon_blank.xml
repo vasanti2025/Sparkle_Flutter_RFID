@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Solid white so Android 12 does not scale the launcher icon or the logo. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@android:color/white" />
+    <size
+        android:width="200dp"
+        android:height="200dp" />
+</shape>

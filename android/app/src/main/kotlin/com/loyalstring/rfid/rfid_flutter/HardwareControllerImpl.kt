@@ -284,16 +284,11 @@ class HardwareControllerImpl(
         scanningPermitted = false
         pollerActive = false
         try {
-            // Same UART thread as start/stop. free() only if this process
-            // still owns the module, so the next launch can open the port.
-            // Cap the wait so destroy cannot sit on the UI thread.
+            // kama_enhancement stops the inventory on the way out and does
+            // not free() the module. free() left the next launch unable to init.
             val closing = uartExecutor.submit {
                 try {
                     stopRfidInventory()
-                } catch (_: Throwable) {
-                }
-                try {
-                    uhfFacade?.closeQuietly()
                 } catch (_: Throwable) {
                 }
             }
@@ -960,37 +955,40 @@ class HardwareControllerImpl(
     }
 
     /**
-     * Scan Display UART start, same sequence as main: open, set power, start once.
-     * Does not clear Search LED filters and does not power the module off.
+     * Scan Display UART start, same sequence as kama_enhancement:
+     * open once, set power, then up to four start attempts.
+     * prepareInventory does not change Search LED mode or filters.
      */
     private fun startPlainUartInventory(power: Int): Boolean {
         inventoryScanMode = true
         scanningPermitted = true
-        uhf().initHardware()
+        if (!uhf().initHardware()) {
+            Log.e(TAG, "startRfidInventory: initHardware failed")
+            isScanning = false
+            stopInventoryLoopSound()
+            return false
+        }
         uhf().prepareInventory(power)
         drainStaleBuffer()
         clearSearchLedTagCallback()
         startInventoryLoopSound()
-        var started = uhf().startInventory()
-        if (!started) {
-            try {
-                uhf().stopInventory()
-            } catch (_: Throwable) {
+        var started = false
+        for (attempt in 0 until 4) {
+            if (attempt > 0) {
+                try {
+                    uhf().stopInventory()
+                } catch (_: Throwable) {
+                }
+                try {
+                    Thread.sleep(100L * attempt)
+                } catch (_: InterruptedException) {
+                }
+                drainStaleBuffer()
+                uhf().prepareInventory(power)
             }
-            try {
-                Thread.sleep(100L)
-            } catch (_: InterruptedException) {
-            }
-            uhf().prepareInventory(power)
-            drainStaleBuffer()
             started = uhf().startInventory()
-            Log.i(TAG, "startInventory retry => $started")
-        }
-        if (!started && uhf().reopenStalePort()) {
-            uhf().prepareInventory(power)
-            drainStaleBuffer()
-            started = uhf().startInventory()
-            Log.i(TAG, "startInventory after reopen => $started")
+            Log.i(TAG, "startInventory attempt=${attempt + 1} => $started")
+            if (started) break
         }
         if (started) {
             inventoryScanMode = true
@@ -1027,14 +1025,8 @@ class HardwareControllerImpl(
                 stopRfidInventory(restoreEpc = !keepSolid)
                 holdLedSolid = keepSolid
                 scanningPermitted = true
-            } else if (
-                uhf().modulePowered() && uhf().isInventorying() && pollerHealthy()
-            ) {
-                return true
             } else {
-                Log.w(TAG, "Stale UART inventory — restart")
-                stopRfidInventory()
-                scanningPermitted = true
+                return true
             }
         }
         searchSoundEnabled = false
@@ -1156,17 +1148,6 @@ class HardwareControllerImpl(
                     started = uhf().startInventory()
                     Log.i(TAG, "startInventory attempt=4 recover => $started")
                 }
-            }
-            if (!started && uhf().reopenStalePort()) {
-                if (inventory) {
-                    uhf().prepareScan(power)
-                    attachInventoryTagCallback()
-                } else {
-                    prepareSearchRadio(power)
-                    attachSearchLedTagCallback()
-                }
-                started = uhf().startInventory()
-                Log.i(TAG, "startInventory attempt=5 reopen => $started")
             }
             if (started) {
                 // A stop that landed while init was running must not swallow tags.
