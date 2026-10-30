@@ -16,6 +16,8 @@ class ScanDisplayListMenuOverlay extends StatelessWidget {
   final VoidCallback onResumeScan;
   final VoidCallback onSearchUnmatched;
   final bool unlabelledEnabled;
+  final bool showUploadedList;
+  final VoidCallback? onUploadedList;
 
   const ScanDisplayListMenuOverlay({
     super.key,
@@ -29,6 +31,8 @@ class ScanDisplayListMenuOverlay extends StatelessWidget {
     required this.onResumeScan,
     required this.onSearchUnmatched,
     this.unlabelledEnabled = true,
+    this.showUploadedList = false,
+    this.onUploadedList,
   });
 
   @override
@@ -97,6 +101,14 @@ class ScanDisplayListMenuOverlay extends StatelessWidget {
                               count: unmatchedCount,
                               onTap: onSearchUnmatched,
                             ),
+                            if (showUploadedList && onUploadedList != null) ...[
+                              const SizedBox(height: 8),
+                              _menuCard(
+                                title: s.uploadedList,
+                                icon: Icons.cloud_done_outlined,
+                                onTap: onUploadedList!,
+                              ),
+                            ],
                           ],
                         ),
                       ),

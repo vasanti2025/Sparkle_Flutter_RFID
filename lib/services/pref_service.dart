@@ -303,9 +303,27 @@ class PrefService {
     'LS000582',
   };
 
+  /// Kama Jeweller. Mayur (LS000582) shares the Uploaded list.
+  static const String kamaClientCode = 'LS000641';
+  static const String mayurClientCode = 'LS000582';
+
+  static const Set<String> uploadedListClientCodes = {
+    kamaClientCode,
+    mayurClientCode,
+  };
+
   static bool isWholesaleClientCode(String? value) {
     final code = (value ?? '').trim().toUpperCase();
     return code.isNotEmpty && wholesaleClientCodes.contains(code);
+  }
+
+  static bool isKamaClientCode(String? value) {
+    return (value ?? '').trim().toUpperCase() == kamaClientCode;
+  }
+
+  static bool isUploadedListClientCode(String? value) {
+    final code = (value ?? '').trim().toUpperCase();
+    return code.isNotEmpty && uploadedListClientCodes.contains(code);
   }
 
   bool isWholesaleLoginUser() {
@@ -313,6 +331,21 @@ class PrefService {
     return isWholesaleClientCode(emp?.clientCode) ||
         isWholesaleClientCode(emp?.clients?.clientCode) ||
         isWholesaleClientCode(getClient()?.clientCode);
+  }
+
+  bool isKamaLoginUser() {
+    final emp = getEmployee();
+    return isKamaClientCode(emp?.clientCode) ||
+        isKamaClientCode(emp?.clients?.clientCode) ||
+        isKamaClientCode(getClient()?.clientCode);
+  }
+
+  /// Kama (LS000641) and Mayur (LS000582).
+  bool isUploadedListLoginUser() {
+    final emp = getEmployee();
+    return isUploadedListClientCode(emp?.clientCode) ||
+        isUploadedListClientCode(emp?.clients?.clientCode) ||
+        isUploadedListClientCode(getClient()?.clientCode);
   }
 
   Future<void> setLoggedIn(bool loggedIn) async => _store.setBool(_keyLoggedIn, loggedIn);

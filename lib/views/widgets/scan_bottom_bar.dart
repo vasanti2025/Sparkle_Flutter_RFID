@@ -274,6 +274,13 @@ class ScanBottomBarInventory extends StatelessWidget {
   final bool showResume;
   /// When false, Scan is greyed out and ignored (e.g. while Save is running).
   final bool scanEnabled;
+  /// Replaces the Save label when this bar loads a list instead of saving.
+  final String? actionLabel;
+  final IconData? actionIcon;
+  /// Replaces the Email label. Uploaded list uses Clear, then Save.
+  final String? emailLabel;
+  final IconData? emailIcon;
+  final bool emailEnabled;
 
   const ScanBottomBarInventory({
     super.key,
@@ -285,6 +292,11 @@ class ScanBottomBarInventory extends StatelessWidget {
     required this.isScanning,
     this.showResume = false,
     this.scanEnabled = true,
+    this.actionLabel,
+    this.actionIcon,
+    this.emailLabel,
+    this.emailIcon,
+    this.emailEnabled = true,
   });
 
   @override
@@ -292,8 +304,8 @@ class ScanBottomBarInventory extends StatelessWidget {
     final s = context.s;
     return _buildBottomBarLayout(
       leftButton1: _buildBarButton(
-        icon: Icons.save,
-        label: s.save,
+        icon: actionIcon ?? Icons.save,
+        label: actionLabel ?? s.save,
         onTap: onSave,
       ),
       leftButton2: _buildBarButton(
@@ -309,9 +321,10 @@ class ScanBottomBarInventory extends StatelessWidget {
         enabled: scanEnabled,
       ),
       rightButton1: _buildBarButton(
-        icon: Icons.email,
-        label: s.email,
+        icon: emailIcon ?? Icons.email,
+        label: emailLabel ?? s.email,
         onTap: onEmail,
+        enabled: emailEnabled,
       ),
       rightButton2: _buildBarButton(
         icon: Icons.refresh,

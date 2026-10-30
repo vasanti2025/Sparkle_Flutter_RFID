@@ -305,6 +305,9 @@ class AppStrings {
   String get scanHere => _t('scanHere');
   String get loadingEllipsis => _t('loadingEllipsis');
   String get searchUnmatched => _t('searchUnmatched');
+  String get uploadedList => _t('uploadedList');
+  String get loadList => _t('loadList');
+  String get saved => _t('saved');
   String get searchAllItems => _t('searchAllItems');
   String get searchType => _t('searchType');
   String get labelStock => _t('labelStock');
@@ -1187,6 +1190,8 @@ class AppStrings {
       'scanHere': 'scan here',
       'loadingEllipsis': 'Loading...',
       'searchUnmatched': 'Search (Unmatched)',
+      'uploadedList': 'Uploaded list',
+      'loadList': 'Upload',
       'searchAllItems': 'Search (All Items)',
       'searchType': 'Search Type',
       'labelStock': 'LabelStock',

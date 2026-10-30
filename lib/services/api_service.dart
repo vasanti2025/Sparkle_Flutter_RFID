@@ -13,6 +13,16 @@ import 'pref_service.dart';
 import 'session_lifecycle.dart';
 import '../utils/user_facing_error.dart';
 
+class ClientItemCodesResult {
+  final List<dynamic> items;
+  final String searchSessionId;
+
+  const ClientItemCodesResult({
+    required this.items,
+    this.searchSessionId = '',
+  });
+}
+
 class ApiService {
   static const String defaultBaseUrl = PrefService.defaultApiBaseUrl;
   
@@ -532,6 +542,245 @@ class ApiService {
       }
       throw Exception(_keepOrNoInternet(e, '$failureMessage: ${e.message}'));
     }
+  }
+
+  /// Flat item codes already uploaded for a client.
+  /// `GET api/LabelStockSearch/GetClientItemCodes`
+  Future<ClientItemCodesResult> getClientItemCodes({
+    required String clientCode,
+    int? branchId,
+    String? searchSessionId,
+    String? searchQuery,
+    String? fromDate,
+    String? toDate,
+  }) async {
+    final params = <String, dynamic>{'clientCode': clientCode};
+    if (branchId != null && branchId > 0) params['branchId'] = branchId;
+    final session = searchSessionId?.trim() ?? '';
+    if (session.isNotEmpty) params['searchSessionId'] = session;
+    final query = searchQuery?.trim() ?? '';
+    if (query.isNotEmpty) params['searchQuery'] = query;
+    final from = fromDate?.trim() ?? '';
+    final to = toDate?.trim() ?? '';
+    if (from.isNotEmpty) params['fromDate'] = from;
+    if (to.isNotEmpty) params['toDate'] = to;
+    try {
+      final response = await _dio.get(
+        'api/LabelStockSearch/GetClientItemCodes',
+        queryParameters: params,
+      );
+      if (response.statusCode == 200) {
+        return ClientItemCodesResult(
+          items: _unwrapItemCodeBody(response.data),
+          searchSessionId: _searchSessionFromBody(response.data),
+        );
+      }
+      throw Exception('Failed to load uploaded list');
+    } on DioException catch (e) {
+      final server = e.response?.data;
+      if (server is Map && server['Message'] != null) {
+        final message = server['Message'].toString().trim();
+        if (message.isNotEmpty) throw Exception(message);
+      }
+      throw Exception(_keepOrNoInternet(e, 'Failed to load uploaded list: ${e.message}'));
+    }
+  }
+
+  List<dynamic> _unwrapItemCodeBody(dynamic data) {
+    var body = data;
+    if (body is String) {
+      final trimmed = body.trim();
+      if (trimmed.isEmpty) return const [];
+      try {
+        body = jsonDecode(trimmed);
+      } catch (_) {
+        return [trimmed];
+      }
+    }
+    final envelope = _itemCodeEnvelope(body);
+    if (envelope != null) {
+      final rows = _rowsFromItemCodeEnvelope(envelope);
+      if (rows.isNotEmpty) return rows;
+    }
+    if (body is List) return body;
+    return _asDynamicList(body);
+  }
+
+  /// `{ "itemCodes": ["ITEM001"], "items": [ ... ] }`, including a nested data map.
+  Map<dynamic, dynamic>? _itemCodeEnvelope(dynamic body) {
+    if (body is! Map) return null;
+    const own = ['itemCodes', 'ItemCodes', 'items', 'Items'];
+    for (final key in own) {
+      if (body.containsKey(key)) return body;
+    }
+    for (final key in ['data', 'Data', 'result', 'Result']) {
+      if (!body.containsKey(key)) continue;
+      final nested = _itemCodeEnvelope(body[key]);
+      if (nested != null) return nested;
+    }
+    return null;
+  }
+
+  List<dynamic> _rowsFromItemCodeEnvelope(Map<dynamic, dynamic> envelope) {
+    final itemsRaw = envelope['items'] ?? envelope['Items'];
+    final codesRaw = envelope['itemCodes'] ?? envelope['ItemCodes'];
+    final items = <dynamic>[
+      if (itemsRaw is List) ...itemsRaw,
+      ..._sessionItems(envelope['Sessions'] ?? envelope['sessions']),
+    ];
+    final codes = codesRaw is List ? codesRaw : const <dynamic>[];
+    final rows = <dynamic>[];
+    final seen = <String>{};
+    var itemsUsable = false;
+    for (final row in items) {
+      final code = _flatItemCode(row);
+      if (code.isEmpty) continue;
+      itemsUsable = true;
+      if (seen.add(code)) rows.add(row);
+    }
+    if (!itemsUsable) {
+      return [
+        for (final code in codes)
+          if (_flatItemCode(code).isNotEmpty) _flatItemCode(code),
+      ];
+    }
+    for (final code in codes) {
+      final text = _flatItemCode(code);
+      if (text.isEmpty || !seen.add(text)) continue;
+      rows.add(text);
+    }
+    return rows;
+  }
+
+  List<dynamic> _sessionItems(dynamic sessions) {
+    if (sessions is! List) return const [];
+    final rows = <dynamic>[];
+    for (final session in sessions) {
+      if (session is! Map) continue;
+      final items = session['Items'] ?? session['items'];
+      if (items is List) rows.addAll(items);
+    }
+    return rows;
+  }
+
+  String _flatItemCode(dynamic raw) {
+    if (raw is String) {
+      final text = raw.trim();
+      return text.toLowerCase() == 'null' ? '' : text;
+    }
+    if (raw is! Map) return '';
+    const keys = ['ItemCode', 'itemCode', 'Code', 'code'];
+    for (final key in keys) {
+      final text = raw[key]?.toString().trim() ?? '';
+      if (text.isNotEmpty && text.toLowerCase() != 'null') return text;
+    }
+    return '';
+  }
+
+  /// `POST api/LabelStockSearch/RemoveItem`
+  /// One code uses `itemCode`. More than one uses `itemCodes`.
+  Future<void> removeLabelStockItems({
+    required String clientCode,
+    required String searchSessionId,
+    required List<String> itemCodes,
+  }) async {
+    final codes = itemCodes
+        .map((code) => code.trim())
+        .where((code) => code.isNotEmpty)
+        .toList(growable: false);
+    if (codes.isEmpty) return;
+    final body = <String, dynamic>{
+      'clientCode': clientCode,
+      'searchSessionId': searchSessionId,
+    };
+    if (codes.length == 1) {
+      body['itemCode'] = codes.first;
+    } else {
+      body['itemCodes'] = codes;
+    }
+    try {
+      final response = await _dio.post(
+        'api/LabelStockSearch/RemoveItem',
+        data: body,
+      );
+      final data = response.data;
+      if (data is Map && data['Success'] == false) {
+        final message = data['Message']?.toString().trim();
+        throw Exception(
+          message != null && message.isNotEmpty ? message : 'Failed to remove items',
+        );
+      }
+      final code = response.statusCode ?? 0;
+      if (code >= 200 && code < 300) return;
+      throw Exception('Failed to remove items');
+    } on DioException catch (e) {
+      final server = e.response?.data;
+      if (server is Map && server['Message'] != null) {
+        final message = server['Message'].toString().trim();
+        if (message.isNotEmpty) throw Exception(message);
+      }
+      throw Exception(_keepOrNoInternet(e, 'Failed to remove items: ${e.message}'));
+    }
+  }
+
+  String _searchSessionFromBody(dynamic data) {
+    var body = data;
+    if (body is String) {
+      final trimmed = body.trim();
+      if (trimmed.isEmpty) return '';
+      try {
+        body = jsonDecode(trimmed);
+      } catch (_) {
+        return '';
+      }
+    }
+    final direct = _sessionField(body);
+    if (direct.isNotEmpty) return direct;
+    if (body is List && body.isNotEmpty) return _sessionField(body.first);
+    if (body is Map) {
+      const keys = [
+        'ItemCodes',
+        'itemCodes',
+        'Data',
+        'data',
+        'Items',
+        'items',
+        'Result',
+        'result',
+        'List',
+        'list',
+      ];
+      for (final key in keys) {
+        if (!body.containsKey(key)) continue;
+        final value = body[key];
+        final nested = _sessionField(value);
+        if (nested.isNotEmpty) return nested;
+        if (value is List && value.isNotEmpty) {
+          final row = _sessionField(value.first);
+          if (row.isNotEmpty) return row;
+        }
+        if (value is Map) {
+          final inner = _searchSessionFromBody(value);
+          if (inner.isNotEmpty) return inner;
+        }
+      }
+    }
+    return '';
+  }
+
+  String _sessionField(dynamic value) {
+    if (value is! Map) return '';
+    const keys = [
+      'searchSessionId',
+      'SearchSessionId',
+      'sessionId',
+      'SessionId',
+    ];
+    for (final key in keys) {
+      final text = value[key]?.toString().trim() ?? '';
+      if (text.isNotEmpty && text.toLowerCase() != 'null') return text;
+    }
+    return '';
   }
 
   List<dynamic> _unwrapStockTakingBody(dynamic data) {

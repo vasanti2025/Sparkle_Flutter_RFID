@@ -1962,6 +1962,8 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       list = list.where((i) => i.currentScannedStatus == 'Matched').toList();
     } else if (_selectedMenu == 'UNMATCHED') {
       list = list.where((i) => i.currentScannedStatus == 'Unmatched').toList();
+    } else if (_selectedMenu == 'UPLOADED') {
+      list = list.where((i) => i.originalBulkItem.isScanned == 1).toList();
     }
 
     return list;
@@ -2500,6 +2502,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
 
     final menuMatchedCount = _cachedMatchedCount;
     final menuUnmatchedCount = _cachedTotalCount - menuMatchedCount;
+    final showUploadedList = context.read<PrefService>().isUploadedListLoginUser();
     final totalCount = _visibleTotalCount;
     final matchedCount = _visibleMatchedCount;
     final unmatchedCount = totalCount - matchedCount;
@@ -2724,6 +2727,13 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                 onSearchUnmatched: () {
                   unawaited(_openSearchUnmatched());
                 },
+                showUploadedList: showUploadedList,
+                onUploadedList: () {
+                  setState(() => _showMenu = false);
+                  unawaited(Navigator.pushNamed(context, '/search', arguments: {
+                    'listKey': 'uploadedList',
+                  }));
+                },
               ),
           ],
         ),
@@ -2750,6 +2760,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     final showLoaderOverlay =
         (_isLoadingItems || _isSaving) && _scannedItems.isNotEmpty;
     if (_showBothDateLists &&
+        _selectedMenu != 'UPLOADED' &&
         (_currentLevel == 'DesignItems' || _selectedMenu != 'UNLABELLED')) {
       return _buildBothDateLists(filteredItems, showLoaderOverlay);
     }

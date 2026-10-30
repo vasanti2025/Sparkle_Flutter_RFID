@@ -13,6 +13,7 @@ import '../services/rfid_service.dart';
 import '../viewmodels/dashboard_view_model.dart';
 import '../utils/app_dropdown.dart';
 import '../utils/scan_key.dart';
+import '../utils/user_facing_error.dart';
 import 'widgets/scan_bottom_bar.dart';
 import 'widgets/scan_display_list_menu.dart';
 
@@ -210,6 +211,10 @@ class _SearchScreenState extends State<SearchScreen> {
   String _searchQuery = '';
 
   List<SearchItem> _searchItems = [];
+  final Set<String> _uploadedSelected = {};
+  final Map<String, String> _uploadedItemSessions = {};
+  String _uploadedSessionId = '';
+  bool _uploadedRemoving = false;
 
   // O(1) tag lookup — mirrors Kotlin SearchViewModel.epcToIndex
   final Map<String, int> _tagIndexMap = {};
@@ -298,6 +303,8 @@ class _SearchScreenState extends State<SearchScreen> {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) unawaited(_attachUnmatchedCatalog());
           });
+        } else if (_listKey == 'uploadedList') {
+          // List comes from the Upload button, not on open.
         }
       }
       _isInit = true;
@@ -354,6 +361,251 @@ class _SearchScreenState extends State<SearchScreen> {
     add(item.normItemCode);
     add(item.normTid);
     add(item.normHex);
+  }
+
+  SearchItem _searchItemFromUploaded(dynamic raw) {
+    if (raw is String) {
+      final code = raw.trim();
+      return SearchItem(epc: code, itemCode: code, productName: '', rfid: code);
+    }
+    final map = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+    String pick(List<String> keys) {
+      for (final key in keys) {
+        final value = map[key]?.toString().trim() ?? '';
+        if (value.isNotEmpty && value.toLowerCase() != 'null') return value;
+      }
+      return '';
+    }
+
+    final code = pick(['ItemCode', 'itemCode', 'Code', 'code']);
+    final rfid = pick(['RFID', 'Rfid', 'rfid', 'RfidCode', 'RFIDCode', 'EPC', 'Epc', 'epc']);
+    final tid = pick(['TID', 'Tid', 'tid', 'TidNumber', 'TIDNumber']);
+    final title = pick(['Title', 'title', 'ProductName', 'productName', 'ProductTitle', 'Name']);
+    final key = tid.isNotEmpty ? tid : (rfid.isNotEmpty ? rfid : code);
+    return SearchItem(
+      epc: key,
+      itemCode: code,
+      productName: title,
+      rfid: rfid.isNotEmpty ? rfid : code,
+      tid: tid,
+    );
+  }
+
+  /// Upload button loads GetClientItemCodes.
+  Future<void> _loadUploadedItemCodes() async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+    try {
+      final api = context.read<ApiService>();
+      final clientCode = _loggedInClientCode();
+      if (clientCode.isEmpty) {
+        if (!mounted) return;
+        setState(() => _isLoading = false);
+        _showToast(context.sRead.errorSessionExpired);
+        return;
+      }
+      // Same call as the working URL: clientCode only.
+      // branchId filters sessions, and these sessions are stored with BranchId 0.
+      final query = _searchQuery.trim();
+      final page = await api.getClientItemCodes(
+        clientCode: clientCode,
+        searchQuery: query.isEmpty ? null : query,
+      );
+      if (!mounted) return;
+      final results = <SearchItem>[];
+      final sessions = <String, String>{};
+      var sessionId = page.searchSessionId.trim();
+      for (final row in page.items) {
+        final item = _searchItemFromUploaded(row);
+        if (item.itemCode.isEmpty && item.rfid.isEmpty) continue;
+        final code = item.itemCode.trim();
+        final rowSession = _sessionOnUploadedRow(row);
+        if (rowSession.isNotEmpty && code.isNotEmpty) {
+          sessions[code] = rowSession;
+          if (sessionId.isEmpty) sessionId = rowSession;
+        }
+        results.add(item);
+      }
+      setState(() {
+        _searchItems = results;
+        _uploadedItemSessions
+          ..clear()
+          ..addAll(sessions);
+        _uploadedSessionId = sessionId;
+        _uploadedSelected.clear();
+        _rebuildTagIndex();
+        _invalidateDisplayOrder();
+        _displayIndexValid = false;
+        _isLoading = false;
+      });
+      if (_tagIndexMap.isNotEmpty) {
+        await _rfidService.setSearchTags(_tagIndexMap.keys.toList(growable: false));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      _showToast(UserFacingError.isNetwork(e)
+          ? context.sRead.noInternetConnection
+          : UserFacingError.of(e));
+    }
+  }
+
+  String _sessionOnUploadedRow(dynamic raw) {
+    if (raw is! Map) return '';
+    const keys = [
+      'searchSessionId',
+      'SearchSessionId',
+      'sessionId',
+      'SessionId',
+    ];
+    for (final key in keys) {
+      final text = raw[key]?.toString().trim() ?? '';
+      if (text.isNotEmpty && text.toLowerCase() != 'null') return text;
+    }
+    return '';
+  }
+
+  String _loggedInClientCode() {
+    final dash = context.read<DashboardViewModel>();
+    final pref = context.read<PrefService>();
+    final emp = dash.employee ?? pref.getEmployee();
+    final candidates = <String>[
+      emp?.clientCode ?? '',
+      emp?.clients?.clientCode ?? '',
+      pref.getClient()?.clientCode ?? '',
+    ].map((code) => code.trim()).where((code) => code.isNotEmpty);
+    for (final code in candidates) {
+      if (PrefService.isUploadedListClientCode(code)) return code;
+    }
+    for (final code in candidates) {
+      return code;
+    }
+    return '';
+  }
+
+  void _clearUploadedList() {
+    unawaited(_stopSearchScan());
+    unawaited(_rfidService.clearSearchTags());
+    setState(() {
+      _searchItems = [];
+      _uploadedSelected.clear();
+      _uploadedItemSessions.clear();
+      _uploadedSessionId = '';
+      _isScanning = false;
+      _rebuildTagIndex();
+      _invalidateDisplayOrder();
+      _displayIndexValid = false;
+    });
+  }
+
+  Future<void> _saveUploadedRemoval() async {
+    if (_uploadedRemoving || _uploadedSelected.isEmpty || !mounted) return;
+    final selected = _uploadedSelected.toList(growable: false);
+    setState(() => _uploadedRemoving = true);
+    try {
+      final api = context.read<ApiService>();
+      final clientCode = _loggedInClientCode();
+      if (clientCode.isEmpty) {
+        if (!mounted) return;
+        setState(() => _uploadedRemoving = false);
+        _showToast(context.sRead.errorSessionExpired);
+        return;
+      }
+      final groups = <String, List<String>>{};
+      for (final code in selected) {
+        final session = (_uploadedItemSessions[code] ?? _uploadedSessionId).trim();
+        groups.putIfAbsent(session, () => []).add(code);
+      }
+      for (final entry in groups.entries) {
+        await api.removeLabelStockItems(
+          clientCode: clientCode,
+          searchSessionId: entry.key,
+          itemCodes: entry.value,
+        );
+      }
+      if (!mounted) return;
+      final removed = selected.toSet();
+      setState(() {
+        _searchItems = [
+          for (final item in _searchItems)
+            if (!removed.contains(item.itemCode.trim())) item,
+        ];
+        _uploadedSelected.removeAll(removed);
+        for (final code in removed) {
+          _uploadedItemSessions.remove(code);
+        }
+        _rebuildTagIndex();
+        _invalidateDisplayOrder();
+        _displayIndexValid = false;
+        _uploadedRemoving = false;
+      });
+      if (_tagIndexMap.isEmpty) {
+        await _rfidService.clearSearchTags();
+      } else {
+        await _rfidService.setSearchTags(_tagIndexMap.keys.toList(growable: false));
+      }
+      if (mounted) _showToast(context.sRead.saved);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _uploadedRemoving = false);
+      _showToast(UserFacingError.isNetwork(e)
+          ? context.sRead.noInternetConnection
+          : UserFacingError.of(e));
+    }
+  }
+
+  void _toggleUploadedCode(String code) {
+    if (code.isEmpty || _uploadedRemoving) return;
+    setState(() {
+      if (!_uploadedSelected.add(code)) _uploadedSelected.remove(code);
+    });
+  }
+
+  void _toggleUploadedSelectAll(List<String> codes) {
+    if (codes.isEmpty || _uploadedRemoving) return;
+    final allOn = codes.every(_uploadedSelected.contains);
+    setState(() {
+      if (allOn) {
+        _uploadedSelected.removeAll(codes);
+      } else {
+        _uploadedSelected.addAll(codes);
+      }
+    });
+  }
+
+  List<String> _uploadedVisibleCodes() {
+    final codes = <String>[];
+    final seen = <String>{};
+    for (final i in _visibleOrder) {
+      if (i < 0 || i >= _searchItems.length) continue;
+      final code = _searchItems[i].itemCode.trim();
+      if (code.isEmpty || !seen.add(code)) continue;
+      codes.add(code);
+    }
+    return codes;
+  }
+
+  Widget _uploadedCheckBox({
+    required bool? checked,
+    required Color color,
+    required VoidCallback? onTap,
+  }) {
+    final IconData icon;
+    if (checked == null) {
+      icon = Icons.indeterminate_check_box;
+    } else if (checked) {
+      icon = Icons.check_box;
+    } else {
+      icon = Icons.check_box_outline_blank;
+    }
+    return SizedBox(
+      width: 28,
+      height: 22,
+      child: InkWell(
+        onTap: onTap,
+        child: Icon(icon, size: 18, color: color),
+      ),
+    );
   }
 
   Future<void> _attachUnmatchedCatalog() async {
@@ -1735,6 +1987,8 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget build(BuildContext context) {
     final s = context.s;
     final isUnmatchedList = _listKey == 'unmatchedItems';
+    final isUploadedList = _listKey == 'uploadedList';
+    final isFinderList = isUnmatchedList || isUploadedList;
     final largeUnmatched = _isLargeUnmatched;
     final query = _searchQuery.trim();
     if (!largeUnmatched || query.isNotEmpty) {
@@ -1745,15 +1999,17 @@ class _SearchScreenState extends State<SearchScreen> {
         ? _statusListCount()
         : isUnmatchedList
             ? _unmatchedOpenCount()
-            : _filteredCount;
+            : isUploadedList && query.isEmpty
+                ? _searchItems.length
+                : _filteredCount;
 
     final catalog = UnmatchedSearchCatalog.instance;
 
     return PopScope(
-      canPop: !(isUnmatchedList && _showMenu),
+      canPop: !(isFinderList && _showMenu),
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
-        if (isUnmatchedList && _showMenu) {
+        if (isFinderList && _showMenu) {
           setState(() => _showMenu = false);
         }
       },
@@ -1775,7 +2031,7 @@ class _SearchScreenState extends State<SearchScreen> {
             leading: IconButton(
               icon: const Icon(Icons.arrow_back, color: Colors.white),
               onPressed: () {
-                if (isUnmatchedList && _showMenu) {
+                if (isFinderList && _showMenu) {
                   setState(() => _showMenu = false);
                   return;
                 }
@@ -1783,7 +2039,9 @@ class _SearchScreenState extends State<SearchScreen> {
               },
             ),
             title: Text(
-              isUnmatchedList ? s.searchUnmatched : s.searchAllItems,
+              isUploadedList
+                  ? s.uploadedList
+                  : (isUnmatchedList ? s.searchUnmatched : s.searchAllItems),
               style: AppFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 18),
             ),
             actions: [
@@ -1832,7 +2090,7 @@ class _SearchScreenState extends State<SearchScreen> {
           Column(
         children: [
           // Dropdown for search type (Normal mode only)
-          if (!isUnmatchedList)
+          if (!isFinderList)
             Padding(
               padding: const EdgeInsets.only(left: 12.0, right: 12.0, top: 12.0, bottom: 4.0),
               child: DropdownButtonFormField<String>(
@@ -1869,14 +2127,14 @@ class _SearchScreenState extends State<SearchScreen> {
             padding: EdgeInsets.only(
               left: 12.0,
               right: 12.0,
-              top: isUnmatchedList ? 12.0 : 4.0,
+              top: isFinderList ? 12.0 : 4.0,
               bottom: 8.0,
             ),
             child: TextField(
               controller: _searchController,
               enabled: !_isScanning,
               decoration: InputDecoration(
-                labelText: isUnmatchedList
+                labelText: isFinderList
                     ? s.enterRfidItemcode
                     : (_selectedSearchType == 'Order'
                         ? s.enterRfidCustomOrderId
@@ -1901,20 +2159,23 @@ class _SearchScreenState extends State<SearchScreen> {
             padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 8.0),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: _selectedSearchType == 'Order' && !isUnmatchedList
-                  ? [
-                      _buildHeaderCell(s.headerSno, 1),
-                      _buildHeaderCell(s.lblRfid, 2),
-                      _buildHeaderCell(s.progress, 3),
-                      _buildHeaderCell(s.percent, 1),
-                    ]
-                  : [
-                      _buildHeaderCell(s.headerSno, 1),
-                      _buildHeaderCell(s.lblRfid, 2),
-                      _buildHeaderCell(s.itemcode, 2),
-                      _buildHeaderCell(s.progress, 3),
-                      _buildHeaderCell(s.percent, 1),
-                    ],
+              children: [
+                if (isUploadedList) _buildUploadedSelectAllBox(),
+                ...(_selectedSearchType == 'Order' && !isUnmatchedList)
+                    ? [
+                        _buildHeaderCell(s.headerSno, 1),
+                        _buildHeaderCell(s.lblRfid, 2),
+                        _buildHeaderCell(s.progress, 3),
+                        _buildHeaderCell(s.percent, 1),
+                      ]
+                    : [
+                        _buildHeaderCell(s.headerSno, 1),
+                        _buildHeaderCell(s.lblRfid, 2),
+                        _buildHeaderCell(s.itemcode, 2),
+                        _buildHeaderCell(s.progress, 3),
+                        _buildHeaderCell(s.percent, 1),
+                      ],
+              ],
             ),
           ),
 
@@ -1922,12 +2183,16 @@ class _SearchScreenState extends State<SearchScreen> {
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : (isUnmatchedList ? _searchItems.isEmpty : catalogCount == 0)
+                : ((isUnmatchedList || isUploadedList)
+                        ? _searchItems.isEmpty
+                        : catalogCount == 0)
                     ? Center(
                         child: Text(
-                          isUnmatchedList && _searchItems.isEmpty
-                              ? s.noUnmatchedItemsToSearch
-                              : s.typeRfidItemcodeToSearch,
+                          isUploadedList
+                              ? s.noItemsFound
+                              : isUnmatchedList && _searchItems.isEmpty
+                                  ? s.noUnmatchedItemsToSearch
+                                  : s.typeRfidItemcodeToSearch,
                           style: AppFonts.poppins(color: Colors.grey, fontSize: 13),
                           textAlign: TextAlign.center,
                         ),
@@ -1964,9 +2229,13 @@ class _SearchScreenState extends State<SearchScreen> {
                             if (item == null) return const SizedBox(height: 34);
                             return _buildSearchRow(item, index);
                           }
-                          final item = statusFiltered
-                              ? _itemAtStatus(index)
-                              : _tryDisplayItemAt(index);
+                          final item = isUploadedList && query.isEmpty
+                              ? (index >= 0 && index < _searchItems.length
+                                  ? _searchItems[index]
+                                  : null)
+                              : statusFiltered
+                                  ? _itemAtStatus(index)
+                                  : _tryDisplayItemAt(index);
                           if (item == null) return const SizedBox(height: 34);
                           return _buildSearchRow(item, index);
                         },
@@ -1975,9 +2244,22 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
 
           // Bottom Navigation Bar
-          if (isUnmatchedList)
+          if (isFinderList)
             ScanBottomBarInventory(
+              actionLabel: isUploadedList ? s.loadList : null,
+              actionIcon: isUploadedList ? Icons.cloud_upload_outlined : null,
+              emailLabel: isUploadedList
+                  ? (_uploadedSelected.isEmpty ? s.clearBtn : s.save)
+                  : null,
+              emailIcon: isUploadedList
+                  ? (_uploadedSelected.isEmpty ? Icons.clear_all : Icons.save)
+                  : null,
+              emailEnabled: !isUploadedList || !_uploadedRemoving,
               onSave: () {
+                if (isUploadedList) {
+                  unawaited(_loadUploadedItemCodes());
+                  return;
+                }
                 unawaited(_handOffToScanDisplay(catalog.onSave, forSave: true));
               },
               onList: () {
@@ -1985,6 +2267,14 @@ class _SearchScreenState extends State<SearchScreen> {
               },
               onScan: _toggleScanning,
               onEmail: () {
+                if (isUploadedList) {
+                  if (_uploadedSelected.isEmpty) {
+                    _clearUploadedList();
+                  } else {
+                    unawaited(_saveUploadedRemoval());
+                  }
+                  return;
+                }
                 catalog.onEmail?.call(context);
               },
               onReset: _resetSearch,
@@ -2006,7 +2296,7 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
         ],
       ),
-          if (isUnmatchedList && _showMenu)
+          if (isFinderList && _showMenu)
             ScanDisplayListMenuOverlay(
               matchedCount: catalog.matchedCountOf?.call() ?? 0,
               unmatchedCount: catalog.unmatchedCountOf?.call() ?? 0,
@@ -2030,7 +2320,22 @@ class _SearchScreenState extends State<SearchScreen> {
               onResumeScan: () {
                 unawaited(_handOffToScanDisplay(catalog.onResumeScan));
               },
-              onSearchUnmatched: () => setState(() => _showMenu = false),
+              onSearchUnmatched: () {
+                setState(() => _showMenu = false);
+                if (isUploadedList) {
+                  unawaited(Navigator.pushNamed(context, '/search', arguments: {
+                    'listKey': 'unmatchedItems',
+                  }));
+                }
+              },
+              showUploadedList: context.read<PrefService>().isUploadedListLoginUser(),
+              onUploadedList: () {
+                setState(() => _showMenu = false);
+                if (isUploadedList) return;
+                unawaited(Navigator.pushNamed(context, '/search', arguments: {
+                  'listKey': 'uploadedList',
+                }));
+              },
             ),
           if (isUnmatchedList && _scanStarting)
             const ModalBarrier(
@@ -2045,37 +2350,70 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
+  Widget _buildUploadedSelectAllBox() {
+    final codes = _uploadedVisibleCodes();
+    final selectedCount = codes.where(_uploadedSelected.contains).length;
+    final bool? checked = codes.isEmpty
+        ? false
+        : selectedCount == 0
+            ? false
+            : selectedCount == codes.length
+                ? true
+                : null;
+    return _uploadedCheckBox(
+      checked: checked,
+      color: Colors.white,
+      onTap: codes.isEmpty ? null : () => _toggleUploadedSelectAll(codes),
+    );
+  }
+
   Widget _buildSearchRow(SearchItem item, int index) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 8.0),
+    final uploaded = _listKey == 'uploadedList';
+    final code = item.itemCode.trim();
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: uploaded && code.isNotEmpty && !_uploadedRemoving
+          ? () => _toggleUploadedCode(code)
+          : null,
+      child: Container(
+      padding: EdgeInsets.symmetric(vertical: uploaded ? 2.0 : 6.0, horizontal: 8.0),
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
       ),
       child: Row(
-        children: _selectedSearchType == 'Order' && _listKey != 'unmatchedItems'
-            ? [
-                _buildDataCell('${index + 1}', 1),
-                _buildDataCell(item.rfid, 2),
-                _buildProgressCell(
-                  item.proximityPercent,
-                  3,
-                  persistentTick: item.rangeTicked,
-                ),
-                _buildDataCell('${item.proximityPercent}%', 1),
-              ]
-            : [
-                _buildDataCell('${index + 1}', 1),
-                _buildDataCell(item.rfid, 2),
-                _buildDataCell(item.itemCode, 2),
-                _buildProgressCell(
-                  item.proximityPercent,
-                  3,
-                  showAutoTick: false,
-                  persistentTick: _listKey != 'unmatchedItems' && item.rangeTicked,
-                ),
-                _buildDataCell('${item.proximityPercent}%', 1),
-                if (_listKey == 'unmatchedItems') _buildManualMatchButton(item),
-              ],
+        children: [
+          if (uploaded)
+            _uploadedCheckBox(
+              checked: code.isNotEmpty && _uploadedSelected.contains(code),
+              color: const Color(0xFF1A1A1A),
+              onTap: null,
+            ),
+          ..._selectedSearchType == 'Order' && _listKey != 'unmatchedItems'
+              ? [
+                  _buildDataCell('${index + 1}', 1),
+                  _buildDataCell(item.rfid, 2),
+                  _buildProgressCell(
+                    item.proximityPercent,
+                    3,
+                    persistentTick: item.rangeTicked,
+                  ),
+                  _buildDataCell('${item.proximityPercent}%', 1),
+                ]
+              : [
+                  _buildDataCell('${index + 1}', 1),
+                  _buildDataCell(item.rfid, 2),
+                  _buildDataCell(item.itemCode, 2),
+                  _buildProgressCell(
+                    item.proximityPercent,
+                    3,
+                    showAutoTick: false,
+                    persistentTick: _listKey != 'unmatchedItems' && item.rangeTicked,
+                  ),
+                  _buildDataCell('${item.proximityPercent}%', 1),
+                  if (_listKey == 'unmatchedItems') _buildManualMatchButton(item),
+                ],
+        ],
+      ),
       ),
     );
   }
