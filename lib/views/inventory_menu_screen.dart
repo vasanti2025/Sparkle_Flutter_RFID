@@ -135,23 +135,23 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
     final showMissingStocks =
         context.read<PrefService>().isWholesaleLoginUser();
     final List<Map<String, dynamic>> menuItems = [
-      {'key': 'Scan Display', 'title': s.scanDisplay, 'icon': Icons.qr_code_scanner},
+      {'key': 'Scan Display', 'title': s.scanDisplay, 'icon': Icons.qr_code_scanner_outlined},
       if (showMissingStocks)
-        {'key': 'Scan missing Stocks', 'title': s.scanMissingStocks, 'icon': Icons.playlist_remove},
-      {'key': 'Scan Counter', 'title': s.scanCounter, 'icon': Icons.dns},
-      {'key': 'Scan Box', 'title': s.scanBox, 'icon': Icons.all_inbox},
-      {'key': 'Scan Branch', 'title': s.scanBranch, 'icon': Icons.store},
-      {'key': 'Exhibition', 'title': s.exhibition, 'icon': Icons.star},
+        {'key': 'Scan missing Stocks', 'title': s.scanMissingStocks, 'icon': Icons.playlist_remove_outlined},
+      {'key': 'Scan Counter', 'title': s.scanCounter, 'icon': Icons.point_of_sale_outlined},
+      {'key': 'Scan Box', 'title': s.scanBox, 'icon': Icons.inventory_2_outlined},
+      {'key': 'Scan Branch', 'title': s.scanBranch, 'icon': Icons.storefront_outlined},
+      {'key': 'Exhibition', 'title': s.exhibition, 'icon': Icons.star_outline},
     ];
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(kToolbarHeight),
         child: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+              colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -210,7 +210,7 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
     return Container(
       height: 80,
       decoration: BoxDecoration(
-        color: const Color(0xFF3B363E),
+        color: const Color(0xFF1A1A1A),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Material(
@@ -226,7 +226,7 @@ class _InventoryMenuScreenState extends State<InventoryMenuScreen> {
               children: [
                 Icon(
                   icon,
-                  color: Colors.white,
+                  color: const Color(0xFFC4A35A),
                   size: 32,
                 ),
                 const SizedBox(width: 24),
@@ -363,7 +363,7 @@ class _InventoryMultiSelectionDialogState extends State<InventoryMultiSelectionD
                             style: AppFonts.poppins(
                               fontWeight: FontWeight.w600,
                               fontSize: 15,
-                              color: const Color(0xFF3B363E),
+                              color: const Color(0xFF1A1A1A),
                             ),
                           ),
                         ),
@@ -375,7 +375,7 @@ class _InventoryMultiSelectionDialogState extends State<InventoryMultiSelectionD
                             decoration: const BoxDecoration(
                               shape: BoxShape.circle,
                               gradient: LinearGradient(
-                                colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                                colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                               ),
                             ),
                             alignment: Alignment.center,
@@ -409,13 +409,13 @@ class _InventoryMultiSelectionDialogState extends State<InventoryMultiSelectionD
                                     CheckboxListTile(
                                       dense: true,
                                       controlAffinity: ListTileControlAffinity.leading,
-                                      activeColor: const Color(0xFF5231A7),
+                                      activeColor: const Color(0xFFC4A35A),
                                       title: Text(
                                         s.selectAll,
                                         style: AppFonts.poppins(
                                           fontSize: 14,
                                           fontWeight: FontWeight.w600,
-                                          color: const Color(0xFF3B363E),
+                                          color: const Color(0xFF1A1A1A),
                                         ),
                                       ),
                                       value: _allSelected,
@@ -434,12 +434,12 @@ class _InventoryMultiSelectionDialogState extends State<InventoryMultiSelectionD
                                             dense: true,
                                             controlAffinity:
                                                 ListTileControlAffinity.leading,
-                                            activeColor: const Color(0xFF5231A7),
+                                            activeColor: const Color(0xFFC4A35A),
                                             title: Text(
                                               item,
                                               style: AppFonts.poppins(
                                                 fontSize: 14,
-                                                color: const Color(0xFF3B363E),
+                                                color: const Color(0xFF1A1A1A),
                                               ),
                                             ),
                                             value: checked,
@@ -458,7 +458,7 @@ class _InventoryMultiSelectionDialogState extends State<InventoryMultiSelectionD
                                   decoration: BoxDecoration(
                                     borderRadius: BorderRadius.circular(8),
                                     gradient: const LinearGradient(
-                                      colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                                      colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                                     ),
                                   ),
                                   child: TextButton(

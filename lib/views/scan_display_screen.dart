@@ -2045,7 +2045,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          backgroundColor: Colors.white,
+          backgroundColor: const Color(0xFFF6F4F0),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2327,7 +2327,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              backgroundColor: Colors.white,
+              backgroundColor: const Color(0xFFF6F4F0),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: Text(
                 s.sendReport,
@@ -2465,7 +2465,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                           }
                         },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF5231A7),
+                    backgroundColor: const Color(0xFF1A1A1A),
                   ),
                   child: isSending
                       ? const SizedBox(
@@ -2518,13 +2518,13 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         }
       },
       child: Scaffold(
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFFF6F4F0),
         appBar: PreferredSize(
           preferredSize: const Size.fromHeight(kToolbarHeight),
           child: Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
-                colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
@@ -2737,7 +2737,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   ) {
     if (_isLoadingItems && _scannedItems.isEmpty) {
       return const Center(
-        child: CircularProgressIndicator(color: Color(0xFF5231A7)),
+        child: CircularProgressIndicator(color: Color(0xFFC4A35A)),
       );
     }
 
@@ -2775,7 +2775,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
               child: ColoredBox(
                 color: Colors.white.withValues(alpha: 0.55),
                 child: const Center(
-                  child: CircularProgressIndicator(color: Color(0xFF5231A7)),
+                  child: CircularProgressIndicator(color: Color(0xFFC4A35A)),
                 ),
               ),
             ),
@@ -2851,7 +2851,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
               child: ColoredBox(
                 color: Colors.white.withValues(alpha: 0.55),
                 child: const Center(
-                  child: CircularProgressIndicator(color: Color(0xFF5231A7)),
+                  child: CircularProgressIndicator(color: Color(0xFFC4A35A)),
                 ),
               ),
             ),
@@ -2896,7 +2896,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
         style: AppFonts.poppins(
           fontSize: 14,
           fontWeight: FontWeight.w600,
-          color: const Color(0xFF5231A7),
+          color: const Color(0xFFC4A35A),
         ),
       ),
     );
@@ -2924,7 +2924,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
             final dateLabel = DateFormat('dd-MM-yyyy').format(date);
             return Center(
               child: AlertDialog(
-              backgroundColor: Colors.white,
+              backgroundColor: const Color(0xFFF6F4F0),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               title: Text(
                 s.filter,
@@ -2935,7 +2935,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                 children: [
                   CheckboxListTile(
                     value: showMatch,
-                    activeColor: const Color(0xFF5231A7),
+                    activeColor: const Color(0xFFC4A35A),
                     contentPadding: EdgeInsets.zero,
                     controlAffinity: ListTileControlAffinity.leading,
                     title: Text(s.match, style: AppFonts.poppins(fontSize: 14)),
@@ -2943,7 +2943,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                   ),
                   CheckboxListTile(
                     value: showUnmatch,
-                    activeColor: const Color(0xFF5231A7),
+                    activeColor: const Color(0xFFC4A35A),
                     contentPadding: EdgeInsets.zero,
                     controlAffinity: ListTileControlAffinity.leading,
                     title: Text(s.unmatch, style: AppFonts.poppins(fontSize: 14)),
@@ -2952,7 +2952,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                   const SizedBox(height: 4),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.calendar_today, color: Color(0xFF5231A7)),
+                    leading: const Icon(Icons.calendar_today, color: Color(0xFFC4A35A)),
                     title: Text(s.date, style: AppFonts.poppins(fontSize: 13)),
                     subtitle: Text(
                       dateLabel,
@@ -2985,7 +2985,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                 ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF5231A7),
+                    backgroundColor: const Color(0xFF1A1A1A),
                   ),
                   onPressed: (!showMatch && !showUnmatch)
                       ? null
@@ -3840,7 +3840,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
           height: 38,
           decoration: BoxDecoration(
             gradient: const LinearGradient(
-              colors: [Color(0xFF3053F0), Color(0xFFE82E5A)],
+              colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
             ),
             borderRadius: BorderRadius.circular(6),
           ),
@@ -3938,7 +3938,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
             }
 
             return AlertDialog(
-              backgroundColor: Colors.white,
+              backgroundColor: const Color(0xFFF6F4F0),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               title: Text(
                 s.selectFilterType(filterTypeLocal),
@@ -3964,7 +3964,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                               height: 24,
                               width: 24,
                               child: Checkbox(
-                                activeColor: const Color(0xFF3053F0),
+                                activeColor: const Color(0xFFC4A35A),
                                 value: allSelected,
                                 onChanged: toggleSelectAll,
                               ),
@@ -4011,7 +4011,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                                     height: 24,
                                     width: 24,
                                     child: Checkbox(
-                                      activeColor: const Color(0xFF3053F0),
+                                      activeColor: const Color(0xFFC4A35A),
                                       value: isChecked,
                                       onChanged: (val) {
                                         setDialogState(() {
@@ -4054,7 +4054,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                           child: Text(
                             s.cancel.toUpperCase(),
                             style: AppFonts.poppins(
-                              color: const Color(0xFFE82E5A),
+                              color: const Color(0xFFA6853E),
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -4101,7 +4101,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                             Navigator.pop(context);
                           },
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF3053F0),
+                            backgroundColor: const Color(0xFF1A1A1A),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(6),
                             ),
@@ -4207,7 +4207,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
   Widget _buildTableHeader() {
     final s = context.s;
     return Container(
-      color: const Color(0xFF3B363E),
+      color: const Color(0xFF1A1A1A),
       padding: const EdgeInsets.fromLTRB(6, 2, 6, 2),
       child: (_currentLevel == 'DesignItems' || _selectedMenu == 'UNLABELLED')
           ? Padding(
@@ -4415,7 +4415,7 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
                               _selectedMenu == 'UNMATCHED';
 
     return Container(
-      color: const Color(0xFF3B363E),
+      color: const Color(0xFF1A1A1A),
       padding: const EdgeInsets.fromLTRB(6, 2, 6, 2),
       child: showDesignSummary
           ? Row(

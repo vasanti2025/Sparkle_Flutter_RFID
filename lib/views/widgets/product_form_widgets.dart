@@ -6,13 +6,13 @@ import '../../l10n/l10n_extension.dart';
 import '../../utils/app_dropdown.dart';
 
 const brandGradient = LinearGradient(
-  colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+  colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
   begin: Alignment.topLeft,
   end: Alignment.bottomRight,
 );
 
 const actionGradient = LinearGradient(
-  colors: [Color(0xFF3053F0), Color(0xFFE82E5A)],
+  colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
 );
 
 /// Matches Kotlin [FilterDropdown] — gradient stroke, compact height, popup under the field.
@@ -90,10 +90,10 @@ class FilterDropdown extends StatelessWidget {
                   height: 40,
                   child: Text(
                     '➕ Add New',
-                    style: GoogleFonts.poppins(
+                    style: GoogleFonts.bodoniModa(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
-                      color: const Color(0xFF3053F0),
+                      color: const Color(0xFFC4A35A),
                     ),
                   ),
                 ),
@@ -104,7 +104,7 @@ class FilterDropdown extends StatelessWidget {
                     height: 40,
                     child: Text(
                       option,
-                      style: GoogleFonts.poppins(
+                      style: GoogleFonts.bodoniModa(
                         fontSize: 12,
                         fontWeight: option == selected ? FontWeight.w600 : FontWeight.normal,
                       ),
@@ -119,7 +119,7 @@ class FilterDropdown extends StatelessWidget {
                     Expanded(
                       child: Text(
                         display,
-                        style: GoogleFonts.poppins(
+                        style: GoogleFonts.bodoniModa(
                           fontSize: 12,
                           color: Colors.black87,
                           fontWeight: FontWeight.w500,
@@ -158,7 +158,7 @@ class BulkInlineTextField extends StatelessWidget {
       controller: controller,
       onChanged: onChanged,
       textAlign: textAlign,
-      style: GoogleFonts.poppins(fontSize: 11, color: const Color(0xFF424242)),
+      style: GoogleFonts.bodoniModa(fontSize: 11, color: const Color(0xFF424242)),
       decoration: const InputDecoration(
         isDense: true,
         contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
@@ -195,7 +195,7 @@ class ProductDropdownField extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87)),
+        Text(label, style: GoogleFonts.bodoniModa(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87)),
         const SizedBox(height: 4),
         Container(
           decoration: BoxDecoration(
@@ -211,9 +211,9 @@ class ProductDropdownField extends StatelessWidget {
                     isExpanded: true,
                     menuMaxHeight: kDropdownMenuMaxHeight,
                     value: selected.isEmpty ? null : selected,
-                    hint: Text(s.selectOption(label), style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey)),
+                    hint: Text(s.selectOption(label), style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.grey)),
                     items: options
-                        .map((o) => DropdownMenuItem(value: o, child: Text(o, style: GoogleFonts.poppins(fontSize: 13))))
+                        .map((o) => DropdownMenuItem(value: o, child: Text(o, style: GoogleFonts.bodoniModa(fontSize: 13))))
                         .toList(),
                     onChanged: enabled
                         ? (v) {
@@ -225,7 +225,7 @@ class ProductDropdownField extends StatelessWidget {
               ),
               if (onAdd != null)
                 IconButton(
-                  icon: const Icon(Icons.add_circle_outline, color: Color(0xFF5231A7), size: 20),
+                  icon: const Icon(Icons.add_circle_outline, color: Color(0xFFC4A35A), size: 20),
                   onPressed: onAdd,
                   tooltip: 'Add $label',
                 ),
@@ -258,14 +258,14 @@ class ProductTextField extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87)),
+        Text(label, style: GoogleFonts.bodoniModa(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87)),
         const SizedBox(height: 4),
         TextField(
           controller: controller,
           readOnly: readOnly,
           keyboardType: keyboardType,
           onChanged: onChanged,
-          style: GoogleFonts.poppins(fontSize: 13),
+          style: GoogleFonts.bodoniModa(fontSize: 13),
           decoration: InputDecoration(
             isDense: true,
             contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -302,7 +302,7 @@ PreferredSizeWidget productGradientAppBar({
         ),
         title: Text(
           title,
-          style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 20),
+          style: GoogleFonts.bodoniModa(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 20),
           overflow: TextOverflow.ellipsis,
         ),
         actions: showCounter && onCountSelected != null
@@ -335,7 +335,7 @@ class _ScanPowerCounter extends StatelessWidget {
       onSelected: onCountSelected,
       itemBuilder: (ctx) => List.generate(
         30,
-        (i) => PopupMenuItem(value: i + 1, child: Text('${i + 1}', style: GoogleFonts.poppins())),
+        (i) => PopupMenuItem(value: i + 1, child: Text('${i + 1}', style: GoogleFonts.bodoniModa())),
       ),
       child: Container(
         width: 32,
@@ -348,7 +348,7 @@ class _ScanPowerCounter extends StatelessWidget {
         alignment: Alignment.center,
         child: Text(
           '$selectedCount',
-          style: GoogleFonts.poppins(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 14),
+          style: GoogleFonts.bodoniModa(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 14),
         ),
       ),
     );
@@ -366,7 +366,7 @@ Widget productGradientButton({
       borderRadius: BorderRadius.circular(12),
       gradient: onPressed == null
           ? null
-          : const LinearGradient(colors: [Color(0xFF3053F0), Color(0xFFE82E5A)]),
+          : const LinearGradient(colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)]),
       color: onPressed == null ? Colors.grey.shade300 : null,
     ),
     child: ElevatedButton(
@@ -376,7 +376,7 @@ Widget productGradientButton({
         shadowColor: Colors.transparent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
-      child: Text(label, style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
+      child: Text(label, style: GoogleFonts.bodoniModa(color: Colors.white, fontWeight: FontWeight.w600)),
     ),
   );
 }

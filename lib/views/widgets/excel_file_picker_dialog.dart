@@ -51,15 +51,15 @@ class ExcelFilePickerDialog extends StatelessWidget {
                         RichText(
                           textAlign: TextAlign.center,
                           text: TextSpan(
-                            style: GoogleFonts.poppins(fontSize: 13, color: Colors.black87),
+                            style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black87),
                             children: [
                               TextSpan(text: s.tapTo),
                               TextSpan(
                                 text: s.chooseFile,
-                                style: GoogleFonts.poppins(
+                                style: GoogleFonts.bodoniModa(
                                   fontSize: 13,
                                   decoration: TextDecoration.underline,
-                                  color: const Color(0xFF3053F0),
+                                  color: const Color(0xFFC4A35A),
                                 ),
                               ),
                             ],
@@ -76,14 +76,14 @@ class ExcelFilePickerDialog extends StatelessWidget {
                   Expanded(
                     child: Text(
                       s.formatsLabel,
-                      style: GoogleFonts.poppins(fontSize: 10, color: Colors.grey),
+                      style: GoogleFonts.bodoniModa(fontSize: 10, color: Colors.grey),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   const SizedBox(width: 8),
                   Text(
                     s.maxFileSize,
-                    style: GoogleFonts.poppins(fontSize: 10, color: Colors.grey),
+                    style: GoogleFonts.bodoniModa(fontSize: 10, color: Colors.grey),
                   ),
                 ],
               ),
@@ -108,12 +108,12 @@ class ExcelFilePickerDialog extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
-          gradient: const LinearGradient(colors: [Color(0xFF3053F0), Color(0xFFE82E5A)]),
+          gradient: const LinearGradient(colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)]),
         ),
         child: ElevatedButton.icon(
           onPressed: onTap,
           icon: Icon(icon, color: Colors.white, size: 16),
-          label: Text(label, style: GoogleFonts.poppins(color: Colors.white, fontSize: 13)),
+          label: Text(label, style: GoogleFonts.bodoniModa(color: Colors.white, fontSize: 13)),
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.transparent,
             shadowColor: Colors.transparent,
@@ -139,7 +139,7 @@ class _GradientDashedBorderPainter extends CustomPainter {
 
     final paint = Paint()
       ..shader = const LinearGradient(
-        colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+        colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
       ).createShader(rect)
       ..strokeWidth = 2
       ..style = PaintingStyle.stroke;

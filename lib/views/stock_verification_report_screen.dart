@@ -20,7 +20,7 @@ class StockVerificationReportScreen extends StatefulWidget {
 }
 
 class _StockVerificationReportScreenState extends State<StockVerificationReportScreen> {
-  static const _gradient = LinearGradient(colors: [Color(0xFF5231A7), Color(0xFFD32940)]);
+  static const _gradient = LinearGradient(colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)]);
 
   /// INVENTORY = BatchWise, SCAN = Consolidated (same as Kotlin)
   String _reportType = 'INVENTORY';
@@ -162,7 +162,7 @@ class _StockVerificationReportScreenState extends State<StockVerificationReportS
     final isBatch = _reportType == 'INVENTORY';
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       appBar: AppBar(
         automaticallyImplyLeading: false,
         titleSpacing: 0,
@@ -353,7 +353,7 @@ class _ReportTypeBar extends StatelessWidget {
     required this.onDate,
   });
 
-  static const _gradient = LinearGradient(colors: [Color(0xFF5231A7), Color(0xFFD32940)]);
+  static const _gradient = LinearGradient(colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)]);
 
   @override
   Widget build(BuildContext context) {
@@ -540,7 +540,7 @@ class _BatchFilterDialogState extends State<_BatchFilterDialog> {
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: Text(s.cancel)),
         ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF5231A7)),
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1A1A1A)),
           onPressed: () {
             widget.onApply(_branchId, _from, _to);
             Navigator.pop(context);

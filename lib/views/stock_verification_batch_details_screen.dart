@@ -104,7 +104,7 @@ class _StockVerificationBatchDetailsScreenState extends State<StockVerificationB
                   children: [
                     const CircularProgressIndicator(),
                     const SizedBox(height: 16),
-                    Text(s.exportingProgress(progress), style: GoogleFonts.poppins()),
+                    Text(s.exportingProgress(progress), style: GoogleFonts.bodoniModa()),
                   ],
                 ),
               ),
@@ -126,7 +126,7 @@ class _StockVerificationBatchDetailsScreenState extends State<StockVerificationB
     Navigator.of(context, rootNavigator: true).pop();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(err ?? s.reportExportedSuccessfully, style: GoogleFonts.poppins()),
+        content: Text(err ?? s.reportExportedSuccessfully, style: GoogleFonts.bodoniModa()),
       ),
     );
   }
@@ -151,13 +151,13 @@ class _StockVerificationBatchDetailsScreenState extends State<StockVerificationB
     }
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       appBar: AppBar(
         automaticallyImplyLeading: false,
         titleSpacing: 0,
         flexibleSpace: Container(
           decoration: const BoxDecoration(
-            gradient: LinearGradient(colors: [Color(0xFF5231A7), Color(0xFFD32940)]),
+            gradient: LinearGradient(colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)]),
           ),
         ),
         backgroundColor: Colors.transparent,
@@ -171,7 +171,7 @@ class _StockVerificationBatchDetailsScreenState extends State<StockVerificationB
         ),
         title: Text(
           s.batchDetails,
-          style: GoogleFonts.poppins(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+          style: GoogleFonts.bodoniModa(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
         ),
         actions: [
           if (canExport)
@@ -203,7 +203,7 @@ class _StockVerificationBatchDetailsScreenState extends State<StockVerificationB
             children: [
               const CircularProgressIndicator(),
               const SizedBox(height: 12),
-              Text(s.loading, style: GoogleFonts.poppins(fontSize: 13)),
+              Text(s.loading, style: GoogleFonts.bodoniModa(fontSize: 13)),
             ],
           ),
         );
@@ -217,12 +217,12 @@ class _StockVerificationBatchDetailsScreenState extends State<StockVerificationB
                 Text(
                   UserFacingError.fromMessage(vm.errorMessage, fallback: s.error),
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.poppins(),
+                  style: GoogleFonts.bodoniModa(),
                 ),
                 const SizedBox(height: 12),
                 ElevatedButton(
                   onPressed: () => vm.fetchBatchDetails(widget.scanBatchId),
-                  child: Text(s.retry, style: GoogleFonts.poppins()),
+                  child: Text(s.retry, style: GoogleFonts.bodoniModa()),
                 ),
               ],
             ),

@@ -531,7 +531,7 @@ class _OrderListScreenState extends State<OrderListScreen> {
             }
 
             return Dialog(
-              backgroundColor: Colors.white,
+              backgroundColor: const Color(0xFFF6F4F0),
               insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               child: ConstrainedBox(
@@ -950,7 +950,7 @@ class _OrderListScreenState extends State<OrderListScreen> {
       appBar: AppBar(
         flexibleSpace: Container(
           decoration: const BoxDecoration(
-            gradient: LinearGradient(colors: [Color(0xFF5231A7), Color(0xFFD32940)]),
+            gradient: LinearGradient(colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)]),
           ),
         ),
         title: Text(
@@ -1132,10 +1132,10 @@ class _OrderListScreenState extends State<OrderListScreen> {
             child: Column(
               children: [
                 if (isHistoryLoading && filtered.isNotEmpty)
-                  const LinearProgressIndicator(minHeight: 2, color: Color(0xFF5231A7)),
+                  const LinearProgressIndicator(minHeight: 2, color: Color(0xFFC4A35A)),
                 Expanded(
                   child: isHistoryLoading && filtered.isEmpty
-                      ? const Center(child: CircularProgressIndicator(color: Color(0xFF5231A7)))
+                      ? const Center(child: CircularProgressIndicator(color: Color(0xFFC4A35A)))
                       : filtered.isEmpty
                           ? _buildEmptyState()
                           : _buildReportView(filtered, context.read<OrderViewModel>()),

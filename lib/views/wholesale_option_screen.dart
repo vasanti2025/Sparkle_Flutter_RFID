@@ -341,7 +341,7 @@ class _WholesaleOptionScreenState extends State<WholesaleOptionScreen> {
     return Directionality(
       textDirection: locale.textDirection,
       child: Scaffold(
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFFF6F4F0),
         appBar: productGradientAppBar(context: context, title: s.wholesaleOption),
         body: _bootstrapping
             ? const Center(child: CircularProgressIndicator())
@@ -386,7 +386,7 @@ class _WholesaleOptionScreenState extends State<WholesaleOptionScreen> {
                             const SizedBox(height: 16),
                             Text(
                               s.counter,
-                              style: GoogleFonts.poppins(
+                              style: GoogleFonts.bodoniModa(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -396,7 +396,7 @@ class _WholesaleOptionScreenState extends State<WholesaleOptionScreen> {
                               selectedCount > 0
                                   ? '$selectedCount selected'
                                   : s.selectCounter,
-                              style: GoogleFonts.poppins(
+                              style: GoogleFonts.bodoniModa(
                                 fontSize: 12,
                                 color: Colors.grey.shade600,
                               ),
@@ -409,7 +409,7 @@ class _WholesaleOptionScreenState extends State<WholesaleOptionScreen> {
                                   _branchId > 0 || branchName.isNotEmpty
                                       ? 'No counters for this branch'
                                       : s.pleaseSelectBranch,
-                                  style: GoogleFonts.poppins(
+                                  style: GoogleFonts.bodoniModa(
                                     fontSize: 13,
                                     color: Colors.grey.shade600,
                                   ),
@@ -479,7 +479,7 @@ class _PickerField extends StatelessWidget {
       children: [
         Text(
           label,
-          style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87),
+          style: GoogleFonts.bodoniModa(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87),
         ),
         const SizedBox(height: 4),
         InkWell(
@@ -515,7 +515,7 @@ class _PickerField extends StatelessWidget {
                 minHeight: 40,
               ),
             ),
-            child: Text(value, style: GoogleFonts.poppins(fontSize: 13)),
+            child: Text(value, style: GoogleFonts.bodoniModa(fontSize: 13)),
           ),
         ),
       ],
@@ -548,7 +548,7 @@ class _CounterCheckboxTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: item.assignedAlready || item.selected
-              ? const Color(0xFF5231A7)
+              ? const Color(0xFFC4A35A)
               : const Color(0xFFE8E8E8),
         ),
       ),
@@ -556,7 +556,7 @@ class _CounterCheckboxTile extends StatelessWidget {
         value: item.selected,
         onChanged: onChanged,
         controlAffinity: ListTileControlAffinity.leading,
-        activeColor: const Color(0xFF5231A7),
+        activeColor: const Color(0xFFC4A35A),
         contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
         secondary: IconButton(
           tooltip: s.deleteCounter,
@@ -568,7 +568,7 @@ class _CounterCheckboxTile extends StatelessWidget {
         ),
         title: Text(
           title,
-          style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600),
+          style: GoogleFonts.bodoniModa(fontSize: 14, fontWeight: FontWeight.w600),
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -576,16 +576,16 @@ class _CounterCheckboxTile extends StatelessWidget {
             if (subtitle != null)
               Text(
                 subtitle,
-                style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade700),
+                style: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.grey.shade700),
               ),
             if (item.assignedAlready) ...[
               const SizedBox(height: 4),
               Text(
                 'Assigned already',
-                style: GoogleFonts.poppins(
+                style: GoogleFonts.bodoniModa(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
-                  color: const Color(0xFF5231A7),
+                  color: const Color(0xFFC4A35A),
                 ),
               ),
             ],

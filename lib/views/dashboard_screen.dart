@@ -29,23 +29,23 @@ class _DashboardScreenState extends State<DashboardScreen>
   String _appVersion = '';
 
   static const _menuDefs = [
-    {'key': 'product', 'icon': Icons.shopping_bag, 'route': '/product_management'},
-    {'key': 'inventory', 'icon': Icons.layers, 'route': '/inventory'},
-    {'key': 'order', 'icon': Icons.receipt_long, 'route': '/order_list'},
+    {'key': 'product', 'icon': Icons.diamond_outlined, 'route': '/product_management'},
+    {'key': 'inventory', 'icon': Icons.qr_code_scanner_outlined, 'route': '/inventory'},
+    {'key': 'order', 'icon': Icons.receipt_long_outlined, 'route': '/order_list'},
     {'key': 'search', 'icon': Icons.search, 'route': '/search'},
     {'key': 'stockTransfer', 'icon': Icons.swap_horiz, 'route': '/stock_transfer'},
-    {'key': 'report', 'icon': Icons.assessment, 'route': '/stock_verification_report'},
-    {'key': 'quotations', 'icon': Icons.description, 'route': '/quotation_list'},
-    {'key': 'deliveryChallan', 'icon': Icons.local_shipping, 'route': '/delivery_challan_list'},
+    {'key': 'report', 'icon': Icons.bar_chart_outlined, 'route': '/stock_verification_report'},
+    {'key': 'quotations', 'icon': Icons.description_outlined, 'route': '/quotation_list'},
+    {'key': 'deliveryChallan', 'icon': Icons.local_shipping_outlined, 'route': '/delivery_challan_list'},
     {'key': 'labelTodayRate', 'icon': Icons.trending_up, 'route': '/todays_rate'},
     {'key': 'sampleIn', 'icon': Icons.login, 'route': '/sample_in_list'},
     {'key': 'sampleOut', 'icon': Icons.logout, 'route': '/sample_out_list'},
-    {'key': 'settings', 'icon': Icons.settings, 'route': '/settings'},
+    {'key': 'settings', 'icon': Icons.settings_outlined, 'route': '/settings'},
   ];
 
   static const _drawerExtra = [
-    {'key': 'home', 'icon': Icons.home, 'isHome': true},
-    {'key': 'logout', 'icon': Icons.exit_to_app, 'isLogout': true},
+    {'key': 'home', 'icon': Icons.home_outlined, 'isHome': true},
+    {'key': 'logout', 'icon': Icons.logout, 'isLogout': true},
   ];
 
   @override
@@ -235,13 +235,13 @@ class _DashboardScreenState extends State<DashboardScreen>
     ];
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(kToolbarHeight),
         child: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+              colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -270,7 +270,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               padding: const EdgeInsets.only(left: 16, bottom: 16),
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [Color(0xFF315BA3), Color(0xFFA7192E)],
+                  colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
@@ -282,7 +282,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     const CircleAvatar(
                       backgroundColor: Colors.white24,
                       radius: 20,
-                      child: Icon(Icons.person, color: Colors.white, size: 24),
+                      child: const Icon(Icons.person_outline, color: Color(0xFFC4A35A), size: 24),
                     ),
                     const SizedBox(width: 12),
                     Text(
@@ -308,7 +308,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                   return ListTile(
                     leading: Icon(
                       item['icon'] as IconData,
-                      color: Colors.grey[700],
+                      color: const Color(0xFFC4A35A),
                     ),
                     title: Text(
                       item['title'] as String,
@@ -391,10 +391,11 @@ class _DashboardScreenState extends State<DashboardScreen>
                         final item = menuItems[index];
                         return Card(
                           color: Colors.white,
-                          elevation: 4,
-                          shadowColor: Colors.black26,
+                          elevation: 1,
+                          shadowColor: const Color(0x14000000),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(16),
+                            side: const BorderSide(color: Color(0xFFE6E1D8)),
                           ),
                           child: InkWell(
                             onTap: () {
@@ -417,7 +418,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                                 unawaited(_pushNamed(context, route));
                               }
                             },
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(16),
                             child: Padding(
                               padding: const EdgeInsets.all(8.0),
                               child: Column(
@@ -454,11 +455,11 @@ class _DashboardScreenState extends State<DashboardScreen>
               const SizedBox(height: 12),
               Text(
                 s.sparkleRfid,
-                style: TextStyle(
-                  color: Colors.grey[500],
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 1.2,
+                style: const TextStyle(
+                  color: Color(0xFFC4A35A),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.6,
                 ),
               ),
               const SizedBox(height: 8),

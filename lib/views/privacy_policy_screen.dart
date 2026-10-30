@@ -49,13 +49,13 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
   Widget build(BuildContext context) {
     final s = context.s;
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       appBar: AppBar(
         automaticallyImplyLeading: false,
         titleSpacing: 0,
         flexibleSpace: Container(
           decoration: const BoxDecoration(
-            gradient: LinearGradient(colors: [Color(0xFF5231A7), Color(0xFFD32940)]),
+            gradient: LinearGradient(colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)]),
           ),
         ),
         backgroundColor: Colors.transparent,
@@ -66,7 +66,7 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
         ),
         title: Text(
           s.privacyPolicy,
-          style: GoogleFonts.poppins(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+          style: GoogleFonts.bodoniModa(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
         ),
       ),
       body: Stack(
@@ -88,7 +88,7 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
                     Text(
                       _errorMsg!,
                       textAlign: TextAlign.center,
-                      style: GoogleFonts.poppins(color: Colors.grey[700]),
+                      style: GoogleFonts.bodoniModa(color: Colors.grey[700]),
                     ),
                   ],
                 ),

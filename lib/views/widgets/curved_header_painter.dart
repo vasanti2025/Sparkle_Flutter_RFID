@@ -9,8 +9,8 @@ class CurvedHeaderPainter extends CustomPainter {
     final paint = Paint()
       ..shader = const LinearGradient(
         colors: [
-          Color(0xFF0077D4),
-          Color(0xFFD60000),
+          Color(0xFF1A1A1A),
+          Color(0xFF3A3228),
         ],
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,

@@ -41,7 +41,7 @@ class SettingsScreen extends StatelessWidget {
     return Directionality(
       textDirection: locale.textDirection,
       child: Scaffold(
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFFF6F4F0),
         appBar: productGradientAppBar(context: context, title: s.settings),
         body: MediaQuery(
           data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
@@ -419,7 +419,7 @@ class SettingsScreen extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                      colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                     ),
                   ),
                   child: Row(
@@ -475,7 +475,7 @@ class SettingsScreen extends StatelessWidget {
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(color: Color(0xFF5231A7), width: 1.5),
+                            borderSide: const BorderSide(color: Color(0xFFC4A35A), width: 1.5),
                           ),
                         ),
                       ),
@@ -508,7 +508,7 @@ class SettingsScreen extends StatelessWidget {
                         child: DecoratedBox(
                           decoration: BoxDecoration(
                             gradient: const LinearGradient(
-                              colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                              colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                             ),
                             borderRadius: BorderRadius.circular(10),
                           ),
@@ -814,7 +814,7 @@ class _SettingsTile extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const Icon(Icons.settings, size: 18, color: Colors.black87),
+                const Icon(Icons.settings_outlined, size: 18, color: Color(0xFFC4A35A)),
                 const SizedBox(width: 10),
                 Expanded(
                   flex: trailingText == null ? 1 : 4,

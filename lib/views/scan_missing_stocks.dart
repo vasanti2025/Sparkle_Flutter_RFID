@@ -760,13 +760,13 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
     final matchedWt = _rows.where((r) => r.matched).fold<double>(0, (sum, r) => sum + r.grossWt);
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(kToolbarHeight),
         child: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+              colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -802,7 +802,7 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
               style: AppFonts.poppins(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: const Color(0xFF3B363E),
+                color: const Color(0xFF1A1A1A),
               ),
             ),
           ),
@@ -829,7 +829,7 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
 
   Widget _headerRow(dynamic s) {
     return Container(
-      color: const Color(0xFF3B363E),
+      color: const Color(0xFF1A1A1A),
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       child: Row(
         children: [
@@ -858,7 +858,7 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
 
   Widget _buildList(dynamic s) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: Color(0xFF5231A7)));
+      return const Center(child: CircularProgressIndicator(color: Color(0xFFC4A35A)));
     }
     if (_error != null && _rows.isEmpty) {
       return Center(
@@ -892,7 +892,7 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
           const Positioned.fill(
             child: ColoredBox(
               color: Color(0x8AFFFFFF),
-              child: Center(child: CircularProgressIndicator(color: Color(0xFF5231A7))),
+              child: Center(child: CircularProgressIndicator(color: Color(0xFFC4A35A))),
             ),
           ),
       ],
@@ -978,7 +978,7 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
     required dynamic s,
   }) {
     return Container(
-      color: const Color(0xFF3B363E),
+      color: const Color(0xFF1A1A1A),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: Row(
         children: [

@@ -406,7 +406,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
         }
       },
       child: Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       appBar: productGradientAppBar(
         context: context,
         title: s.stockTransfer,
@@ -548,7 +548,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                           },
                         ),
                       ),
-                      IconButton(icon: const Icon(Icons.tune, color: Color(0xFF5231A7)), onPressed: () => _showFilterDialog(vm)),
+                      IconButton(icon: const Icon(Icons.tune, color: Color(0xFFC4A35A)), onPressed: () => _showFilterDialog(vm)),
                     ],
                   ),
                 ),
@@ -582,7 +582,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
                               Expanded(child: Text(item.netWeight, style: _cell(), textAlign: TextAlign.center)),
                               Checkbox(
                                 value: checked,
-                                activeColor: const Color(0xFF5231A7),
+                                activeColor: const Color(0xFFC4A35A),
                                 onChanged: (_) => _toggleCheck(key),
                               ),
                             ],
@@ -680,7 +680,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(colors: [Color(0xFF5231A7), Color(0xFFD32940)]),
+          gradient: const LinearGradient(colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)]),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Text(label, style: AppFonts.poppins(color: Colors.white, fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center),

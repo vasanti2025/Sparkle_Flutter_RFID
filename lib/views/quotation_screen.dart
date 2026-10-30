@@ -21,7 +21,7 @@ import '../utils/user_facing_error.dart';
 import 'widgets/order_bulk_details_dialog.dart';
 
 const _brandGradient = LinearGradient(
-  colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+  colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
 );
 
 class QuotationScreen extends StatefulWidget {
@@ -372,7 +372,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
         context.s.quotations,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: GoogleFonts.poppins(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600),
+        style: GoogleFonts.bodoniModa(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600),
       ),
       actions: [
         PopupMenuButton<int>(
@@ -387,7 +387,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
               .map((p) => PopupMenuItem<int>(
                     value: p,
                     height: 36,
-                    child: Text('$p', style: GoogleFonts.poppins(fontSize: 14)),
+                    child: Text('$p', style: GoogleFonts.bodoniModa(fontSize: 14)),
                   ))
               .toList(),
           child: Container(
@@ -396,7 +396,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
             alignment: Alignment.center,
             decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4)),
             child: Text('$_power',
-                style: GoogleFonts.poppins(color: Colors.red, fontSize: 14, fontWeight: FontWeight.bold)),
+                style: GoogleFonts.bodoniModa(color: Colors.red, fontSize: 14, fontWeight: FontWeight.bold)),
           ),
         ),
         const SizedBox(width: 12),
@@ -430,12 +430,12 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
                       child: TextField(
                         controller: _customerSearchCtrl,
                         focusNode: _focusNode,
-                        style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
+                        style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black),
                         decoration: InputDecoration(
                           isCollapsed: true,
                           border: InputBorder.none,
                           hintText: s.enterCustomerName,
-                          hintStyle: GoogleFonts.poppins(fontSize: 13, color: Colors.grey),
+                          hintStyle: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.grey),
                         ),
                         onChanged: (v) => setState(() => _showSuggestions = true),
                       ),
@@ -480,7 +480,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
               child: visible.isEmpty
                   ? Padding(
                       padding: const EdgeInsets.all(12),
-                      child: Text(s.noItemsFound, style: GoogleFonts.poppins(color: Colors.grey, fontSize: 13)),
+                      child: Text(s.noItemsFound, style: GoogleFonts.bodoniModa(color: Colors.grey, fontSize: 13)),
                     )
                   : ListView.separated(
                       shrinkWrap: true,
@@ -502,7 +502,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
                             child: Text(fullName,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: GoogleFonts.poppins(fontSize: 13, color: Colors.black)),
+                                style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black)),
                           ),
                         );
                       },
@@ -543,12 +543,12 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
                             child: TextField(
                               controller: _itemCodeCtrl,
                               focusNode: _itemCodeFocus,
-                              style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
+                              style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black),
                               decoration: InputDecoration(
                                 isCollapsed: true,
                                 border: InputBorder.none,
                                 hintText: s.enterRfidItemcode,
-                                hintStyle: GoogleFonts.poppins(fontSize: 12, color: Colors.grey),
+                                hintStyle: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.grey),
                               ),
                               onChanged: (v) {
                                 _suggestTimer?.cancel();
@@ -616,7 +616,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
                                 s.quotationDetails,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey),
+                                style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.grey),
                               ),
                             ),
                             const SizedBox(width: 4),
@@ -652,7 +652,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
                     onTap: () => addByCode(display),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      child: Text(display, style: GoogleFonts.poppins(fontSize: 13, color: Colors.black)),
+                      child: Text(display, style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black)),
                     ),
                   );
                 },
@@ -679,7 +679,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
         child: Text(text,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.poppins(fontSize: 11, color: color, fontWeight: weight)),
+            style: GoogleFonts.bodoniModa(fontSize: 11, color: color, fontWeight: weight)),
       ),
     );
   }
@@ -748,7 +748,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
                           child: items.isEmpty
                               ? Center(
                                   child: Text(s.noItemsAdded,
-                                      style: GoogleFonts.poppins(color: Colors.grey, fontSize: 13)))
+                                      style: GoogleFonts.bodoniModa(color: Colors.grey, fontSize: 13)))
                               : ListView.builder(
                                   controller: _dataVScroll,
                                   padding: EdgeInsets.zero,
@@ -808,7 +808,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         textAlign: TextAlign.center,
-                        style: GoogleFonts.poppins(
+                        style: GoogleFonts.bodoniModa(
                           fontSize: 11,
                           color: Colors.white,
                           fontWeight: FontWeight.w600,
@@ -852,20 +852,20 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
       context: context,
       builder: (context) {
         return AlertDialog(
-          backgroundColor: Colors.white,
-          title: Text(s.deleteItem, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-          content: Text(s.confirmDeleteItem, style: GoogleFonts.poppins()),
+          backgroundColor: const Color(0xFFF6F4F0),
+          title: Text(s.deleteItem, style: GoogleFonts.bodoniModa(fontWeight: FontWeight.bold)),
+          content: Text(s.confirmDeleteItem, style: GoogleFonts.bodoniModa()),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text(s.cancel, style: GoogleFonts.poppins(color: Colors.grey)),
+              child: Text(s.cancel, style: GoogleFonts.bodoniModa(color: Colors.grey)),
             ),
             TextButton(
               onPressed: () {
                 vm.deleteItem(idx);
                 Navigator.pop(context);
               },
-              child: Text(s.delete, style: GoogleFonts.poppins(color: Colors.red)),
+              child: Text(s.delete, style: GoogleFonts.bodoniModa(color: Colors.red)),
             ),
           ],
         );
@@ -910,7 +910,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
                       s.gstLabel,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.black),
+                      style: GoogleFonts.bodoniModa(fontSize: 13, fontWeight: FontWeight.w500, color: Colors.black),
                     ),
                   ),
                 ],
@@ -924,7 +924,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
-              style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black),
+              style: GoogleFonts.bodoniModa(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black),
             ),
           ),
           const SizedBox(width: 8),
@@ -938,7 +938,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
                   '₹ ${vm.getFinalTotal().toStringAsFixed(2)}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.poppins(
+                  style: GoogleFonts.bodoniModa(
                     fontSize: 13,
                     color: const Color(0xFF1565C0),
                     fontWeight: FontWeight.bold,
@@ -962,7 +962,7 @@ class _QuotationScreenState extends State<QuotationScreen> with BarcodeScanMixin
         return true;
       },
       child: Scaffold(
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFFF6F4F0),
         resizeToAvoidBottomInset: false,
         appBar: _buildGradientTopBar(),
         body: SafeArea(

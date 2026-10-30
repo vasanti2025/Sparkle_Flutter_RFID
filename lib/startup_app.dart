@@ -10,7 +10,7 @@ import 'app_warmup.dart';
 import 'services/db_service.dart';
 import 'services/pref_service.dart';
 import 'startup_bootstrap.dart';
-import 'utils/app_dialogs.dart';
+import 'theme/app_theme.dart';
 import 'utils/fast_page_route.dart';
 import 'viewmodels/dashboard_view_model.dart';
 import 'viewmodels/login_view_model.dart';
@@ -165,20 +165,7 @@ class _StartupApp extends StatelessWidget {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      theme: ThemeData(
-        useMaterial3: true,
-        primarySwatch: Colors.blue,
-        pageTransitionsTheme: const PageTransitionsTheme(
-          builders: {
-            TargetPlatform.android: NoZoomPageTransitionsBuilder(),
-            TargetPlatform.iOS: NoZoomPageTransitionsBuilder(),
-            TargetPlatform.linux: NoZoomPageTransitionsBuilder(),
-            TargetPlatform.macOS: NoZoomPageTransitionsBuilder(),
-            TargetPlatform.windows: NoZoomPageTransitionsBuilder(),
-            TargetPlatform.fuchsia: NoZoomPageTransitionsBuilder(),
-          },
-        ),
-      ),
+      theme: buildAppTheme(),
       builder: (context, child) {
         final media = MediaQuery.of(context);
         return MediaQuery(

@@ -78,13 +78,13 @@ class _SampleOutListScreenState extends State<SampleOutListScreen> {
       ..sort((a, b) => b.id.compareTo(a.id));
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(kToolbarHeight),
         child: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+              colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -141,7 +141,7 @@ class _SampleOutListScreenState extends State<SampleOutListScreen> {
             ),
             const Divider(height: 1),
             if (vm.isListLoading && filtered.isNotEmpty)
-              const LinearProgressIndicator(minHeight: 2, color: Color(0xFF5231A7)),
+              const LinearProgressIndicator(minHeight: 2, color: Color(0xFFC4A35A)),
             Expanded(
               child: vm.isListLoading && filtered.isEmpty
                   ? const Center(child: CircularProgressIndicator())

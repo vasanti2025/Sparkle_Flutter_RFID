@@ -95,7 +95,7 @@ class _DeliveryChallanFieldsDialogState extends State<DeliveryChallanFieldsDialo
                   const SizedBox(width: 8),
                   Text(
                     s.deliveryChallanFields,
-                    style: GoogleFonts.poppins(
+                    style: GoogleFonts.bodoniModa(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
@@ -173,7 +173,7 @@ class _DeliveryChallanFieldsDialogState extends State<DeliveryChallanFieldsDialo
                         onPressed: () => Navigator.pop(context),
                         child: Text(
                           s.cancel,
-                          style: GoogleFonts.poppins(color: Colors.grey[700], fontWeight: FontWeight.bold),
+                          style: GoogleFonts.bodoniModa(color: Colors.grey[700], fontWeight: FontWeight.bold),
                         ),
                       ),
                     ),
@@ -184,7 +184,7 @@ class _DeliveryChallanFieldsDialogState extends State<DeliveryChallanFieldsDialo
                       height: 44,
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
-                          colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                          colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                         ),
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -213,7 +213,7 @@ class _DeliveryChallanFieldsDialogState extends State<DeliveryChallanFieldsDialo
                         ),
                         child: Text(
                           s.confirm,
-                          style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold),
+                          style: GoogleFonts.bodoniModa(color: Colors.white, fontWeight: FontWeight.bold),
                         ),
                       ),
                     ),
@@ -240,7 +240,7 @@ class _DeliveryChallanFieldsDialogState extends State<DeliveryChallanFieldsDialo
             flex: 2,
             child: Text(
               label,
-              style: GoogleFonts.poppins(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500),
+              style: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500),
             ),
           ),
           Expanded(
@@ -256,7 +256,7 @@ class _DeliveryChallanFieldsDialogState extends State<DeliveryChallanFieldsDialo
               child: TextField(
                 controller: controller,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
+                style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black),
                 decoration: const InputDecoration(
                   border: InputBorder.none,
                   isCollapsed: true,
@@ -293,7 +293,7 @@ class _DeliveryChallanFieldsDialogState extends State<DeliveryChallanFieldsDialo
             flex: 2,
             child: Text(
               label,
-              style: GoogleFonts.poppins(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500),
+              style: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500),
             ),
           ),
           Expanded(
@@ -312,9 +312,9 @@ class _DeliveryChallanFieldsDialogState extends State<DeliveryChallanFieldsDialo
                       : cleanSelected,
                   isExpanded: true,
                   menuMaxHeight: kDropdownMenuMaxHeight,
-                  hint: Text(s.selectLabel(label), style: GoogleFonts.poppins(fontSize: 12)),
+                  hint: Text(s.selectLabel(label), style: GoogleFonts.bodoniModa(fontSize: 12)),
                   icon: const Icon(Icons.arrow_drop_down, size: 18),
-                  style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
+                  style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black),
                   items: optionStrings.map((String opt) {
                     return DropdownMenuItem<String>(
                       value: opt,
@@ -359,7 +359,7 @@ class _DeliveryChallanFieldsDialogState extends State<DeliveryChallanFieldsDialo
             flex: 2,
             child: Text(
               label,
-              style: GoogleFonts.poppins(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500),
+              style: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500),
             ),
           ),
           Expanded(
@@ -378,7 +378,7 @@ class _DeliveryChallanFieldsDialogState extends State<DeliveryChallanFieldsDialo
                   children: [
                     Text(
                       displayDate.isEmpty ? s.selectDate : displayDate,
-                      style: GoogleFonts.poppins(fontSize: 13, color: Colors.black87, fontWeight: FontWeight.w500),
+                      style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black87, fontWeight: FontWeight.w500),
                     ),
                     const Icon(Icons.calendar_today, size: 14, color: Colors.black54),
                   ],

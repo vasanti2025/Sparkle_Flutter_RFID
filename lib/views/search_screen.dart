@@ -1758,13 +1758,13 @@ class _SearchScreenState extends State<SearchScreen> {
         }
       },
       child: Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(kToolbarHeight),
         child: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+              colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -1897,7 +1897,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
           // Table Header
           Container(
-            color: const Color(0xFF3B363E),
+            color: const Color(0xFF1A1A1A),
             padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 8.0),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,

@@ -83,7 +83,7 @@ class _OptionSheetBodyState<T> extends State<_OptionSheetBody<T>> {
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
             child: Text(
               widget.title!,
-              style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 15),
+              style: GoogleFonts.bodoniModa(fontWeight: FontWeight.w600, fontSize: 15),
             ),
           ),
         if (widget.searchable)
@@ -92,10 +92,10 @@ class _OptionSheetBodyState<T> extends State<_OptionSheetBody<T>> {
             child: TextField(
               autofocus: true,
               onChanged: (v) => setState(() => _query = v),
-              style: GoogleFonts.poppins(fontSize: 14),
+              style: GoogleFonts.bodoniModa(fontSize: 14),
               decoration: InputDecoration(
                 hintText: 'Search',
-                hintStyle: GoogleFonts.poppins(fontSize: 14, color: Colors.grey[500]),
+                hintStyle: GoogleFonts.bodoniModa(fontSize: 14, color: Colors.grey[500]),
                 prefixIcon: const Icon(Icons.search, size: 20),
                 isDense: true,
                 filled: true,
@@ -111,7 +111,7 @@ class _OptionSheetBodyState<T> extends State<_OptionSheetBody<T>> {
           child: filtered.isEmpty
               ? Padding(
                   padding: const EdgeInsets.all(24),
-                  child: Text('No matches', style: GoogleFonts.poppins(color: Colors.grey[600])),
+                  child: Text('No matches', style: GoogleFonts.bodoniModa(color: Colors.grey[600])),
                 )
               : ListView.builder(
                   shrinkWrap: true,
@@ -119,7 +119,7 @@ class _OptionSheetBodyState<T> extends State<_OptionSheetBody<T>> {
                   itemBuilder: (_, i) {
                     final option = filtered[i];
                     return ListTile(
-                      title: Text(widget.labelOf(option), style: GoogleFonts.poppins(fontSize: 14)),
+                      title: Text(widget.labelOf(option), style: GoogleFonts.bodoniModa(fontSize: 14)),
                       onTap: () => Navigator.pop(context, option),
                     );
                   },

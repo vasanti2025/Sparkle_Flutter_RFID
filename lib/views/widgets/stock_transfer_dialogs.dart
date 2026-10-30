@@ -30,7 +30,7 @@ Future<String?> showStockRequestPopup(BuildContext context) {
               ),
               child: Text(
                 s.tr('stockRequests'),
-                style: GoogleFonts.poppins(
+                style: GoogleFonts.bodoniModa(
                   color: Colors.white,
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
@@ -74,7 +74,7 @@ Widget _dialogItem({required String label, required VoidCallback onTap}) {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
           child: Align(
             alignment: Alignment.centerLeft,
-            child: Text(label, style: GoogleFonts.poppins(fontSize: 14)),
+            child: Text(label, style: GoogleFonts.bodoniModa(fontSize: 14)),
           ),
         ),
       ),
@@ -114,13 +114,13 @@ Future<String?> showStockStatusFilterPopup(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                    colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                   ),
                 ),
                 child: Text(
                   s.tr('statusFilter'),
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.poppins(
+                  style: GoogleFonts.bodoniModa(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
                     fontSize: 15,
@@ -144,7 +144,7 @@ Future<String?> showStockStatusFilterPopup(
                           Expanded(
                             child: Text(
                               opt.label,
-                              style: GoogleFonts.poppins(fontSize: 14),
+                              style: GoogleFonts.bodoniModa(fontSize: 14),
                             ),
                           ),
                         ],
@@ -156,7 +156,7 @@ Future<String?> showStockStatusFilterPopup(
               const SizedBox(height: 8),
               TextButton(
                 onPressed: () => Navigator.of(ctx, rootNavigator: true).pop('all'),
-                child: Text(s.all, style: GoogleFonts.poppins()),
+                child: Text(s.all, style: GoogleFonts.bodoniModa()),
               ),
               const SizedBox(height: 4),
             ],

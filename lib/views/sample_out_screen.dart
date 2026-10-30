@@ -234,7 +234,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
   Widget _gradientBorder({required Widget child, double radius = 10, Color fill = Colors.white}) {
     return Container(
       decoration: BoxDecoration(
-        gradient: const LinearGradient(colors: [Color(0xFF5231A7), Color(0xFFD32940)]),
+        gradient: const LinearGradient(colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)]),
         borderRadius: BorderRadius.circular(radius),
       ),
       padding: const EdgeInsets.all(1),
@@ -346,17 +346,17 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
     showAppDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: Colors.white,
-        title: Text(s.deleteItem, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: Text(s.removeItemFromSampleOut, style: GoogleFonts.poppins()),
+        backgroundColor: const Color(0xFFF6F4F0),
+        title: Text(s.deleteItem, style: GoogleFonts.bodoniModa(fontWeight: FontWeight.bold)),
+        content: Text(s.removeItemFromSampleOut, style: GoogleFonts.bodoniModa()),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: Text(s.cancel, style: GoogleFonts.poppins(color: Colors.grey))),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(s.cancel, style: GoogleFonts.bodoniModa(color: Colors.grey))),
           TextButton(
             onPressed: () {
               vm.removeProductItem(idx);
               Navigator.pop(context);
             },
-            child: Text(s.delete, style: GoogleFonts.poppins(color: Colors.red)),
+            child: Text(s.delete, style: GoogleFonts.bodoniModa(color: Colors.red)),
           ),
         ],
       ),
@@ -372,7 +372,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
         text,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: GoogleFonts.poppins(fontSize: 11, color: color, fontWeight: weight),
+        style: GoogleFonts.bodoniModa(fontSize: 11, color: color, fontWeight: weight),
       ),
     );
   }
@@ -403,12 +403,12 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
                       child: TextField(
                         controller: _customerSearchCtrl,
                         focusNode: _focusNode,
-                        style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
+                        style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black),
                         decoration: InputDecoration(
                           isCollapsed: true,
                           border: InputBorder.none,
                           hintText: s.enterCustomerName,
-                          hintStyle: GoogleFonts.poppins(fontSize: 13, color: Colors.grey),
+                          hintStyle: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.grey),
                         ),
                         onChanged: (_) => setState(() => _showSuggestions = true),
                       ),
@@ -450,8 +450,8 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
                   final c = visible[i];
                   final name = '${c.firstName ?? ''} ${c.lastName ?? ''}'.trim();
                   return ListTile(
-                    title: Text(name.isEmpty ? s.unknown : name, style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13)),
-                    subtitle: Text(s.mobileGstLabel(c.mobile ?? '-', c.gstNo ?? '-'), style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey)),
+                    title: Text(name.isEmpty ? s.unknown : name, style: GoogleFonts.bodoniModa(fontWeight: FontWeight.w600, fontSize: 13)),
+                    subtitle: Text(s.mobileGstLabel(c.mobile ?? '-', c.gstNo ?? '-'), style: GoogleFonts.bodoniModa(fontSize: 11, color: Colors.grey)),
                     onTap: () {
                       _customerSearchCtrl.text = name;
                       vm.setSelectedCustomer(c);
@@ -497,12 +497,12 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
                             child: TextField(
                               controller: _itemCodeCtrl,
                               focusNode: _itemCodeFocus,
-                              style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
+                              style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black),
                               decoration: InputDecoration(
                                 isCollapsed: true,
                                 border: InputBorder.none,
                                 hintText: s.enterRfidItemcode,
-                                hintStyle: GoogleFonts.poppins(fontSize: 12, color: Colors.grey),
+                                hintStyle: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.grey),
                               ),
                               onChanged: (v) {
                                 _suggestTimer?.cancel();
@@ -563,7 +563,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text(s.sampleOutFields, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey)),
+                          Text(s.sampleOutFields, style: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.grey)),
                           const SizedBox(width: 4),
                           const Icon(Icons.tune, size: 20, color: Colors.grey),
                         ],
@@ -594,7 +594,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
                     onTap: () => addByCode(display),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      child: Text(display, style: GoogleFonts.poppins(fontSize: 13, color: Colors.black)),
+                      child: Text(display, style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black)),
                     ),
                   );
                 },
@@ -653,7 +653,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
                   height: 40,
                   color: const Color(0xFF2E2E2E),
                   alignment: Alignment.center,
-                  child: Text(s.headerSno, style: GoogleFonts.poppins(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold)),
+                  child: Text(s.headerSno, style: GoogleFonts.bodoniModa(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold)),
                 ),
                 Expanded(
                   child: items.isEmpty
@@ -670,7 +670,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
                                 border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
                               ),
                               alignment: Alignment.center,
-                              child: Text('${idx + 1}', style: GoogleFonts.poppins(fontSize: 11)),
+                              child: Text('${idx + 1}', style: GoogleFonts.bodoniModa(fontSize: 11)),
                             ),
                           ),
                         ),
@@ -679,7 +679,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
                   height: 34,
                   color: const Color(0xFF2E2E2E),
                   alignment: Alignment.center,
-                  child: Text(s.total, style: GoogleFonts.poppins(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold)),
+                  child: Text(s.total, style: GoogleFonts.bodoniModa(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold)),
                 ),
               ],
             ),
@@ -711,7 +711,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
                     ),
                     Expanded(
                       child: items.isEmpty
-                          ? Center(child: Text(s.noItemsAdded, style: GoogleFonts.poppins(color: Colors.grey, fontSize: 13)))
+                          ? Center(child: Text(s.noItemsAdded, style: GoogleFonts.bodoniModa(color: Colors.grey, fontSize: 13)))
                           : Listener(
                               onPointerDown: (_) => _activeVScrollController = _dataVScroll,
                               child: ListView.builder(
@@ -777,7 +777,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
                   height: 40,
                   color: const Color(0xFF2E2E2E),
                   alignment: Alignment.center,
-                  child: Text(s.action, style: GoogleFonts.poppins(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold)),
+                  child: Text(s.action, style: GoogleFonts.bodoniModa(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold)),
                 ),
                 Expanded(
                   child: items.isEmpty
@@ -821,14 +821,14 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
     final isEditMode = vm.selectedSampleOut != null;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       resizeToAvoidBottomInset: false,
       appBar: AppBar(
         automaticallyImplyLeading: false,
         titleSpacing: 0,
         flexibleSpace: Container(
           decoration: const BoxDecoration(
-            gradient: LinearGradient(colors: [Color(0xFF5231A7), Color(0xFFD32940)]),
+            gradient: LinearGradient(colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)]),
           ),
         ),
         backgroundColor: Colors.transparent,
@@ -842,7 +842,7 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
         ),
         title: Text(
           isEditMode ? s.editSampleOut : s.createSampleOut,
-          style: GoogleFonts.poppins(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+          style: GoogleFonts.bodoniModa(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
         ),
         actions: [
           PopupMenuButton<int>(
@@ -854,14 +854,14 @@ class _SampleOutScreenState extends State<SampleOutScreen> with BarcodeScanMixin
               _rfidService.setPower(val);
             },
             itemBuilder: (context) => List.generate(30, (i) => i + 1)
-                .map((p) => PopupMenuItem<int>(value: p, height: 36, child: Text('$p', style: GoogleFonts.poppins(fontSize: 14))))
+                .map((p) => PopupMenuItem<int>(value: p, height: 36, child: Text('$p', style: GoogleFonts.bodoniModa(fontSize: 14))))
                 .toList(),
             child: Container(
               width: 32,
               height: 32,
               alignment: Alignment.center,
               decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4)),
-              child: Text('$_power', style: GoogleFonts.poppins(color: Colors.red, fontSize: 14, fontWeight: FontWeight.bold)),
+              child: Text('$_power', style: GoogleFonts.bodoniModa(color: Colors.red, fontSize: 14, fontWeight: FontWeight.bold)),
             ),
           ),
           const SizedBox(width: 12),

@@ -84,7 +84,7 @@ class _ImportExcelScreenState extends State<ImportExcelScreen> {
                     Text(
                       message,
                       textAlign: TextAlign.center,
-                      style: GoogleFonts.poppins(
+                      style: GoogleFonts.bodoniModa(
                         fontSize: 15,
                         fontWeight: FontWeight.bold,
                         color: isError ? Colors.red : Colors.black87,
@@ -97,7 +97,7 @@ class _ImportExcelScreenState extends State<ImportExcelScreen> {
                       child: DecoratedBox(
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(12),
-                          gradient: const LinearGradient(colors: [Color(0xFF3053F0), Color(0xFFE82E5A)]),
+                          gradient: const LinearGradient(colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)]),
                         ),
                         child: ElevatedButton(
                           onPressed: () {
@@ -110,7 +110,7 @@ class _ImportExcelScreenState extends State<ImportExcelScreen> {
                             shadowColor: Colors.transparent,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
-                          child: Text(s.done, style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
+                          child: Text(s.done, style: GoogleFonts.bodoniModa(color: Colors.white, fontWeight: FontWeight.w600)),
                         ),
                       ),
                     ),
@@ -172,13 +172,13 @@ class _ImportExcelScreenState extends State<ImportExcelScreen> {
                       height: 48,
                       child: CircularProgressIndicator(
                         strokeWidth: 3,
-                        color: Color(0xFF5231A7),
+                        color: Color(0xFFC4A35A),
                       ),
                     ),
                     const SizedBox(height: 20),
                     Text(
                       s.importingExcelData,
-                      style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16),
+                      style: GoogleFonts.bodoniModa(fontWeight: FontWeight.bold, fontSize: 16),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 16),
@@ -187,19 +187,19 @@ class _ImportExcelScreenState extends State<ImportExcelScreen> {
                       minHeight: 8,
                       borderRadius: BorderRadius.circular(4),
                       backgroundColor: const Color(0xFFE5E7EB),
-                      color: const Color(0xFF5231A7),
+                      color: const Color(0xFFC4A35A),
                     ),
                     const SizedBox(height: 12),
                     Text(
                       s.fieldsImportedProgress(done, total),
-                      style: GoogleFonts.poppins(fontSize: 13, color: Colors.black87),
+                      style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black87),
                       textAlign: TextAlign.center,
                     ),
                     if (vm.progress.failedFields.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       Text(
                         s.failedFieldsLabel(vm.progress.failedFields.join(', ')),
-                        style: GoogleFonts.poppins(fontSize: 12, color: Colors.red),
+                        style: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.red),
                         textAlign: TextAlign.center,
                         maxLines: 4,
                         overflow: TextOverflow.ellipsis,

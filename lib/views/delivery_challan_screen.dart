@@ -234,7 +234,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
     return Container(
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+          colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
         ),
         borderRadius: BorderRadius.circular(radius),
       ),
@@ -358,20 +358,20 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
       context: context,
       builder: (context) {
         return AlertDialog(
-          backgroundColor: Colors.white,
-          title: Text(s.deleteItem, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-          content: Text(s.confirmDeleteChallanItem, style: GoogleFonts.poppins()),
+          backgroundColor: const Color(0xFFF6F4F0),
+          title: Text(s.deleteItem, style: GoogleFonts.bodoniModa(fontWeight: FontWeight.bold)),
+          content: Text(s.confirmDeleteChallanItem, style: GoogleFonts.bodoniModa()),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text(s.cancel, style: GoogleFonts.poppins(color: Colors.grey)),
+              child: Text(s.cancel, style: GoogleFonts.bodoniModa(color: Colors.grey)),
             ),
             TextButton(
               onPressed: () {
                 vm.removeProductItem(idx);
                 Navigator.pop(context);
               },
-              child: Text(s.delete, style: GoogleFonts.poppins(color: Colors.red)),
+              child: Text(s.delete, style: GoogleFonts.bodoniModa(color: Colors.red)),
             ),
           ],
         );
@@ -389,7 +389,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
         text,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: GoogleFonts.poppins(fontSize: 11, color: color, fontWeight: weight),
+        style: GoogleFonts.bodoniModa(fontSize: 11, color: color, fontWeight: weight),
       ),
     );
   }
@@ -420,12 +420,12 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
                       child: TextField(
                         controller: _customerSearchCtrl,
                         focusNode: _focusNode,
-                        style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
+                        style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black),
                         decoration: InputDecoration(
                           isCollapsed: true,
                           border: InputBorder.none,
                           hintText: s.enterCustomerName,
-                          hintStyle: GoogleFonts.poppins(fontSize: 13, color: Colors.grey),
+                          hintStyle: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.grey),
                         ),
                         onChanged: (v) => setState(() => _showSuggestions = true),
                       ),
@@ -483,9 +483,9 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
                     return ListTile(
                       hoverColor: Colors.grey[100],
                       title: Text(name.isEmpty ? s.unknown : name,
-                          style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13)),
+                          style: GoogleFonts.bodoniModa(fontWeight: FontWeight.w600, fontSize: 13)),
                       subtitle: Text(s.mobileGstLabel(c.mobile ?? '-', c.gstNo ?? '-'),
-                          style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey)),
+                          style: GoogleFonts.bodoniModa(fontSize: 11, color: Colors.grey)),
                       onTap: () {
                         _customerSearchCtrl.text = name;
                         vm.setSelectedCustomer(c);
@@ -534,12 +534,12 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
                             child: TextField(
                               controller: _itemCodeCtrl,
                               focusNode: _itemCodeFocus,
-                              style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
+                              style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black),
                               decoration: InputDecoration(
                                 isCollapsed: true,
                                 border: InputBorder.none,
                                 hintText: s.enterRfidItemcode,
-                                hintStyle: GoogleFonts.poppins(fontSize: 12, color: Colors.grey),
+                                hintStyle: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.grey),
                               ),
                               onChanged: (v) {
                                 _suggestTimer?.cancel();
@@ -601,7 +601,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(s.challanFields,
-                              style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey)),
+                              style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.grey)),
                           const SizedBox(width: 4),
                           const Icon(Icons.tune, size: 20, color: Colors.grey),
                         ],
@@ -639,7 +639,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       child: Text(display,
-                          style: GoogleFonts.poppins(fontSize: 13, color: Colors.black)),
+                          style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black)),
                     ),
                   );
                 },
@@ -706,7 +706,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
                   alignment: Alignment.center,
                   child: Text(
                     s.headerSno,
-                    style: GoogleFonts.poppins(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
+                    style: GoogleFonts.bodoniModa(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
                   ),
                 ),
                 // Rows
@@ -729,7 +729,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
                                 alignment: Alignment.center,
                                 child: Text(
                                   '${idx + 1}',
-                                  style: GoogleFonts.poppins(fontSize: 11, color: Colors.black87),
+                                  style: GoogleFonts.bodoniModa(fontSize: 11, color: Colors.black87),
                                 ),
                               );
                             },
@@ -743,7 +743,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
                   alignment: Alignment.center,
                   child: Text(
                     s.total,
-                    style: GoogleFonts.poppins(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
+                    style: GoogleFonts.bodoniModa(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
@@ -785,7 +785,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
                           ? Center(
                               child: Text(
                                 s.noItemsAdded,
-                                style: GoogleFonts.poppins(color: Colors.grey, fontSize: 13),
+                                style: GoogleFonts.bodoniModa(color: Colors.grey, fontSize: 13),
                               ),
                             )
                           : Listener(
@@ -864,7 +864,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
                   alignment: Alignment.center,
                   child: Text(
                     s.action,
-                    style: GoogleFonts.poppins(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
+                    style: GoogleFonts.bodoniModa(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
                   ),
                 ),
                 // Rows
@@ -920,7 +920,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
     final isEditMode = vm.selectedChallan != null;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       // Keep the scan bottom bar pinned; the keyboard overlays the body
       // instead of pushing the bar up.
       resizeToAvoidBottomInset: false,
@@ -930,7 +930,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+              colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
             ),
           ),
         ),
@@ -945,7 +945,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
         ),
         title: Text(
           isEditMode ? s.editDeliveryChallan : s.createDeliveryChallan,
-          style: GoogleFonts.poppins(
+          style: GoogleFonts.bodoniModa(
             color: Colors.white,
             fontSize: 18,
             fontWeight: FontWeight.w600,
@@ -965,7 +965,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
                 .map((p) => PopupMenuItem<int>(
                       value: p,
                       height: 36,
-                      child: Text('$p', style: GoogleFonts.poppins(fontSize: 14)),
+                      child: Text('$p', style: GoogleFonts.bodoniModa(fontSize: 14)),
                     ))
                 .toList(),
             child: Container(
@@ -978,7 +978,7 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
               ),
               child: Text(
                 '$_power',
-                style: GoogleFonts.poppins(
+                style: GoogleFonts.bodoniModa(
                   color: Colors.red,
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
@@ -1021,27 +1021,27 @@ class _DeliveryChallanScreenState extends State<DeliveryChallanScreen> with Barc
                       children: [
                         Checkbox(
                           value: vm.isGstChecked,
-                          activeColor: const Color(0xFF5231A7),
+                          activeColor: const Color(0xFFC4A35A),
                           onChanged: (val) {
                             if (val != null) vm.setGstChecked(val);
                           },
                         ),
                         Text(
                           s.gstLabel,
-                          style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.bold),
+                          style: GoogleFonts.bodoniModa(fontSize: 12, fontWeight: FontWeight.bold),
                         ),
                       ],
                     ),
                   ),
                   Row(
                     children: [
-                      Text('${s.totalAmount}: ', style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600)),
+                      Text('${s.totalAmount}: ', style: GoogleFonts.bodoniModa(fontSize: 13, fontWeight: FontWeight.w600)),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(6)),
                         child: Text(
                           '₹${vm.getFinalTotal().toStringAsFixed(2)}',
-                          style: GoogleFonts.poppins(fontSize: 13, color: const Color(0xFF5231A7), fontWeight: FontWeight.bold),
+                          style: GoogleFonts.bodoniModa(fontSize: 13, color: const Color(0xFFC4A35A), fontWeight: FontWeight.bold),
                         ),
                       ),
                     ],

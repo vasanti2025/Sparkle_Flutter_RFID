@@ -431,7 +431,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                  colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                 ),
               ),
               child: Row(
@@ -440,7 +440,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                   const SizedBox(width: 8),
                   Text(
                     widget.title ?? s.customOrderFields,
-                    style: GoogleFonts.poppins(
+                    style: GoogleFonts.bodoniModa(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
                       color: Colors.white,
@@ -564,7 +564,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                       onPressed: () => Navigator.pop(context),
                       child: Text(
                         s.cancel,
-                        style: GoogleFonts.poppins(color: Colors.grey[700], fontWeight: FontWeight.bold),
+                        style: GoogleFonts.bodoniModa(color: Colors.grey[700], fontWeight: FontWeight.bold),
                       ),
                     ),
                   ),
@@ -573,7 +573,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                     child: Container(
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
-                          colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                          colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                         ),
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -629,7 +629,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                         ),
                         child: Text(
                           s.save,
-                          style: GoogleFonts.poppins(
+                          style: GoogleFonts.bodoniModa(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
                           ),
@@ -660,7 +660,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
             flex: 2,
             child: Text(
               label,
-              style: GoogleFonts.poppins(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500),
+              style: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500),
             ),
           ),
           Expanded(
@@ -670,7 +670,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
               enabled: enabled,
               focusNode: focusNode,
               keyboardType: keyboardType,
-              style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
+              style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black),
               decoration: const InputDecoration(
                 border: InputBorder.none,
                 isDense: true,
@@ -697,14 +697,14 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
             flex: 2,
             child: Text(
               label,
-              style: GoogleFonts.poppins(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500),
+              style: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500),
             ),
           ),
           Expanded(
             flex: 3,
             child: Text(
               value,
-              style: GoogleFonts.poppins(fontSize: 13, color: Colors.black54, fontWeight: FontWeight.w600),
+              style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black54, fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -798,7 +798,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
               flex: 2,
               child: Text(
                 label,
-                style: GoogleFonts.poppins(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500),
+                style: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500),
               ),
             ),
             Expanded(
@@ -810,7 +810,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                       hasValue ? _purity : context.s.selectOption(label),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.poppins(
+                      style: GoogleFonts.bodoniModa(
                         fontSize: 13,
                         color: hasValue ? Colors.black : Colors.black54,
                         fontWeight: FontWeight.w500,
@@ -848,7 +848,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
             flex: 2,
             child: Text(
               label,
-              style: GoogleFonts.poppins(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500),
+              style: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500),
             ),
           ),
           Expanded(
@@ -861,9 +861,9 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                           : selectedValue,
                       isExpanded: true,
                       menuMaxHeight: kDropdownMenuMaxHeight,
-                      hint: Text(context.s.selectOption(label), style: GoogleFonts.poppins(fontSize: 13)),
+                      hint: Text(context.s.selectOption(label), style: GoogleFonts.bodoniModa(fontSize: 13)),
                       icon: const Icon(Icons.arrow_drop_down),
-                      style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
+                      style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black),
                       items: options.map((T option) {
                         final labelVal = getOptionLabel(option);
                         return DropdownMenuItem<String>(
@@ -880,7 +880,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                   )
                 : Text(
                     selectedValue,
-                    style: GoogleFonts.poppins(fontSize: 13, color: Colors.black54, fontWeight: FontWeight.w600),
+                    style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black54, fontWeight: FontWeight.w600),
                   ),
           ),
         ],
@@ -907,7 +907,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
               label,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.poppins(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500),
+              style: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500),
             ),
           ),
           Expanded(
@@ -921,7 +921,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                       display.isEmpty ? 'Select Date' : display,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.poppins(fontSize: 13, color: Colors.black, fontWeight: FontWeight.w500),
+                      style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black, fontWeight: FontWeight.w500),
                     ),
                   ),
                   const SizedBox(width: 6),

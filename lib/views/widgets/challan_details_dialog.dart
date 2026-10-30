@@ -278,7 +278,7 @@ class _ChallanDetailsDialogState extends State<ChallanDetailsDialog> {
               height: 52,
               padding: const EdgeInsets.symmetric(horizontal: 16),
               decoration: const BoxDecoration(
-                gradient: LinearGradient(colors: [Color(0xFF5231A7), Color(0xFFD32940)]),
+                gradient: LinearGradient(colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)]),
               ),
               child: Row(
                 children: [
@@ -286,7 +286,7 @@ class _ChallanDetailsDialogState extends State<ChallanDetailsDialog> {
                   const SizedBox(width: 8),
                   Text(
                     widget.title ?? s.customOrderFields,
-                    style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
+                    style: GoogleFonts.bodoniModa(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
                   ),
                   const Spacer(),
                   IconButton(
@@ -366,14 +366,14 @@ class _ChallanDetailsDialogState extends State<ChallanDetailsDialog> {
                     child: TextButton(
                       onPressed: () => Navigator.pop(context),
                       child: Text(s.cancel,
-                          style: GoogleFonts.poppins(color: Colors.grey[700], fontWeight: FontWeight.bold)),
+                          style: GoogleFonts.bodoniModa(color: Colors.grey[700], fontWeight: FontWeight.bold)),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Container(
                       decoration: BoxDecoration(
-                        gradient: const LinearGradient(colors: [Color(0xFF5231A7), Color(0xFFD32940)]),
+                        gradient: const LinearGradient(colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)]),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: ElevatedButton(
@@ -385,7 +385,7 @@ class _ChallanDetailsDialogState extends State<ChallanDetailsDialog> {
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                         child: Text(s.save,
-                            style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold)),
+                            style: GoogleFonts.bodoniModa(color: Colors.white, fontWeight: FontWeight.bold)),
                       ),
                     ),
                   ),
@@ -463,7 +463,7 @@ class _ChallanDetailsDialogState extends State<ChallanDetailsDialog> {
           Expanded(
             flex: 2,
             child: Text(label,
-                style: GoogleFonts.poppins(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500)),
+                style: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500)),
           ),
           Expanded(
             flex: 3,
@@ -472,7 +472,7 @@ class _ChallanDetailsDialogState extends State<ChallanDetailsDialog> {
               enabled: enabled,
               focusNode: focusNode,
               keyboardType: keyboardType,
-              style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
+              style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black),
               decoration: const InputDecoration(
                 border: InputBorder.none,
                 isDense: true,
@@ -495,12 +495,12 @@ class _ChallanDetailsDialogState extends State<ChallanDetailsDialog> {
           Expanded(
             flex: 2,
             child: Text(label,
-                style: GoogleFonts.poppins(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500)),
+                style: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500)),
           ),
           Expanded(
             flex: 3,
             child: Text(value,
-                style: GoogleFonts.poppins(fontSize: 13, color: Colors.black54, fontWeight: FontWeight.w600)),
+                style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black54, fontWeight: FontWeight.w600)),
           ),
         ],
       ),
@@ -523,7 +523,7 @@ class _ChallanDetailsDialogState extends State<ChallanDetailsDialog> {
           Expanded(
             flex: 2,
             child: Text(label,
-                style: GoogleFonts.poppins(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500)),
+                style: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500)),
           ),
           Expanded(
             flex: 3,
@@ -534,9 +534,9 @@ class _ChallanDetailsDialogState extends State<ChallanDetailsDialog> {
                     : selectedValue,
                 isExpanded: true,
                 menuMaxHeight: kDropdownMenuMaxHeight,
-                hint: Text(context.s.selectOption(label), style: GoogleFonts.poppins(fontSize: 13)),
+                hint: Text(context.s.selectOption(label), style: GoogleFonts.bodoniModa(fontSize: 13)),
                 icon: const Icon(Icons.arrow_drop_down),
-                style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
+                style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black),
                 items: options.map((T option) {
                   final labelVal = getOptionLabel(option);
                   return DropdownMenuItem<String>(value: labelVal, child: Text(labelVal));

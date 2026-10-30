@@ -248,7 +248,7 @@ class _ExcelFieldMappingDialogState extends State<ExcelFieldMappingDialog> {
               width: double.infinity,
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
               decoration: const BoxDecoration(
-                gradient: LinearGradient(colors: [Color(0xFF3053F0), Color(0xFFE82E5A)]),
+                gradient: LinearGradient(colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)]),
                 borderRadius: BorderRadius.vertical(top: Radius.circular(5)),
               ),
               child: Column(
@@ -399,7 +399,7 @@ class _ExcelFieldMappingDialogState extends State<ExcelFieldMappingDialog> {
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(10),
-                    gradient: const LinearGradient(colors: [Color(0xFF3053F0), Color(0xFFE82E5A)]),
+                    gradient: const LinearGradient(colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)]),
                   ),
                   child: ElevatedButton(
                     onPressed: _saveTemplate,
@@ -458,7 +458,7 @@ class _ExcelFieldMappingDialogState extends State<ExcelFieldMappingDialog> {
       child: DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
-          gradient: const LinearGradient(colors: [Color(0xFF3053F0), Color(0xFFE82E5A)]),
+          gradient: const LinearGradient(colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)]),
         ),
         child: ElevatedButton(
           onPressed: onTap,

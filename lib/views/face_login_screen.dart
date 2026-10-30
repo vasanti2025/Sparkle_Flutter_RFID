@@ -504,7 +504,7 @@ class _FaceLoginScreenState extends State<FaceLoginScreen>
         ),
         title: Text(
           s.faceLogin,
-          style: GoogleFonts.poppins(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+          style: GoogleFonts.bodoniModa(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
         ),
         actions: [
           if (_cameras != null && _cameras!.length > 1)
@@ -573,7 +573,7 @@ class _FaceLoginScreenState extends State<FaceLoginScreen>
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: _faceDetected ? const Color(0xFF4CAF50) : const Color(0xFF0077D4),
+                      color: _faceDetected ? const Color(0xFF4CAF50) : const Color(0xFFC4A35A),
                       width: 3,
                     ),
                   ),
@@ -589,12 +589,12 @@ class _FaceLoginScreenState extends State<FaceLoginScreen>
                         decoration: BoxDecoration(
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFF0077D4).withValues(alpha: 0.6),
+                              color: const Color(0xFFC4A35A).withValues(alpha: 0.6),
                               blurRadius: 4,
                               spreadRadius: 2,
                             ),
                           ],
-                          color: const Color(0xFF0077D4),
+                          color: const Color(0xFFC4A35A),
                         ),
                       ),
                     );
@@ -605,7 +605,7 @@ class _FaceLoginScreenState extends State<FaceLoginScreen>
             const SizedBox(height: 30),
             Text(
               s.alignFaceInCircle,
-              style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w500, color: Colors.white),
+              style: GoogleFonts.bodoniModa(fontSize: 16, fontWeight: FontWeight.w500, color: Colors.white),
             ),
             const SizedBox(height: 8),
             Text(
@@ -614,7 +614,7 @@ class _FaceLoginScreenState extends State<FaceLoginScreen>
                   : _faceDetected
                       ? 'Face detected — matching…'
                       : s.scanningFace,
-              style: GoogleFonts.poppins(
+              style: GoogleFonts.bodoniModa(
                 fontSize: 14,
                 color: _faceDetected ? const Color(0xFF4CAF50) : Colors.white54,
               ),
@@ -624,24 +624,24 @@ class _FaceLoginScreenState extends State<FaceLoginScreen>
               ElevatedButton(
                 onPressed: _retryCameraPermission,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0077D4),
+                  backgroundColor: const Color(0xFF1A1A1A),
                   padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
                 ),
                 child: Text(
                   'Allow Camera Access',
-                  style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600),
+                  style: GoogleFonts.bodoniModa(color: Colors.white, fontWeight: FontWeight.w600),
                 ),
               )
             else
               ElevatedButton(
                 onPressed: (_matching || !_isInit || !_modelReady) ? null : _performFaceMatching,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0077D4),
+                  backgroundColor: const Color(0xFF1A1A1A),
                   padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
                 ),
                 child: Text(
                   _matching ? s.pleaseWaitItemsLoading : s.faceLogin,
-                  style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600),
+                  style: GoogleFonts.bodoniModa(color: Colors.white, fontWeight: FontWeight.w600),
                 ),
               ),
           ],

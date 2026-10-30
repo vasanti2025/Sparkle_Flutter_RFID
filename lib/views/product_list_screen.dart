@@ -151,20 +151,20 @@ class _ProductListScreenState extends State<ProductListScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          backgroundColor: Colors.white,
+          backgroundColor: const Color(0xFFF6F4F0),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Text(
             s.deleteProduct, 
-            style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+            style: GoogleFonts.bodoniModa(fontWeight: FontWeight.bold),
           ),
           content: Text(
             s.confirmDeleteProduct(item.productName ?? '', item.itemCode ?? ''),
-            style: GoogleFonts.poppins(fontSize: 14),
+            style: GoogleFonts.bodoniModa(fontSize: 14),
           ),
           actions: [
             TextButton(
                onPressed: () => Navigator.pop(context),
-               child: Text(s.cancel, style: GoogleFonts.poppins(color: Colors.grey[600])),
+               child: Text(s.cancel, style: GoogleFonts.bodoniModa(color: Colors.grey[600])),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -189,7 +189,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
                 }
               },
               style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              child: Text(s.delete, style: GoogleFonts.poppins(color: Colors.white)),
+              child: Text(s.delete, style: GoogleFonts.bodoniModa(color: Colors.white)),
             ),
           ],
         );
@@ -221,13 +221,13 @@ class _ProductListScreenState extends State<ProductListScreen> {
         return StatefulBuilder(
           builder: (context, setState) {
             return AlertDialog(
-              backgroundColor: Colors.white,
+              backgroundColor: const Color(0xFFF6F4F0),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: Row(
                 children: [
-                  const Icon(Icons.filter_alt, color: Color(0xFF5231A7)),
+                  const Icon(Icons.filter_alt, color: Color(0xFFC4A35A)),
                   const SizedBox(width: 8),
-                  Text(s.filters, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+                  Text(s.filters, style: GoogleFonts.bodoniModa(fontWeight: FontWeight.bold)),
                 ],
               ),
               content: SingleChildScrollView(
@@ -258,7 +258,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
                     viewModel.resetFilters();
                     Navigator.pop(context);
                   },
-                  child: Text(s.reset, style: GoogleFonts.poppins(color: Colors.red)),
+                  child: Text(s.reset, style: GoogleFonts.bodoniModa(color: Colors.red)),
                 ),
                 ElevatedButton(
                   onPressed: () {
@@ -272,10 +272,10 @@ class _ProductListScreenState extends State<ProductListScreen> {
                     Navigator.pop(context);
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF5231A7),
+                    backgroundColor: const Color(0xFF1A1A1A),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
-                  child: Text(s.apply, style: GoogleFonts.poppins(color: Colors.white)),
+                  child: Text(s.apply, style: GoogleFonts.bodoniModa(color: Colors.white)),
                 ),
               ],
             );
@@ -294,7 +294,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[700])),
+          Text(label, style: GoogleFonts.bodoniModa(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[700])),
           const SizedBox(height: 4),
           DropdownButtonFormField<String>(
             initialValue: currentVal,
@@ -303,7 +303,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
             items: list.map((opt) {
               return DropdownMenuItem<String>(
                 value: opt,
-                child: Text(opt, style: GoogleFonts.poppins(fontSize: 13), overflow: TextOverflow.ellipsis),
+                child: Text(opt, style: GoogleFonts.bodoniModa(fontSize: 13), overflow: TextOverflow.ellipsis),
               );
             }).toList(),
             decoration: InputDecoration(
@@ -458,7 +458,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
         child: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+              colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -472,7 +472,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
             ),
             title: Text(
               s.productListCount(viewModel.filteredTotalCount),
-              style: GoogleFonts.poppins(
+              style: GoogleFonts.bodoniModa(
                 color: Colors.white,
                 fontWeight: FontWeight.w600,
               ),
@@ -599,12 +599,12 @@ class _ProductListScreenState extends State<ProductListScreen> {
           const SizedBox(height: 16),
           Text(
             s.noProductsMatchingFilters,
-            style: GoogleFonts.poppins(fontSize: 16, color: Colors.grey[600], fontWeight: FontWeight.w500),
+            style: GoogleFonts.bodoniModa(fontSize: 16, color: Colors.grey[600], fontWeight: FontWeight.w500),
           ),
           const SizedBox(height: 8),
           Text(
             s.tryResettingFilters,
-            style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey[500]),
+            style: GoogleFonts.bodoniModa(fontSize: 14, color: Colors.grey[500]),
           ),
         ],
       ),
@@ -693,7 +693,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
                     Expanded(
                       child: Text(
                         'RFID: ${item.rfid.isNotEmpty ? item.rfid : "-"}',
-                        style: GoogleFonts.poppins(
+                        style: GoogleFonts.bodoniModa(
                           fontSize: 9,
                           color: Colors.black87,
                           height: 1.15,
@@ -706,7 +706,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
                     Expanded(
                       child: Text(
                         'Code: ${item.itemCode.isNotEmpty ? item.itemCode : "-"}',
-                        style: GoogleFonts.poppins(
+                        style: GoogleFonts.bodoniModa(
                           fontSize: 9,
                           color: Colors.black87,
                           height: 1.15,
@@ -723,7 +723,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
                     Expanded(
                       child: Text(
                         'G. Wt: ${item.grossWeight.isNotEmpty ? item.grossWeight : "-"}',
-                        style: GoogleFonts.poppins(
+                        style: GoogleFonts.bodoniModa(
                           fontSize: 9,
                           color: Colors.black87,
                           height: 1.15,
@@ -736,7 +736,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
                     Expanded(
                       child: Text(
                         'N. Wt: ${item.netWeight.isNotEmpty ? item.netWeight : "-"}',
-                        style: GoogleFonts.poppins(
+                        style: GoogleFonts.bodoniModa(
                           fontSize: 9,
                           color: Colors.black87,
                           height: 1.15,
@@ -768,7 +768,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
         child: Container(
           decoration: BoxDecoration(
             gradient: const LinearGradient(
-              colors: [Color(0xFFD32940), Color(0xFF5231A7)],
+              colors: [Color(0xFFC4A35A), Color(0xFFC4A35A)],
             ),
             borderRadius: BorderRadius.circular(8),
           ),
@@ -787,7 +787,7 @@ class _ProductListScreenState extends State<ProductListScreen> {
                 Flexible(
                   child: Text(
                     text,
-                    style: GoogleFonts.poppins(
+                    style: GoogleFonts.bodoniModa(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                       color: Colors.black,
@@ -813,14 +813,14 @@ class _ProductListScreenState extends State<ProductListScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          backgroundColor: Colors.white,
+          backgroundColor: const Color(0xFFF6F4F0),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
                 s.itemDetails,
-                style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16),
+                style: GoogleFonts.bodoniModa(fontWeight: FontWeight.bold, fontSize: 16),
               ),
               IconButton(
                 icon: const Icon(Icons.close),
@@ -880,14 +880,14 @@ class _ProductListScreenState extends State<ProductListScreen> {
             flex: 2,
             child: Text(
               '$label:',
-              style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey[700]),
+              style: GoogleFonts.bodoniModa(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey[700]),
             ),
           ),
           Expanded(
             flex: 3,
             child: Text(
               value.isNotEmpty ? value : '-',
-              style: GoogleFonts.poppins(fontSize: 13, color: Colors.black87),
+              style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black87),
             ),
           ),
         ],

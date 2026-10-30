@@ -151,13 +151,13 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
     ];
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(kToolbarHeight),
         child: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+              colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -221,14 +221,14 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                             final decoration = isGradient
                                 ? const BoxDecoration(
                                     gradient: LinearGradient(
-                                      colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                                      colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                                       begin: Alignment.topLeft,
                                       end: Alignment.bottomRight,
                                     ),
                                   )
                                 : const BoxDecoration(
                                     gradient: LinearGradient(
-                                      colors: [Color(0xFF2B2B2B), Color(0xFF444444)],
+                                      colors: [Color(0xFF2A2622), Color(0xFF3A3228)],
                                       begin: Alignment.topLeft,
                                       end: Alignment.bottomRight,
                                     ),
@@ -275,7 +275,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                                       Icon(
                                         item['icon'] as IconData,
                                         size: width > 600 ? 32 : 28,
-                                        color: Colors.white,
+                                        color: const Color(0xFFC4A35A),
                                       ),
                                       const SizedBox(height: 8),
                                       Text(
@@ -309,7 +309,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(12),
                           gradient: const LinearGradient(
-                            colors: [Color(0xFF3053F0), Color(0xFFE82E5A)],
+                            colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                             begin: Alignment.centerLeft,
                             end: Alignment.centerRight,
                           ),
@@ -364,7 +364,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             const CircularProgressIndicator(
-                              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF3053F0)),
+                              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFC4A35A)),
                             ),
                             const SizedBox(height: 24),
                             Text(
@@ -383,7 +383,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                                 value: viewModel.syncProgress,
                                 minHeight: 8,
                                 backgroundColor: Colors.grey[200],
-                                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFE82E5A)),
+                                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFC4A35A)),
                               ),
                             ),
                             const SizedBox(height: 12),
@@ -424,7 +424,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
         return StatefulBuilder(
           builder: (context, setState) {
             return AlertDialog(
-              backgroundColor: Colors.white,
+              backgroundColor: const Color(0xFFF6F4F0),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
@@ -476,7 +476,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                       style: AppFonts.poppins(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
-                        color: const Color(0xFFE82E5A),
+                        color: const Color(0xFFC4A35A),
                       ),
                     ),
                     const SizedBox(height: 6),
@@ -511,7 +511,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                           isExpanded ? s.showLess : s.showMoreCount(more),
                           style: AppFonts.poppins(
                             fontSize: 12,
-                            color: const Color(0xFF3053F0),
+                            color: const Color(0xFFC4A35A),
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -526,7 +526,7 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(12),
                       gradient: const LinearGradient(
-                        colors: [Color(0xFF3053F0), Color(0xFFE82E5A)],
+                        colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                       ),
                     ),
                     child: ElevatedButton(

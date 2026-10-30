@@ -7,7 +7,7 @@ import 'package:rfid_flutter/services/bootstrap_channel.dart';
 class LaunchLogo extends StatefulWidget {
   const LaunchLogo({super.key});
 
-  static const Color background = Color(0xFFFFFFFF);
+  static const Color background = Color(0xFFF6F4F0);
 
   @override
   State<LaunchLogo> createState() => _LaunchLogoState();

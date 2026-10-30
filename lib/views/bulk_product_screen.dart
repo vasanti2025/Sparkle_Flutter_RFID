@@ -93,7 +93,7 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
       builder: (ctx) => AlertDialog(
         title: Text(
           s.tr('addType', args: {'type': typeLabel}),
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+          style: GoogleFonts.bodoniModa(fontWeight: FontWeight.bold),
         ),
         content: TextField(
           controller: ctrl,
@@ -333,7 +333,7 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
           Flexible(
             child: Text(
               label,
-              style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+              style: GoogleFonts.bodoniModa(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -349,7 +349,7 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
     _syncControllers(vm);
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       appBar: productGradientAppBar(
         context: context,
         title: s.tr('addBulkProducts'),
@@ -407,7 +407,7 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
                   width: 44,
                   child: Text(
                     s.tr('headerSr'),
-                    style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                    style: GoogleFonts.bodoniModa(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
                     textAlign: TextAlign.center,
                   ),
                 ),
@@ -429,7 +429,7 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
           Expanded(
             child: vm.scannedTags.isEmpty
                 ? Center(
-                    child: Text(s.tr('scanTagsToAddRows'), style: GoogleFonts.poppins(color: Colors.grey)),
+                    child: Text(s.tr('scanTagsToAddRows'), style: GoogleFonts.bodoniModa(color: Colors.grey)),
                   )
                 : ListView.builder(
                     padding: const EdgeInsets.symmetric(vertical: 4),
@@ -448,7 +448,7 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
                                   child: Center(
                                     child: Text(
                                       '${index + 1}',
-                                      style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey[800]),
+                                      style: GoogleFonts.bodoniModa(fontSize: 11, color: Colors.grey[800]),
                                     ),
                                   ),
                                 ),

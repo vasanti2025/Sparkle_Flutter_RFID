@@ -133,7 +133,7 @@ class ProductFormRowState extends State<ProductFormRow> {
             height: 40,
             child: Text(
               option,
-              style: GoogleFonts.poppins(
+              style: GoogleFonts.bodoniModa(
                 fontSize: 13,
                 fontWeight: option == widget.value ? FontWeight.w600 : FontWeight.normal,
                 color: const Color(0xFF222222),
@@ -165,7 +165,7 @@ class ProductFormRowState extends State<ProductFormRow> {
             flex: 8,
             child: Text(
               widget.label,
-              style: GoogleFonts.poppins(fontSize: 14, color: Colors.black87),
+              style: GoogleFonts.bodoniModa(fontSize: 14, color: Colors.black87),
             ),
           ),
           Expanded(
@@ -176,7 +176,7 @@ class ProductFormRowState extends State<ProductFormRow> {
                 color: widget.disabled ? const Color(0xFFF5F5F5) : Colors.white,
                 borderRadius: BorderRadius.circular(6),
                 border: widget.isScanActive
-                    ? Border.all(color: const Color(0xFF5231A7), width: 1.5)
+                    ? Border.all(color: const Color(0xFFC4A35A), width: 1.5)
                     : null,
               ),
               padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -201,7 +201,7 @@ class ProductFormRowState extends State<ProductFormRow> {
           Expanded(
             child: Text(
               display,
-              style: GoogleFonts.poppins(
+              style: GoogleFonts.bodoniModa(
                 fontSize: 13,
                 color: hasValue ? Colors.black87 : Colors.grey,
               ),
@@ -242,12 +242,12 @@ class ProductFormRowState extends State<ProductFormRow> {
             inputFormatters: _isNumericField
                 ? [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))]
                 : null,
-            style: GoogleFonts.poppins(fontSize: 14, color: Colors.black87),
+            style: GoogleFonts.bodoniModa(fontSize: 14, color: Colors.black87),
             decoration: InputDecoration(
               isDense: true,
               border: InputBorder.none,
               hintText: _placeholder,
-              hintStyle: GoogleFonts.poppins(fontSize: 14, color: Colors.grey),
+              hintStyle: GoogleFonts.bodoniModa(fontSize: 14, color: Colors.grey),
               contentPadding: EdgeInsets.zero,
             ),
             onChanged: widget.onChanged,

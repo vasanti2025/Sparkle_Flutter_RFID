@@ -85,12 +85,12 @@ class _SampleOutFieldsDialogState extends State<SampleOutFieldsDialog> {
               padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                  colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                 ),
               ),
               child: Text(
                 widget.title ?? s.sampleOutFields,
-                style: GoogleFonts.poppins(
+                style: GoogleFonts.bodoniModa(
                   color: Colors.white,
                   fontWeight: FontWeight.w600,
                   fontSize: 16,
@@ -106,15 +106,15 @@ class _SampleOutFieldsDialogState extends State<SampleOutFieldsDialog> {
                   const SizedBox(height: 12),
                   _dateField(s.returnTitle, _returnDate, () => _pickDate(true)),
                   const SizedBox(height: 12),
-                  Text(s.description, style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w500)),
+                  Text(s.description, style: GoogleFonts.bodoniModa(fontSize: 13, fontWeight: FontWeight.w500)),
                   const SizedBox(height: 6),
                   TextField(
                     controller: _descriptionCtrl,
                     maxLines: 3,
-                    style: GoogleFonts.poppins(fontSize: 13),
+                    style: GoogleFonts.bodoniModa(fontSize: 13),
                     decoration: InputDecoration(
                       hintText: s.enterDescription,
-                      hintStyle: GoogleFonts.poppins(fontSize: 13, color: Colors.grey),
+                      hintStyle: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.grey),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     ),
@@ -125,14 +125,14 @@ class _SampleOutFieldsDialogState extends State<SampleOutFieldsDialog> {
                       Expanded(
                         child: OutlinedButton(
                           onPressed: () => Navigator.pop(context),
-                          child: Text(s.cancel, style: GoogleFonts.poppins()),
+                          child: Text(s.cancel, style: GoogleFonts.bodoniModa()),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF5231A7),
+                            backgroundColor: const Color(0xFF1A1A1A),
                             foregroundColor: Colors.white,
                           ),
                           onPressed: () {
@@ -143,7 +143,7 @@ class _SampleOutFieldsDialogState extends State<SampleOutFieldsDialog> {
                             });
                             Navigator.pop(context);
                           },
-                          child: Text(s.confirm, style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+                          child: Text(s.confirm, style: GoogleFonts.bodoniModa(fontWeight: FontWeight.w600)),
                         ),
                       ),
                     ],
@@ -161,7 +161,7 @@ class _SampleOutFieldsDialogState extends State<SampleOutFieldsDialog> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w500)),
+        Text(label, style: GoogleFonts.bodoniModa(fontSize: 13, fontWeight: FontWeight.w500)),
         const SizedBox(height: 6),
         InkWell(
           onTap: onTap,
@@ -174,7 +174,7 @@ class _SampleOutFieldsDialogState extends State<SampleOutFieldsDialog> {
             child: Row(
               children: [
                 Expanded(
-                  child: Text(value, style: GoogleFonts.poppins(fontSize: 13)),
+                  child: Text(value, style: GoogleFonts.bodoniModa(fontSize: 13)),
                 ),
                 const Icon(Icons.calendar_today, size: 18, color: Colors.grey),
               ],

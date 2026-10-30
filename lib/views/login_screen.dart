@@ -169,7 +169,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                      colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                     ),
                   ),
                   child: Row(
@@ -225,7 +225,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(color: Color(0xFF5231A7), width: 1.5),
+                            borderSide: const BorderSide(color: Color(0xFFC4A35A), width: 1.5),
                           ),
                         ),
                       ),
@@ -258,7 +258,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: DecoratedBox(
                           decoration: BoxDecoration(
                             gradient: const LinearGradient(
-                              colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                              colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                             ),
                             borderRadius: BorderRadius.circular(10),
                           ),
@@ -365,7 +365,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       }
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF315BA3),
+                      backgroundColor: const Color(0xFF1A1A1A),
                     ),
                     child: Text(
                       s.continueLabel,
@@ -393,7 +393,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final viewModel = context.watch<LoginViewModel>();
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       body: SingleChildScrollView(
         child: Column(
           children: [
@@ -456,7 +456,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                   gradient: viewModel.selectedLoginMode == 'password'
                                       ? const LinearGradient(
-                                          colors: [Color(0xFF315BA3), Color(0xFFA7192E)],
+                                          colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                                         )
                                       : const LinearGradient(
                                           colors: [Color(0xFFE0E0E0), Color(0xFFCCCCCC)],
@@ -486,7 +486,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                   gradient: viewModel.selectedLoginMode == 'face'
                                       ? const LinearGradient(
-                                          colors: [Color(0xFF315BA3), Color(0xFFA7192E)],
+                                          colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                                         )
                                       : const LinearGradient(
                                           colors: [Color(0xFFE0E0E0), Color(0xFFCCCCCC)],
@@ -650,7 +650,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(12),
                             gradient: const LinearGradient(
-                              colors: [Color(0xFF315BA3), Color(0xFFA7192E)],
+                              colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                             ),
                           ),
                           alignment: Alignment.center,
@@ -706,11 +706,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Text(
                         s.configureCustomApi,
                         style: TextStyle(
-                          color: const Color(0xFF5231A7),
+                          color: const Color(0xFFC4A35A),
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
                           decoration: TextDecoration.underline,
-                          decorationColor: const Color(0xFF5231A7),
+                          decorationColor: const Color(0xFFC4A35A),
                         ),
                       ),
                     ),

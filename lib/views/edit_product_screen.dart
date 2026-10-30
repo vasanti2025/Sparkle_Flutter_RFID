@@ -133,7 +133,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
   void _showImageSourceSheet() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -144,16 +144,16 @@ class _EditProductScreenState extends State<EditProductScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: const Icon(Icons.photo_camera, color: Color(0xFF5231A7)),
-                title: Text(s.tr('camera'), style: GoogleFonts.poppins()),
+                leading: const Icon(Icons.photo_camera, color: Color(0xFFC4A35A)),
+                title: Text(s.tr('camera'), style: GoogleFonts.bodoniModa()),
                 onTap: () {
                   Navigator.pop(context);
                   _pickImage(ImageSource.camera);
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.photo_library, color: Color(0xFFD32940)),
-                title: Text(s.tr('gallery'), style: GoogleFonts.poppins()),
+                leading: const Icon(Icons.photo_library, color: Color(0xFFC4A35A)),
+                title: Text(s.tr('gallery'), style: GoogleFonts.bodoniModa()),
                 onTap: () {
                   Navigator.pop(context);
                   _pickImage(ImageSource.gallery);
@@ -280,7 +280,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
         child: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+              colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -294,7 +294,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
             ),
             title: Text(
               s.editProduct,
-              style: GoogleFonts.poppins(
+              style: GoogleFonts.bodoniModa(
                 color: Colors.white,
                 fontWeight: FontWeight.w600,
               ),
@@ -333,7 +333,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
                           Expanded(
                             child: Text(
                               s.apiActiveCannotEdit,
-                              style: GoogleFonts.poppins(
+                              style: GoogleFonts.bodoniModa(
                                 fontSize: 13,
                                 color: Colors.orange[900],
                                 fontWeight: FontWeight.w500,
@@ -372,7 +372,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
                           bottom: 0,
                           right: 0,
                           child: CircleAvatar(
-                            backgroundColor: const Color(0xFFD32940),
+                            backgroundColor: const Color(0xFFC4A35A),
                             radius: 18,
                             child: IconButton(
                               icon: const Icon(Icons.camera_alt, size: 16, color: Colors.white),
@@ -620,14 +620,14 @@ class _EditProductScreenState extends State<EditProductScreen> {
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            side: const BorderSide(color: Color(0xFF5231A7), width: 1.5),
+                            side: const BorderSide(color: Color(0xFFC4A35A), width: 1.5),
                           ),
                           child: Text(
                             s.cancel,
-                            style: GoogleFonts.poppins(
+                            style: GoogleFonts.bodoniModa(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
-                              color: const Color(0xFF5231A7),
+                              color: const Color(0xFFC4A35A),
                             ),
                           ),
                         ),
@@ -638,7 +638,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
                           child: Container(
                             decoration: BoxDecoration(
                               gradient: const LinearGradient(
-                                colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                                colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                                 begin: Alignment.topLeft,
                                 end: Alignment.bottomRight,
                               ),
@@ -662,7 +662,7 @@ class _EditProductScreenState extends State<EditProductScreen> {
                                     )
                                   : Text(
                                       s.saveDetails,
-                                      style: GoogleFonts.poppins(
+                                      style: GoogleFonts.bodoniModa(
                                         fontSize: 16,
                                         fontWeight: FontWeight.w600,
                                         color: Colors.white,
@@ -714,11 +714,11 @@ class _EditProductScreenState extends State<EditProductScreen> {
           children: [
             Row(
               children: [
-                Icon(icon, size: 20, color: const Color(0xFF5231A7)),
+                Icon(icon, size: 20, color: const Color(0xFFC4A35A)),
                 const SizedBox(width: 8),
                 Text(
                   title,
-                  style: GoogleFonts.poppins(
+                  style: GoogleFonts.bodoniModa(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
                     color: Colors.black87,
@@ -748,10 +748,10 @@ class _EditProductScreenState extends State<EditProductScreen> {
         enabled: enabled,
         keyboardType: keyboardType,
         validator: validator,
-        style: GoogleFonts.poppins(fontSize: 14),
+        style: GoogleFonts.bodoniModa(fontSize: 14),
         decoration: InputDecoration(
           labelText: label,
-          labelStyle: GoogleFonts.poppins(fontSize: 13, color: Colors.grey[600]),
+          labelStyle: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.grey[600]),
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),

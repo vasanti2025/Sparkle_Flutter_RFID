@@ -441,7 +441,7 @@ class _AddProductScreenState extends State<AddProductScreen> with BarcodeScanMix
     final vm = context.watch<SingleProductViewModel>();
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       appBar: productGradientAppBar(context: context, title: s.tr('addSingleProduct')),
       body: Column(
         children: [

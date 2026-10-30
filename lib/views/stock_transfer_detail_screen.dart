@@ -125,12 +125,12 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
     showAppDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(s.tr('statusFilter'), style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        title: Text(s.tr('statusFilter'), style: GoogleFonts.bodoniModa(fontWeight: FontWeight.bold)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: options.map((entry) {
             return ListTile(
-              title: Text(entry.value, style: GoogleFonts.poppins()),
+              title: Text(entry.value, style: GoogleFonts.bodoniModa()),
               selected: _selectedStatus == entry.key,
               onTap: () {
                 setState(() {
@@ -261,7 +261,7 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
     final rows = _filteredItems;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       appBar: productGradientAppBar(context: context, title: s.tr('transferDetails')),
       body: Column(
         children: [
@@ -278,7 +278,7 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
                     ),
                     child: Text(
                       widget.transferTypeName.isEmpty ? s.tr('transferType') : widget.transferTypeName,
-                      style: GoogleFonts.poppins(fontSize: 13),
+                      style: GoogleFonts.bodoniModa(fontSize: 13),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -320,12 +320,12 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
           ),
           Expanded(
             child: _loadingItems
-                ? const Center(child: CircularProgressIndicator(color: Color(0xFF5231A7)))
+                ? const Center(child: CircularProgressIndicator(color: Color(0xFFC4A35A)))
                 : rows.isEmpty
                     ? Center(
                         child: Text(
                           _items.isEmpty ? s.loading : s.tr('noItemsInCurrentScope'),
-                          style: GoogleFonts.poppins(color: Colors.grey),
+                          style: GoogleFonts.bodoniModa(color: Colors.grey),
                         ),
                       )
                     : ListView.separated(
@@ -400,7 +400,7 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
                                     width: 48,
                                     child: Checkbox(
                                       value: checked,
-                                      activeColor: const Color(0xFF5231A7),
+                                      activeColor: const Color(0xFFC4A35A),
                                       onChanged: (_busy || !canSelect)
                                           ? null
                                           : (v) {
@@ -467,7 +467,7 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
         child: Ink(
           height: 40,
           decoration: BoxDecoration(
-            gradient: const LinearGradient(colors: [Color(0xFF5231A7), Color(0xFFD32940)]),
+            gradient: const LinearGradient(colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)]),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Row(
@@ -478,7 +478,7 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
               Flexible(
                 child: Text(
                   label,
-                  style: GoogleFonts.poppins(
+                  style: GoogleFonts.bodoniModa(
                     color: Colors.white,
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
@@ -493,6 +493,6 @@ class _StockTransferDetailScreenState extends State<StockTransferDetailScreen> {
     );
   }
 
-  TextStyle _header() => GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10);
-  TextStyle _cell() => GoogleFonts.poppins(fontSize: 10, color: Colors.black87);
+  TextStyle _header() => GoogleFonts.bodoniModa(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10);
+  TextStyle _cell() => GoogleFonts.bodoniModa(fontSize: 10, color: Colors.black87);
 }

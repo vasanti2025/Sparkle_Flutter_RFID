@@ -372,7 +372,7 @@ class _AddFaceScreenState extends State<AddFaceScreen>
         ),
         title: Text(
           s.registerFace,
-          style: GoogleFonts.poppins(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+          style: GoogleFonts.bodoniModa(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
         ),
         actions: [
           if (_cameras != null && _cameras!.length > 1)
@@ -444,7 +444,7 @@ class _AddFaceScreenState extends State<AddFaceScreen>
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: _faceDetected ? const Color(0xFF4CAF50) : const Color(0xFF5231A7),
+                        color: _faceDetected ? const Color(0xFF4CAF50) : const Color(0xFFC4A35A),
                         width: 4,
                       ),
                     ),
@@ -460,13 +460,13 @@ class _AddFaceScreenState extends State<AddFaceScreen>
                           decoration: BoxDecoration(
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFFD32940).withValues(alpha: 0.6),
+                                color: const Color(0xFFC4A35A).withValues(alpha: 0.6),
                                 blurRadius: 4,
                                 spreadRadius: 2,
                               ),
                             ],
                             gradient: const LinearGradient(
-                              colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                              colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                             ),
                           ),
                         ),
@@ -486,7 +486,7 @@ class _AddFaceScreenState extends State<AddFaceScreen>
                 Text(
                   s.alignFaceInCircle,
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.poppins(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                  style: GoogleFonts.bodoniModa(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -496,7 +496,7 @@ class _AddFaceScreenState extends State<AddFaceScreen>
                           ? 'Face detected — tap Save'
                           : s.scanningFace,
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.poppins(
+                  style: GoogleFonts.bodoniModa(
                     color: _faceDetected ? const Color(0xFF4CAF50) : Colors.white54,
                     fontSize: 13,
                   ),
@@ -507,12 +507,12 @@ class _AddFaceScreenState extends State<AddFaceScreen>
                     onPressed: _retryCameraPermission,
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
-                      backgroundColor: const Color(0xFF0077D4),
+                      backgroundColor: const Color(0xFF1A1A1A),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                     child: Text(
                       'Allow Camera Access',
-                      style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
+                      style: GoogleFonts.bodoniModa(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
                     ),
                   )
                 else
@@ -520,7 +520,7 @@ class _AddFaceScreenState extends State<AddFaceScreen>
                     onPressed: (_saving || !_isInit || !_modelReady) ? null : _onSaveFace,
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
-                      backgroundColor: const Color(0xFFD32940),
+                      backgroundColor: const Color(0xFFC4A35A),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                     child: _saving
@@ -531,7 +531,7 @@ class _AddFaceScreenState extends State<AddFaceScreen>
                           )
                         : Text(
                             s.saveFaceLabel,
-                            style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
+                            style: GoogleFonts.bodoniModa(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
                           ),
                   ),
               ],

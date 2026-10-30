@@ -6,10 +6,10 @@ import '../../models/sample_out.dart';
 import '../../utils/stretch_table_widths.dart';
 
 class SampleInTable extends StatelessWidget {
-  static final _headerStyle = GoogleFonts.poppins(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold);
-  static final _cellStyle = GoogleFonts.poppins(fontSize: 11, color: Colors.black87);
-  static final _footerStyle = GoogleFonts.poppins(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold);
-  static final _emptyStyle = GoogleFonts.poppins(color: Colors.grey, fontSize: 13);
+  static final _headerStyle = GoogleFonts.bodoniModa(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold);
+  static final _cellStyle = GoogleFonts.bodoniModa(fontSize: 11, color: Colors.black87);
+  static final _footerStyle = GoogleFonts.bodoniModa(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold);
+  static final _emptyStyle = GoogleFonts.bodoniModa(color: Colors.grey, fontSize: 13);
   final List<Map<String, dynamic>> issueItems;
   final Set<String> scannedCodes;
   final bool isReturnMode;
@@ -268,12 +268,12 @@ class SampleInTable extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(title, style: GoogleFonts.poppins(fontSize: 12, color: enabled ? Colors.black : Colors.grey)),
+              Text(title, style: GoogleFonts.bodoniModa(fontSize: 12, color: enabled ? Colors.black : Colors.grey)),
               const SizedBox(width: 10),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(color: const Color(0xFF7B1FA2), borderRadius: BorderRadius.circular(6)),
-                child: Text('$count', style: GoogleFonts.poppins(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold)),
+                child: Text('$count', style: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold)),
               ),
             ],
           ),

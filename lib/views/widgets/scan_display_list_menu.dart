@@ -119,7 +119,7 @@ class ScanDisplayListMenuOverlay extends StatelessWidget {
     bool enabled = true,
   }) {
     final displayText = count != null ? '$title ($count)' : title;
-    final color = enabled ? const Color(0xFF5231A7) : Colors.grey;
+    final color = enabled ? const Color(0xFFC4A35A) : Colors.grey;
     final textColor = enabled ? Colors.black87 : Colors.grey;
     return GestureDetector(
       onTap: enabled ? onTap : null,
@@ -129,7 +129,7 @@ class ScanDisplayListMenuOverlay extends StatelessWidget {
         decoration: BoxDecoration(
           gradient: enabled
               ? const LinearGradient(
-                  colors: [Color(0xFF3053F0), Color(0xFFE82E5A)],
+                  colors: [Color(0xFFC4A35A), Color(0xFFA6853E)],
                 )
               : LinearGradient(
                   colors: [Colors.grey.shade400, Colors.grey.shade500],

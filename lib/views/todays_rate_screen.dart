@@ -9,10 +9,10 @@ import '../viewmodels/daily_rate_view_model.dart';
 
 // Brand gradient (purple -> red) used across the app.
 const _brandGradient = LinearGradient(
-  colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+  colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
 );
 const _buttonGradient = LinearGradient(
-  colors: [Color(0xFFD32940), Color(0xFF5231A7)],
+  colors: [Color(0xFFC4A35A), Color(0xFFC4A35A)],
 );
 
 class TodaysRateScreen extends StatefulWidget {
@@ -90,7 +90,7 @@ class _TodaysRateScreenState extends State<TodaysRateScreen> {
     }
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       resizeToAvoidBottomInset: true,
       appBar: _buildAppBar(),
       body: SafeArea(
@@ -112,7 +112,7 @@ class _TodaysRateScreenState extends State<TodaysRateScreen> {
       ),
       title: Text(
         context.s.labelTodayRate,
-        style: GoogleFonts.poppins(
+        style: GoogleFonts.bodoniModa(
           color: Colors.white,
           fontSize: 20,
           fontWeight: FontWeight.w600,
@@ -123,7 +123,7 @@ class _TodaysRateScreenState extends State<TodaysRateScreen> {
 
   Widget _buildBody(DailyRateViewModel vm) {
     if (vm.isLoading && vm.rates.isEmpty) {
-      return const Center(child: CircularProgressIndicator(color: Color(0xFF5231A7)));
+      return const Center(child: CircularProgressIndicator(color: Color(0xFFC4A35A)));
     }
 
     if (vm.rates.isEmpty) {
@@ -133,7 +133,7 @@ class _TodaysRateScreenState extends State<TodaysRateScreen> {
           child: Text(
             UserFacingError.fromMessage(vm.errorMessage, fallback: context.s.noRatesFound),
             textAlign: TextAlign.center,
-            style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey[600]),
+            style: GoogleFonts.bodoniModa(fontSize: 14, color: Colors.grey[600]),
           ),
         ),
       );
@@ -167,7 +167,7 @@ class _TodaysRateScreenState extends State<TodaysRateScreen> {
           flex: flex,
           child: Text(
             text,
-            style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black),
+            style: GoogleFonts.bodoniModa(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black),
           ),
         );
 
@@ -194,14 +194,14 @@ class _TodaysRateScreenState extends State<TodaysRateScreen> {
             flex: 3,
             child: Text(
               row.categoryName,
-              style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.black87),
+              style: GoogleFonts.bodoniModa(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.black87),
             ),
           ),
           Expanded(
             flex: 2,
             child: Text(
               row.purityName,
-              style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.black87),
+              style: GoogleFonts.bodoniModa(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.black87),
             ),
           ),
           Expanded(
@@ -224,7 +224,7 @@ class _TodaysRateScreenState extends State<TodaysRateScreen> {
           FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
           _SingleDecimalFormatter(),
         ],
-        style: GoogleFonts.poppins(fontSize: 12, color: Colors.black),
+        style: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.black),
         cursorColor: Colors.black,
         decoration: InputDecoration(
           isDense: true,
@@ -328,7 +328,7 @@ class _GradientButton extends StatelessWidget {
                         text,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.poppins(
+                        style: GoogleFonts.bodoniModa(
                           color: Colors.white,
                           fontSize: 12,
                           fontWeight: FontWeight.w600,

@@ -27,7 +27,7 @@ import '../utils/user_facing_error.dart';
 
 // Brand gradient used across the screen (matches Sparkle Kotlin app).
 const _brandGradient = LinearGradient(
-  colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+  colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
 );
 
 class OrderScreen extends StatefulWidget {
@@ -439,7 +439,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
         context.s.orderScreen,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: GoogleFonts.poppins(
+        style: GoogleFonts.bodoniModa(
           color: Colors.white,
           fontSize: 20,
           fontWeight: FontWeight.w600,
@@ -460,7 +460,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
               .map((p) => PopupMenuItem<int>(
                     value: p,
                     height: 36,
-                    child: Text('$p', style: GoogleFonts.poppins(fontSize: 14)),
+                    child: Text('$p', style: GoogleFonts.bodoniModa(fontSize: 14)),
                   ))
               .toList(),
           child: Container(
@@ -473,7 +473,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
             ),
             child: Text(
               '$_power',
-              style: GoogleFonts.poppins(
+              style: GoogleFonts.bodoniModa(
                 color: Colors.red,
                 fontSize: 14,
                 fontWeight: FontWeight.bold,
@@ -513,12 +513,12 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
                       child: TextField(
                         controller: _customerSearchCtrl,
                         focusNode: _focusNode,
-                        style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
+                        style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black),
                         decoration: InputDecoration(
                           isCollapsed: true,
                           border: InputBorder.none,
                           hintText: s.enterCustomerName,
-                          hintStyle: GoogleFonts.poppins(fontSize: 13, color: Colors.grey),
+                          hintStyle: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.grey),
                         ),
                         onChanged: (v) => setState(() => _showSuggestions = true),
                       ),
@@ -568,7 +568,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
                   ? Padding(
                       padding: const EdgeInsets.all(12),
                       child: Text(s.noItemsFound,
-                          style: GoogleFonts.poppins(color: Colors.grey, fontSize: 13)),
+                          style: GoogleFonts.bodoniModa(color: Colors.grey, fontSize: 13)),
                     )
                   : ListView.separated(
                       shrinkWrap: true,
@@ -593,7 +593,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
                               label,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
+                              style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black),
                             ),
                           ),
                         );
@@ -638,12 +638,12 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
                             child: TextField(
                               controller: _itemCodeCtrl,
                               focusNode: _itemCodeFocus,
-                              style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
+                              style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black),
                               decoration: InputDecoration(
                                 isCollapsed: true,
                                 border: InputBorder.none,
                                 hintText: s.enterRfidItemcode,
-                                hintStyle: GoogleFonts.poppins(fontSize: 12, color: Colors.grey),
+                                hintStyle: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.grey),
                               ),
                               onChanged: (v) {
                                 _suggestTimer?.cancel();
@@ -706,7 +706,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(s.orderDetails,
-                              style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey)),
+                              style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.grey)),
                           const SizedBox(width: 4),
                           const Icon(Icons.tune, size: 20, color: Colors.grey),
                         ],
@@ -744,7 +744,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       child: Text(display,
-                          style: GoogleFonts.poppins(fontSize: 13, color: Colors.black)),
+                          style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black)),
                     ),
                   );
                 },
@@ -773,7 +773,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
           text,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: GoogleFonts.poppins(fontSize: 11, color: color, fontWeight: weight),
+          style: GoogleFonts.bodoniModa(fontSize: 11, color: color, fontWeight: weight),
         ),
       ),
     );
@@ -851,7 +851,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
                           child: items.isEmpty
                               ? Center(
                                   child: Text(s.noItemsAdded,
-                                      style: GoogleFonts.poppins(color: Colors.grey, fontSize: 13)),
+                                      style: GoogleFonts.bodoniModa(color: Colors.grey, fontSize: 13)),
                                 )
                               : ListView.builder(
                                   controller: _dataVScroll,
@@ -909,7 +909,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
                       alignment: Alignment.center,
                       padding: const EdgeInsets.symmetric(horizontal: 2),
                       child: Text(s.action,
-                          style: GoogleFonts.poppins(
+                          style: GoogleFonts.bodoniModa(
                               fontSize: 11, color: Colors.white, fontWeight: FontWeight.w600)),
                     ),
                     Expanded(
@@ -931,7 +931,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
                                         onTap: () => vm.duplicateItem(idx),
                                         child: const Padding(
                                           padding: EdgeInsets.all(4),
-                                          child: Icon(Icons.add_circle_outline, color: Color(0xFF5231A7), size: 18),
+                                          child: Icon(Icons.add_circle_outline, color: Color(0xFFC4A35A), size: 18),
                                         ),
                                       ),
                                       InkWell(
@@ -964,20 +964,20 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
       context: context,
       builder: (context) {
         return AlertDialog(
-          backgroundColor: Colors.white,
-          title: Text(s.deleteItem, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-          content: Text(s.confirmDeleteItem, style: GoogleFonts.poppins()),
+          backgroundColor: const Color(0xFFF6F4F0),
+          title: Text(s.deleteItem, style: GoogleFonts.bodoniModa(fontWeight: FontWeight.bold)),
+          content: Text(s.confirmDeleteItem, style: GoogleFonts.bodoniModa()),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text(s.cancel, style: GoogleFonts.poppins(color: Colors.grey)),
+              child: Text(s.cancel, style: GoogleFonts.bodoniModa(color: Colors.grey)),
             ),
             TextButton(
               onPressed: () {
                 vm.deleteItem(idx);
                 Navigator.pop(context);
               },
-              child: Text(s.delete, style: GoogleFonts.poppins(color: Colors.red)),
+              child: Text(s.delete, style: GoogleFonts.bodoniModa(color: Colors.red)),
             ),
           ],
         );
@@ -1020,20 +1020,20 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
                 ),
                 const SizedBox(width: 6),
                 Text(s.gstLabel,
-                    style: GoogleFonts.poppins(
+                    style: GoogleFonts.bodoniModa(
                         fontSize: 13, fontWeight: FontWeight.w500, color: Colors.black)),
               ],
             ),
           ),
           Text(s.totalAmount,
-              style: GoogleFonts.poppins(
+              style: GoogleFonts.bodoniModa(
                   fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black)),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(6)),
             child: Text(
               '₹ ${vm.getFinalTotal().toStringAsFixed(2)}',
-              style: GoogleFonts.poppins(
+              style: GoogleFonts.bodoniModa(
                   fontSize: 13, color: const Color(0xFF1565C0), fontWeight: FontWeight.bold),
             ),
           ),
@@ -1052,7 +1052,7 @@ class _OrderScreenState extends State<OrderScreen> with BarcodeScanMixin {
         return true;
       },
       child: Scaffold(
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFFF6F4F0),
         // Keep the scan bottom bar pinned; the keyboard overlays the body
         // instead of pushing the bar up.
         resizeToAvoidBottomInset: false,

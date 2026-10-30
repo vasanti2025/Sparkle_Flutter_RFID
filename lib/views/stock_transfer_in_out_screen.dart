@@ -161,8 +161,8 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen>
       context: context,
       useRootNavigator: true,
       builder: (ctx) => AlertDialog(
-        title: Text(s.delete, style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: Text(s.tr('deleteTransferConfirm'), style: GoogleFonts.poppins()),
+        title: Text(s.delete, style: GoogleFonts.bodoniModa(fontWeight: FontWeight.bold)),
+        content: Text(s.tr('deleteTransferConfirm'), style: GoogleFonts.bodoniModa()),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(s.tr('cancel'))),
           TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(s.delete)),
@@ -217,7 +217,7 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen>
               enabled: false,
               child: Text(
                 s.tr('noItemsInCurrentScope'),
-                style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey),
+                style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.grey),
               ),
             ),
           ];
@@ -228,7 +228,7 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen>
                 value: name,
                 child: Text(
                   name == 'Transfer Type' ? s.tr('transferType') : name,
-                  style: GoogleFonts.poppins(fontSize: 13),
+                  style: GoogleFonts.bodoniModa(fontSize: 13),
                 ),
               ),
             )
@@ -250,7 +250,7 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen>
                 _selectedTransferTypeName == 'Transfer Type'
                     ? s.tr('transferType')
                     : _selectedTransferTypeName,
-                style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
+                style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -266,7 +266,7 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen>
       width: width,
       child: Text(
         text,
-        style: GoogleFonts.poppins(
+        style: GoogleFonts.bodoniModa(
           color: header ? Colors.white : Colors.black87,
           fontWeight: header ? FontWeight.bold : FontWeight.normal,
           fontSize: 10,
@@ -337,7 +337,7 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen>
                   ? (item.isSelfApproval
                       ? Text(
                           _statusText(item),
-                          style: GoogleFonts.poppins(fontSize: 10),
+                          style: GoogleFonts.bodoniModa(fontSize: 10),
                           textAlign: TextAlign.center,
                         )
                       : IconButton(
@@ -346,7 +346,7 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen>
                         ))
                   : Text(
                       _statusText(item),
-                      style: GoogleFonts.poppins(fontSize: 10),
+                      style: GoogleFonts.bodoniModa(fontSize: 10),
                       textAlign: TextAlign.center,
                     ),
             ),
@@ -364,7 +364,7 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen>
     final title = _isOutRequest ? s.tr('outRequest') : s.tr('inRequest');
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       appBar: productGradientAppBar(
         context: context,
         title: '$title - ${s.tr('stockTransfers')}',
@@ -388,13 +388,13 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen>
             ),
           ),
           if (_loading)
-            const Expanded(child: Center(child: CircularProgressIndicator(color: Color(0xFF5231A7))))
+            const Expanded(child: Center(child: CircularProgressIndicator(color: Color(0xFFC4A35A))))
           else if (_error != null)
             Expanded(
               child: Center(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
-                  child: Text(_error!, style: GoogleFonts.poppins(color: Colors.red), textAlign: TextAlign.center),
+                  child: Text(_error!, style: GoogleFonts.bodoniModa(color: Colors.red), textAlign: TextAlign.center),
                 ),
               ),
             )
@@ -415,7 +415,7 @@ class _StockTransferInOutScreenState extends State<StockTransferInOutScreen>
                                 ? Center(
                                     child: Text(
                                       s.tr('noItemsInCurrentScope'),
-                                      style: GoogleFonts.poppins(),
+                                      style: GoogleFonts.bodoniModa(),
                                     ),
                                   )
                                 : ListView.separated(

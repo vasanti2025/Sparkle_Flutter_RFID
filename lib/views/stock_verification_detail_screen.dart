@@ -103,13 +103,13 @@ class _StockVerificationDetailScreenState extends State<StockVerificationDetailS
     }
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       appBar: AppBar(
         automaticallyImplyLeading: false,
         titleSpacing: 0,
         flexibleSpace: Container(
           decoration: const BoxDecoration(
-            gradient: LinearGradient(colors: [Color(0xFF5231A7), Color(0xFFD32940)]),
+            gradient: LinearGradient(colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)]),
           ),
         ),
         backgroundColor: Colors.transparent,
@@ -123,7 +123,7 @@ class _StockVerificationDetailScreenState extends State<StockVerificationDetailS
         ),
         title: Text(
           titleText,
-          style: GoogleFonts.poppins(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+          style: GoogleFonts.bodoniModa(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
         ),
       ),
       body: Column(
@@ -220,11 +220,11 @@ class _StockVerificationDetailScreenState extends State<StockVerificationDetailS
 
   Widget _hdr(String t) => SizedBox(
         width: _colW,
-        child: Text(t, textAlign: TextAlign.center, style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+        child: Text(t, textAlign: TextAlign.center, style: GoogleFonts.bodoniModa(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
       );
 
   Widget _cell(String? v) => SizedBox(
         width: _colW,
-        child: Text(v ?? '-', textAlign: TextAlign.center, style: GoogleFonts.poppins(fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
+        child: Text(v ?? '-', textAlign: TextAlign.center, style: GoogleFonts.bodoniModa(fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
       );
 }

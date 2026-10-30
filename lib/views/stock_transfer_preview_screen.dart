@@ -197,7 +197,7 @@ class _StockTransferPreviewScreenState extends State<StockTransferPreviewScreen>
                 Flexible(
                   child: Text(
                     label,
-                    style: GoogleFonts.poppins(
+                    style: GoogleFonts.bodoniModa(
                       color: Colors.white,
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
@@ -246,7 +246,7 @@ class _StockTransferPreviewScreenState extends State<StockTransferPreviewScreen>
                   child: Text(
                     s.tr('transferDetails'),
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.poppins(
+                    style: GoogleFonts.bodoniModa(
                       color: Colors.white,
                       fontSize: 18,
                       fontWeight: FontWeight.w600,
@@ -278,7 +278,7 @@ class _StockTransferPreviewScreenState extends State<StockTransferPreviewScreen>
                               padding: const EdgeInsets.all(12),
                               child: Text(
                                 s.tr('selectEmployeeError'),
-                                style: GoogleFonts.poppins(fontSize: 13, color: Colors.black54),
+                                style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black54),
                               ),
                             )
                           : ListView.separated(
@@ -292,7 +292,7 @@ class _StockTransferPreviewScreenState extends State<StockTransferPreviewScreen>
                                   dense: true,
                                   title: Text(
                                     '${emp.displayName} ($id)',
-                                    style: GoogleFonts.poppins(fontSize: 13),
+                                    style: GoogleFonts.bodoniModa(fontSize: 13),
                                   ),
                                   onTap: () {
                                     setState(() {
@@ -313,7 +313,7 @@ class _StockTransferPreviewScreenState extends State<StockTransferPreviewScreen>
                   child: Text(
                     s.remark,
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.poppins(color: Colors.black54, fontSize: 16),
+                    style: GoogleFonts.bodoniModa(color: Colors.black54, fontSize: 16),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -331,7 +331,7 @@ class _StockTransferPreviewScreenState extends State<StockTransferPreviewScreen>
                     ),
                     contentPadding: const EdgeInsets.all(10),
                   ),
-                  style: GoogleFonts.poppins(fontSize: 14),
+                  style: GoogleFonts.bodoniModa(fontSize: 14),
                 ),
                 const SizedBox(height: 14),
                 Row(
@@ -394,7 +394,7 @@ class _StockTransferPreviewScreenState extends State<StockTransferPreviewScreen>
                   Expanded(
                     child: Text(
                       value,
-                      style: GoogleFonts.poppins(
+                      style: GoogleFonts.bodoniModa(
                         fontSize: 14,
                         color: isPlaceholder ? Colors.grey : Colors.black87,
                       ),
@@ -417,7 +417,7 @@ class _StockTransferPreviewScreenState extends State<StockTransferPreviewScreen>
         color: const Color(0xFFF3F3F3),
         borderRadius: BorderRadius.circular(4),
       ),
-      child: Text(text, style: GoogleFonts.poppins(color: Colors.black54, fontSize: 14)),
+      child: Text(text, style: GoogleFonts.bodoniModa(color: Colors.black54, fontSize: 14)),
     );
   }
 
@@ -428,7 +428,7 @@ class _StockTransferPreviewScreenState extends State<StockTransferPreviewScreen>
         color: const Color(0xFFEAEAEA),
         borderRadius: BorderRadius.circular(4),
       ),
-      child: Text(text, style: GoogleFonts.poppins(color: Colors.grey, fontSize: 14)),
+      child: Text(text, style: GoogleFonts.bodoniModa(color: Colors.grey, fontSize: 14)),
     );
   }
 
@@ -453,7 +453,7 @@ class _StockTransferPreviewScreenState extends State<StockTransferPreviewScreen>
               )
             : Text(
                 text,
-                style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600),
+                style: GoogleFonts.bodoniModa(color: Colors.white, fontWeight: FontWeight.w600),
               ),
       ),
     );
@@ -476,7 +476,7 @@ class _StockTransferPreviewScreenState extends State<StockTransferPreviewScreen>
         : const <UserPermission>[];
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       appBar: productGradientAppBar(context: context, title: s.tr('transferPreview')),
       body: Stack(
         children: [
@@ -487,7 +487,7 @@ class _StockTransferPreviewScreenState extends State<StockTransferPreviewScreen>
                   child: Center(
                     child: Text(
                       s.tr('selectItemsToTransfer'),
-                      style: GoogleFonts.poppins(),
+                      style: GoogleFonts.bodoniModa(),
                     ),
                   ),
                 )
@@ -582,19 +582,19 @@ class _StockTransferPreviewScreenState extends State<StockTransferPreviewScreen>
                   children: [
                     Text(
                       '${s.tr('totalQty')}: ${items.length}',
-                      style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600),
+                      style: GoogleFonts.bodoniModa(fontSize: 11, fontWeight: FontWeight.w600),
                     ),
                     Text(
                       '${s.tr('selectedQty')}: ${selectedRemove.length}',
-                      style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600),
+                      style: GoogleFonts.bodoniModa(fontSize: 11, fontWeight: FontWeight.w600),
                     ),
                     Text(
                       '${s.tr('grossWt')}: ${totalGross.toStringAsFixed(2)}',
-                      style: GoogleFonts.poppins(fontSize: 11),
+                      style: GoogleFonts.bodoniModa(fontSize: 11),
                     ),
                     Text(
                       '${s.tr('netWt')}: ${totalNet.toStringAsFixed(2)}',
-                      style: GoogleFonts.poppins(fontSize: 11),
+                      style: GoogleFonts.bodoniModa(fontSize: 11),
                     ),
                   ],
                 ),
@@ -654,6 +654,6 @@ class _StockTransferPreviewScreenState extends State<StockTransferPreviewScreen>
   }
 
   TextStyle _header() =>
-      GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10);
-  TextStyle _cell() => GoogleFonts.poppins(fontSize: 10, color: Colors.black87);
+      GoogleFonts.bodoniModa(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10);
+  TextStyle _cell() => GoogleFonts.bodoniModa(fontSize: 10, color: Colors.black87);
 }

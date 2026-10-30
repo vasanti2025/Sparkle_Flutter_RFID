@@ -122,7 +122,7 @@ class _QuotationListScreenState extends State<QuotationListScreen> {
       appBar: AppBar(
         flexibleSpace: Container(
           decoration: const BoxDecoration(
-            gradient: LinearGradient(colors: [Color(0xFF5231A7), Color(0xFFD32940)]),
+            gradient: LinearGradient(colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)]),
           ),
         ),
         title: Text(
@@ -182,10 +182,10 @@ class _QuotationListScreenState extends State<QuotationListScreen> {
             child: Column(
               children: [
                 if (vm.isHistoryLoading && filtered.isNotEmpty)
-                  const LinearProgressIndicator(minHeight: 2, color: Color(0xFF5231A7)),
+                  const LinearProgressIndicator(minHeight: 2, color: Color(0xFFC4A35A)),
                 Expanded(
                   child: vm.isHistoryLoading && filtered.isEmpty
-                      ? const Center(child: CircularProgressIndicator(color: Color(0xFF5231A7)))
+                      ? const Center(child: CircularProgressIndicator(color: Color(0xFFC4A35A)))
                       : filtered.isEmpty
                           ? _buildEmptyState()
                           : _buildSpreadsheetView(filtered),

@@ -207,7 +207,7 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
                   const SizedBox(width: 8),
                   Text(
                     widget.title,
-                    style: GoogleFonts.poppins(
+                    style: GoogleFonts.bodoniModa(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
@@ -352,7 +352,7 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
                         onPressed: () => Navigator.pop(context),
                         child: Text(
                           s.cancel,
-                          style: GoogleFonts.poppins(
+                          style: GoogleFonts.bodoniModa(
                             color: Colors.grey[700],
                             fontWeight: FontWeight.bold,
                           ),
@@ -366,7 +366,7 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
                       height: 44,
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
-                          colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                          colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                         ),
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -408,7 +408,7 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
                         ),
                         child: Text(
                           s.save,
-                          style: GoogleFonts.poppins(
+                          style: GoogleFonts.bodoniModa(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
                           ),
@@ -441,10 +441,10 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
       textCapitalization: textCapitalization,
       inputFormatters: inputFormatters,
       validator: validator,
-      style: GoogleFonts.poppins(fontSize: 13, color: Colors.black),
+      style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.black),
       decoration: InputDecoration(
         hintText: hintText,
-        hintStyle: GoogleFonts.poppins(fontSize: 13, color: Colors.grey[500]),
+        hintStyle: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.grey[500]),
         filled: true,
         fillColor: const Color(0xFFF5F5F5),
         isDense: true,
@@ -506,7 +506,7 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
                 padding: const EdgeInsets.only(left: 12, top: 4),
                 child: Text(
                   field.errorText!,
-                  style: GoogleFonts.poppins(fontSize: 12, color: Colors.red[700]),
+                  style: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.red[700]),
                 ),
               ),
           ],
@@ -562,7 +562,7 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
                 padding: const EdgeInsets.only(left: 12, top: 4),
                 child: Text(
                   field.errorText!,
-                  style: GoogleFonts.poppins(fontSize: 12, color: Colors.red[700]),
+                  style: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.red[700]),
                 ),
               ),
           ],
@@ -594,7 +594,7 @@ class _AddCustomerDialogState extends State<AddCustomerDialog> {
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.poppins(
+                style: GoogleFonts.bodoniModa(
                   fontSize: 13,
                   color: hint ? Colors.grey[500] : Colors.black,
                 ),

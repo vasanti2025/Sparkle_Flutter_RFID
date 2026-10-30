@@ -59,11 +59,11 @@ Future<void> printInventoryScanItemReport({
     barrierDismissible: false,
     builder: (ctx) {
       return AlertDialog(
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFFF6F4F0),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const CircularProgressIndicator(color: Color(0xFF5231A7)),
+            const CircularProgressIndicator(color: Color(0xFFC4A35A)),
             const SizedBox(height: 16),
             Text(
               s.printingPleaseWait,

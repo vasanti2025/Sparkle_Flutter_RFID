@@ -51,7 +51,7 @@ Widget _buildBarButton({
             const SizedBox(height: 2),
             Text(
               showStop ? stopLabel : label,
-              style: GoogleFonts.poppins(
+              style: GoogleFonts.bodoniModa(
                 color: iconColor,
                 fontSize: 11,
                 fontWeight: FontWeight.w500,
@@ -90,7 +90,7 @@ Widget _buildOverlappingScanButton({
       decoration: const BoxDecoration(
         shape: BoxShape.circle,
         gradient: LinearGradient(
-          colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+          colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -114,7 +114,7 @@ Widget _buildOverlappingScanButton({
           const SizedBox(height: 2),
           Text(
             label,
-            style: GoogleFonts.poppins(
+            style: GoogleFonts.bodoniModa(
               color: Colors.white,
               fontSize: 11,
               fontWeight: FontWeight.bold,

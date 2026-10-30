@@ -86,7 +86,7 @@ class _LocationListScreenState extends State<LocationListScreen> {
     return Directionality(
       textDirection: context.watch<LocaleService>().textDirection,
       child: Scaffold(
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFFF6F4F0),
         appBar: productGradientAppBar(context: context, title: s.locationList),
         body: Column(
           children: [
@@ -99,7 +99,7 @@ class _LocationListScreenState extends State<LocationListScreen> {
                       onPressed: _pickDate,
                       child: Text(
                         _selectedDate == null ? s.selectDate : DateFormat('dd/MM/yyyy').format(_selectedDate!),
-                        style: GoogleFonts.poppins(fontSize: 13),
+                        style: GoogleFonts.bodoniModa(fontSize: 13),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -108,7 +108,7 @@ class _LocationListScreenState extends State<LocationListScreen> {
                   IconButton(
                     tooltip: s.route,
                     onPressed: _selectedDate == null || vm.locations.isEmpty ? null : () => _openRoute(vm.locations),
-                    icon: const Icon(Icons.navigation, color: Color(0xFF5231A7)),
+                    icon: const Icon(Icons.navigation, color: Color(0xFFC4A35A)),
                   ),
                 ],
               ),
@@ -143,7 +143,7 @@ class _LocationListScreenState extends State<LocationListScreen> {
                             physics: const AlwaysScrollableScrollPhysics(),
                             children: [
                               SizedBox(height: MediaQuery.of(context).size.height * 0.25),
-                              Center(child: Text(s.noLocationsFound, style: GoogleFonts.poppins(fontSize: 14))),
+                              Center(child: Text(s.noLocationsFound, style: GoogleFonts.bodoniModa(fontSize: 14))),
                             ],
                           )
                         : ListView.separated(
@@ -191,6 +191,6 @@ class _LocationListScreenState extends State<LocationListScreen> {
     );
   }
 
-  TextStyle _headerStyle() => GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11, height: 1.1);
-  TextStyle _cellStyle() => GoogleFonts.poppins(fontSize: 11, height: 1.15, color: Colors.black87);
+  TextStyle _headerStyle() => GoogleFonts.bodoniModa(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11, height: 1.1);
+  TextStyle _cellStyle() => GoogleFonts.bodoniModa(fontSize: 11, height: 1.15, color: Colors.black87);
 }

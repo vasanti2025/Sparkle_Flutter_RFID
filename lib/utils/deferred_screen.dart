@@ -27,13 +27,13 @@ class _DeferredScreenState extends State<DeferredScreen> {
         if (snapshot.connectionState != ConnectionState.done) {
           // Full-screen white — avoids tiny spinner → full page "zoom" jump.
           return const Scaffold(
-            backgroundColor: Colors.white,
+            backgroundColor: const Color(0xFFF6F4F0),
             body: SizedBox.expand(),
           );
         }
         if (snapshot.hasError) {
           return Scaffold(
-            backgroundColor: Colors.white,
+            backgroundColor: const Color(0xFFF6F4F0),
             body: Center(
               child: Text('Failed to load screen\n${snapshot.error}'),
             ),

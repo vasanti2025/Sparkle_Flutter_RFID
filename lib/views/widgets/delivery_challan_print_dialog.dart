@@ -189,7 +189,7 @@ class _DeliveryChallanPrintDialogState extends State<_DeliveryChallanPrintDialog
     final busy = _loadingDevices || _connecting || _printing;
 
     return AlertDialog(
-      title: Text(s.printOptions, style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+      title: Text(s.printOptions, style: GoogleFonts.bodoniModa(fontWeight: FontWeight.w600)),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -250,8 +250,8 @@ class _DeliveryChallanPrintDialogState extends State<_DeliveryChallanPrintDialog
                         final address = d['address'] ?? '';
                         return ListTile(
                           dense: true,
-                          title: Text(name, style: GoogleFonts.poppins(fontSize: 13)),
-                          subtitle: Text(address, style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey)),
+                          title: Text(name, style: GoogleFonts.bodoniModa(fontSize: 13)),
+                          subtitle: Text(address, style: GoogleFonts.bodoniModa(fontSize: 11, color: Colors.grey)),
                           onTap: address.isEmpty ? null : () => _connectDevice(name, address),
                         );
                       },
@@ -267,7 +267,7 @@ class _DeliveryChallanPrintDialogState extends State<_DeliveryChallanPrintDialog
               const SizedBox(height: 8),
               Text(
                 _status,
-                style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[800]),
+                style: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.grey[800]),
               ),
             ],
           ],
@@ -276,7 +276,7 @@ class _DeliveryChallanPrintDialogState extends State<_DeliveryChallanPrintDialog
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: Text(s.cancel, style: GoogleFonts.poppins()),
+          child: Text(s.cancel, style: GoogleFonts.bodoniModa()),
         ),
       ],
     );
@@ -297,7 +297,7 @@ class _DeliveryChallanPrintDialogState extends State<_DeliveryChallanPrintDialog
           decoration: BoxDecoration(
             gradient: active
                 ? const LinearGradient(
-                    colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+                    colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   )
@@ -310,7 +310,7 @@ class _DeliveryChallanPrintDialogState extends State<_DeliveryChallanPrintDialog
             child: Text(
               label,
               textAlign: TextAlign.center,
-              style: GoogleFonts.poppins(
+              style: GoogleFonts.bodoniModa(
                 color: active ? Colors.white : Colors.grey.shade600,
                 fontWeight: FontWeight.w600,
                 fontSize: 13,

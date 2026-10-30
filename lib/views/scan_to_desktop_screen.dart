@@ -738,27 +738,27 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     showAppDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: Colors.white,
+        backgroundColor: const Color(0xFFF6F4F0),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(
           context.s.confirm,
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+          style: GoogleFonts.bodoniModa(fontWeight: FontWeight.bold),
         ),
         content: Text(
           context.s.tr('clearServerStockConfirm'),
-          style: GoogleFonts.poppins(),
+          style: GoogleFonts.bodoniModa(),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text(context.s.cancel, style: GoogleFonts.poppins(color: Colors.grey[600])),
+            child: Text(context.s.cancel, style: GoogleFonts.bodoniModa(color: Colors.grey[600])),
           ),
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
               await _clearScansFromServer();
             },
-            child: Text(context.s.ok, style: GoogleFonts.poppins(color: const Color(0xFF5231A7), fontWeight: FontWeight.bold)),
+            child: Text(context.s.ok, style: GoogleFonts.bodoniModa(color: const Color(0xFFC4A35A), fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -857,7 +857,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message, style: GoogleFonts.poppins()),
+        content: Text(message, style: GoogleFonts.bodoniModa()),
         duration: duration,
       ),
     );
@@ -868,13 +868,13 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     final s = context.s;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(kToolbarHeight),
         child: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-              colors: [Color(0xFF5231A7), Color(0xFFD32940)],
+              colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -888,7 +888,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
             ),
             title: Text(
               s.scanToDesktop,
-              style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600),
+              style: GoogleFonts.bodoniModa(color: Colors.white, fontWeight: FontWeight.w600),
             ),
             actions: [
               Center(
@@ -906,7 +906,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
                         value: val,
                         child: Text(
                           '$val',
-                          style: GoogleFonts.poppins(fontWeight: FontWeight.w500),
+                          style: GoogleFonts.bodoniModa(fontWeight: FontWeight.w500),
                         ),
                       );
                     }).toList();
@@ -922,8 +922,8 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
                     alignment: Alignment.center,
                     child: Text(
                       '$_selectedPower',
-                      style: GoogleFonts.poppins(
-                        color: const Color(0xFFD32940),
+                      style: GoogleFonts.bodoniModa(
+                        color: const Color(0xFFC4A35A),
                         fontWeight: FontWeight.bold,
                         fontSize: 14,
                       ),
@@ -941,7 +941,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
             children: [
               // Table Header
               Container(
-                color: const Color(0xFF3B363E),
+                color: const Color(0xFF1A1A1A),
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 child: Row(
                   children: [
@@ -949,21 +949,21 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
                       flex: 2,
                       child: Text(
                         s.headerSr,
-                        style: GoogleFonts.poppins(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                        style: GoogleFonts.bodoniModa(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
                       ),
                     ),
                     Expanded(
                       flex: 8,
                       child: Text(
                         s.colEpc,
-                        style: GoogleFonts.poppins(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                        style: GoogleFonts.bodoniModa(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
                       ),
                     ),
                     Expanded(
                       flex: 4,
                       child: Text(
                         s.colRfid,
-                        style: GoogleFonts.poppins(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                        style: GoogleFonts.bodoniModa(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
                       ),
                     ),
                   ],
@@ -982,21 +982,21 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
                             Text(
                               s.noTagsScannedYet,
                               textAlign: TextAlign.center,
-                              style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey[500]),
+                              style: GoogleFonts.bodoniModa(fontSize: 13, color: Colors.grey[500]),
                             ),
                           ],
                         ),
                       )
                     : Builder(
                         builder: (context) {
-                          final rowStyle = GoogleFonts.poppins(fontSize: 11);
-                          final blankStyle = GoogleFonts.poppins(
+                          final rowStyle = GoogleFonts.bodoniModa(fontSize: 11);
+                          final blankStyle = GoogleFonts.bodoniModa(
                             fontSize: 11,
                             color: Colors.blue,
                             decoration: TextDecoration.underline,
                             fontWeight: FontWeight.w600,
                           );
-                          final filledStyle = GoogleFonts.poppins(fontSize: 11, color: Colors.black87);
+                          final filledStyle = GoogleFonts.bodoniModa(fontSize: 11, color: Colors.black87);
                           return ListView.builder(
                             itemCount: _desktopScans.length,
                             addAutomaticKeepAlives: false,
@@ -1044,7 +1044,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
                 alignment: Alignment.centerLeft,
                 child: Text(
                   s.totalScannedCount(_desktopScans.length),
-                  style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey[800]),
+                  style: GoogleFonts.bodoniModa(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey[800]),
                 ),
               ),
 
@@ -1070,7 +1070,7 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
           if (_isLoading)
             const Center(
               child: CircularProgressIndicator(
-                color: Color(0xFF5231A7),
+                color: Color(0xFFC4A35A),
               ),
             ),
         ],
@@ -1156,11 +1156,11 @@ class _AssignRfidCodeDialogState extends State<_AssignRfidCodeDialog> with Barco
     final s = context.s;
 
     return AlertDialog(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF6F4F0),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: Text(
         s.assignRfidCode,
-        style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16),
+        style: GoogleFonts.bodoniModa(fontWeight: FontWeight.bold, fontSize: 16),
       ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1168,7 +1168,7 @@ class _AssignRfidCodeDialogState extends State<_AssignRfidCodeDialog> with Barco
         children: [
           Text(
             'EPC: ${widget.epc}',
-            style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[600]),
+            style: GoogleFonts.bodoniModa(fontSize: 12, color: Colors.grey[600]),
           ),
           const SizedBox(height: 12),
           TextField(
@@ -1178,28 +1178,28 @@ class _AssignRfidCodeDialogState extends State<_AssignRfidCodeDialog> with Barco
               labelText: s.fieldRfidCode,
               border: OutlineInputBorder(
                 borderSide: BorderSide(
-                  color: _barcodeScanActive ? const Color(0xFF5231A7) : Colors.grey,
+                  color: _barcodeScanActive ? const Color(0xFFC4A35A) : Colors.grey,
                   width: _barcodeScanActive ? 1.5 : 1,
                 ),
               ),
               enabledBorder: OutlineInputBorder(
                 borderSide: BorderSide(
-                  color: _barcodeScanActive ? const Color(0xFF5231A7) : Colors.grey,
+                  color: _barcodeScanActive ? const Color(0xFFC4A35A) : Colors.grey,
                   width: _barcodeScanActive ? 1.5 : 1,
                 ),
               ),
               focusedBorder: const OutlineInputBorder(
-                borderSide: BorderSide(color: Color(0xFF5231A7), width: 1.5),
+                borderSide: BorderSide(color: Color(0xFFC4A35A), width: 1.5),
               ),
               suffixIcon: IconButton(
                 icon: Icon(
                   Icons.qr_code_scanner,
-                  color: _barcodeScanActive ? const Color(0xFF5231A7) : Colors.grey,
+                  color: _barcodeScanActive ? const Color(0xFFC4A35A) : Colors.grey,
                 ),
                 onPressed: () => unawaited(_startBarcodeScan()),
               ),
             ),
-            style: GoogleFonts.poppins(fontSize: 14),
+            style: GoogleFonts.bodoniModa(fontSize: 14),
             textCapitalization: TextCapitalization.characters,
           ),
         ],
@@ -1207,15 +1207,15 @@ class _AssignRfidCodeDialogState extends State<_AssignRfidCodeDialog> with Barco
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: Text(s.cancel, style: GoogleFonts.poppins(color: Colors.grey[600])),
+          child: Text(s.cancel, style: GoogleFonts.bodoniModa(color: Colors.grey[600])),
         ),
         ElevatedButton(
           onPressed: () {
             widget.onAssign(_controller.text.trim().toUpperCase());
             Navigator.pop(context);
           },
-          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF5231A7)),
-          child: Text(s.assign, style: GoogleFonts.poppins(color: Colors.white)),
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1A1A1A)),
+          child: Text(s.assign, style: GoogleFonts.bodoniModa(color: Colors.white)),
         ),
       ],
     );

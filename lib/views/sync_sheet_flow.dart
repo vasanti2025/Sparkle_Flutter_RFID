@@ -37,18 +37,18 @@ class SyncSheetFlow {
       builder: (ctx) => PopScope(
         canPop: false,
         child: Dialog(
-          backgroundColor: Colors.white,
+          backgroundColor: const Color(0xFFF6F4F0),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const CircularProgressIndicator(color: Color(0xFF5231A7)),
+                const CircularProgressIndicator(color: Color(0xFFC4A35A)),
                 const SizedBox(height: 16),
                 Text(
                   s.fetchingSheetHeaders,
-                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                  style: GoogleFonts.bodoniModa(fontWeight: FontWeight.w600),
                   textAlign: TextAlign.center,
                 ),
               ],

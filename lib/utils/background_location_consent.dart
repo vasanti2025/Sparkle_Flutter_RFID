@@ -46,7 +46,7 @@ class BackgroundLocationConsent {
         return PopScope(
           canPop: false,
           child: AlertDialog(
-            backgroundColor: Colors.white,
+            backgroundColor: const Color(0xFFF6F4F0),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             title: Text(
               strings.backgroundLocationTitle,
@@ -64,7 +64,7 @@ class BackgroundLocationConsent {
                 child: Text(strings.backgroundLocationNotNow),
               ),
               FilledButton(
-                style: FilledButton.styleFrom(backgroundColor: const Color(0xFF5231A7)),
+                style: FilledButton.styleFrom(backgroundColor: const Color(0xFF1A1A1A)),
                 onPressed: () => Navigator.pop(dialogContext, true),
                 child: Text(strings.backgroundLocationContinue),
               ),

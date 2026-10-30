@@ -303,7 +303,7 @@ class _HierarchyCard extends StatelessWidget {
                   child: Text(
                     name,
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.poppins(fontSize: 12),
+                    style: GoogleFonts.bodoniModa(fontSize: 12),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -338,7 +338,7 @@ class _QtyBadge extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: Text(
             '$value',
-            style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600),
+            style: GoogleFonts.bodoniModa(fontSize: 12, fontWeight: FontWeight.w600),
           ),
         ),
       ),
@@ -369,7 +369,7 @@ class ConsolidatedHeaderRow extends StatelessWidget {
   Widget _hdr(String t) => Text(
         t,
         textAlign: TextAlign.center,
-        style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+        style: GoogleFonts.bodoniModa(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
       );
 }
 
@@ -398,7 +398,7 @@ class BatchHeaderRow extends StatelessWidget {
   Widget _hdr(String t) => Text(
         t,
         textAlign: TextAlign.center,
-        style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+        style: GoogleFonts.bodoniModa(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
       );
 }
 
@@ -441,7 +441,7 @@ class BatchSessionRow extends StatelessWidget {
   Widget _cell(String t) => Text(
         t,
         textAlign: TextAlign.center,
-        style: GoogleFonts.poppins(fontSize: 11),
+        style: GoogleFonts.bodoniModa(fontSize: 11),
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
       );
@@ -456,7 +456,7 @@ class BatchSessionRow extends StatelessWidget {
         ),
         child: Text(
           value,
-          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: fg),
+          style: GoogleFonts.bodoniModa(fontSize: 11, fontWeight: FontWeight.w600, color: fg),
         ),
       ),
     );

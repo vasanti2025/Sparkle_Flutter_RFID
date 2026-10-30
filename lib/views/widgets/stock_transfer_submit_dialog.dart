@@ -115,7 +115,7 @@ class _StockTransferSubmitDialogState extends State<_StockTransferSubmitDialog> 
               child: Text(
                 s.tr('transferDetails'),
                 textAlign: TextAlign.center,
-                style: GoogleFonts.poppins(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+                style: GoogleFonts.bodoniModa(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
               ),
             ),
             const SizedBox(height: 10),
@@ -137,7 +137,7 @@ class _StockTransferSubmitDialogState extends State<_StockTransferSubmitDialog> 
               child: Text(
                 s.remark,
                 textAlign: TextAlign.center,
-                style: GoogleFonts.poppins(color: Colors.black54, fontSize: 16),
+                style: GoogleFonts.bodoniModa(color: Colors.black54, fontSize: 16),
               ),
             ),
             const SizedBox(height: 8),
@@ -151,7 +151,7 @@ class _StockTransferSubmitDialogState extends State<_StockTransferSubmitDialog> 
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(2), borderSide: BorderSide.none),
                 contentPadding: const EdgeInsets.all(10),
               ),
-              style: GoogleFonts.poppins(fontSize: 14),
+              style: GoogleFonts.bodoniModa(fontSize: 14),
             ),
             const SizedBox(height: 14),
             Row(
@@ -207,7 +207,7 @@ class _StockTransferSubmitDialogState extends State<_StockTransferSubmitDialog> 
                   Expanded(
                     child: Text(
                       value,
-                      style: GoogleFonts.poppins(
+                      style: GoogleFonts.bodoniModa(
                         fontSize: 14,
                         color: isPlaceholder ? Colors.grey : Colors.black87,
                       ),
@@ -230,7 +230,7 @@ class _StockTransferSubmitDialogState extends State<_StockTransferSubmitDialog> 
         color: const Color(0xFFF3F3F3),
         borderRadius: BorderRadius.circular(4),
       ),
-      child: Text(text, style: GoogleFonts.poppins(color: Colors.black54, fontSize: 14)),
+      child: Text(text, style: GoogleFonts.bodoniModa(color: Colors.black54, fontSize: 14)),
     );
   }
 
@@ -241,7 +241,7 @@ class _StockTransferSubmitDialogState extends State<_StockTransferSubmitDialog> 
         color: const Color(0xFFEAEAEA),
         borderRadius: BorderRadius.circular(4),
       ),
-      child: Text(text, style: GoogleFonts.poppins(color: Colors.grey, fontSize: 14)),
+      child: Text(text, style: GoogleFonts.bodoniModa(color: Colors.grey, fontSize: 14)),
     );
   }
 
@@ -264,7 +264,7 @@ class _StockTransferSubmitDialogState extends State<_StockTransferSubmitDialog> 
                 height: 18,
                 child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
               )
-            : Text(text, style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
+            : Text(text, style: GoogleFonts.bodoniModa(color: Colors.white, fontWeight: FontWeight.w600)),
       ),
     );
   }
