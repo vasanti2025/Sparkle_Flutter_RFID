@@ -2,5 +2,5 @@
 <resources>
     <color name="logo_sparkle_background">#FFFFFF</color>
     <color name="ic_launcher_background">#FFFFFF</color>
-    <color name="splash_background">#F6F4F0</color>
+    <color name="splash_background">#000000</color>
 </resources>

@@ -4,17 +4,20 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../app_navigator.dart';
 import '../l10n/l10n_extension.dart';
+import '../models/stock_verification_report.dart';
 import '../services/app_warmup_service.dart' deferred as warmup;
 import '../services/bootstrap_channel.dart';
+import '../services/db_service.dart';
 import '../services/location_sync_service.dart';
 import '../services/pref_service.dart';
 import '../services/rfid_service.dart';
 import '../services/session_lifecycle.dart';
+import '../utils/app_fonts.dart';
 import '../utils/background_location_consent.dart';
 import '../session_vm_hooks.dart' deferred as vm_hooks;
 import '../viewmodels/dashboard_view_model.dart';
 import '../viewmodels/login_view_model.dart';
-import 'widgets/gradient_icon.dart';
+import '../viewmodels/stock_verification_view_model.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -27,6 +30,10 @@ class _DashboardScreenState extends State<DashboardScreen>
     with WidgetsBindingObserver {
   bool _navigating = false;
   String _appVersion = '';
+  int? _labelCount;
+  List<({String name, int count})> _stockBars = const [];
+  int? _matchQty;
+  int? _unmatchQty;
 
   static const _menuDefs = [
     {'key': 'product', 'icon': Icons.diamond_outlined, 'route': '/product_management'},
@@ -59,6 +66,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       RfidService().checkBluetoothAfterLogin();
       unawaited(_startWarmup());
       unawaited(_loadAppVersion());
+      unawaited(_loadHomeStats());
       unawaited(Future<void>.delayed(const Duration(seconds: 6), () async {
         if (!mounted) return;
         await _offerBackgroundLocationConsent();
@@ -88,6 +96,65 @@ class _DashboardScreenState extends State<DashboardScreen>
     final version = await BootstrapChannel.getAppVersion();
     if (!mounted || version.isEmpty) return;
     setState(() => _appVersion = version);
+  }
+
+  Future<void> _loadHomeStats() async {
+    try {
+      final db = await context.read<DbService>().database;
+      final totalRows = await db.rawQuery('SELECT COUNT(*) AS c FROM bulk_items');
+      final total = (totalRows.first['c'] as int?) ??
+          int.tryParse('${totalRows.first['c']}') ??
+          0;
+      final rows = await db.rawQuery(
+        "SELECT IFNULL(NULLIF(TRIM(category), ''), '—') AS name, COUNT(*) AS c "
+        'FROM bulk_items GROUP BY name ORDER BY c DESC LIMIT 5',
+      );
+      if (!mounted) return;
+      setState(() {
+        _labelCount = total;
+        _stockBars = [
+          for (final row in rows)
+            (
+              name: '${row['name']}',
+              count: (row['c'] as int?) ?? int.tryParse('${row['c']}') ?? 0,
+            ),
+        ];
+      });
+    } catch (_) {}
+
+    await Future<void>.delayed(const Duration(seconds: 6));
+    if (!mounted) return;
+    try {
+      final vm = context.read<StockVerificationViewModel>();
+      await vm.fetchSessions();
+      if (!mounted) return;
+      final sessions = vm.sessionList?.sessions ?? const <ReportSessionItem>[];
+      if (sessions.isEmpty) return;
+      final latest = _latestSession(sessions);
+      setState(() {
+        _matchQty = latest.matchQty;
+        _unmatchQty = latest.unmatchQty;
+      });
+    } catch (_) {}
+  }
+
+  ReportSessionItem _latestSession(List<ReportSessionItem> sessions) {
+    ReportSessionItem best = sessions.first;
+    DateTime? bestAt = _sessionTime(best);
+    for (final session in sessions.skip(1)) {
+      final at = _sessionTime(session);
+      if (at != null && (bestAt == null || at.isAfter(bestAt))) {
+        best = session;
+        bestAt = at;
+      }
+    }
+    return best;
+  }
+
+  DateTime? _sessionTime(ReportSessionItem session) {
+    final ended = DateTime.tryParse(session.endedOn.trim());
+    if (ended != null) return ended;
+    return DateTime.tryParse(session.startedOn.trim());
   }
 
   Future<void> _offerBackgroundLocationConsent() async {
@@ -227,6 +294,8 @@ class _DashboardScreenState extends State<DashboardScreen>
               'title': _titleForKey(item['key'] as String, s),
             })
         .toList();
+    final gridItems = _gridItems(menuItems);
+    final bottomItems = _bottomItems(menuItems);
 
     final drawerItems = [
       ..._drawerExtra.take(1).map((item) => {...item, 'title': _titleForKey(item['key'] as String, s)}),
@@ -235,30 +304,74 @@ class _DashboardScreenState extends State<DashboardScreen>
     ];
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F4F0),
-      appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(kToolbarHeight),
-        child: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-          child: AppBar(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            title: Text(
-              s.home,
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
+      backgroundColor: const Color(0xFFF6F5F2),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFFF6F5F2),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        automaticallyImplyLeading: false,
+        titleSpacing: 16,
+        title: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Image.asset(
+                'assets/branding/splash_logo_white.png',
+                width: 42,
+                height: 44,
+                fit: BoxFit.cover,
               ),
             ),
-            iconTheme: const IconThemeData(color: Colors.white),
-          ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    s.sparkleRfid.toUpperCase(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppFonts.poppins(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.1,
+                      color: const Color(0xFF20201F),
+                    ),
+                  ),
+                  Text(
+                    s.home,
+                    style: AppFonts.poppins(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w600,
+                      height: 1.05,
+                      color: const Color(0xFF20201F),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
+        actions: [
+          Builder(
+            builder: (barContext) => Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Material(
+                color: const Color(0xFFF3F1EC),
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: () => Scaffold.of(barContext).openDrawer(),
+                  child: const SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: Icon(Icons.person_outline, color: Color(0xFF20201F)),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
       drawer: Drawer(
         child: Column(
@@ -360,113 +473,321 @@ class _DashboardScreenState extends State<DashboardScreen>
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
           child: Column(
             children: [
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final width = constraints.maxWidth;
-                    // Determine column count based on screen width
-                    int crossAxisCount = 3;
-                    if (width < 328) {
-                      crossAxisCount = 2;
-                    } else if (width > 900) {
-                      crossAxisCount = 6;
-                    } else if (width > 600) {
-                      crossAxisCount = 5;
-                    } else if (width > 400) {
-                      crossAxisCount = 4;
-                    }
-
-                    return GridView.builder(
-                      itemCount: menuItems.length,
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: crossAxisCount,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
-                        childAspectRatio: 1.0,
-                      ),
-                      itemBuilder: (context, index) {
-                        final item = menuItems[index];
-                        return Card(
-                          color: Colors.white,
-                          elevation: 1,
-                          shadowColor: const Color(0x14000000),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            side: const BorderSide(color: Color(0xFFE6E1D8)),
-                          ),
-                          child: InkWell(
-                            onTap: () {
-                              final route = item['route'] as String?;
-                              if (route == null || route == '/coming_soon') {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('${item['title']} - ${s.comingSoon}'),
-                                    duration: const Duration(seconds: 1),
-                                  ),
-                                );
-                                return;
-                              }
-                              if (route == '/search') {
-                                unawaited(_pushNamed(context, '/search', {
-                                  'listKey': 'normal',
-                                  'items': const [],
-                                }));
-                              } else {
-                                unawaited(_pushNamed(context, route));
-                              }
-                            },
-                            borderRadius: BorderRadius.circular(16),
-                            child: Padding(
-                              padding: const EdgeInsets.all(8.0),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  GradientIcon(
-                                    icon: item['icon'] as IconData,
-                                    size: 32,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    item['title'] as String,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                      color: Colors.black87,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
-              ),
-
-              // Bottom Brand Logo Text
+              _homeStatRow(context, s),
+              const SizedBox(height: 14),
+              Expanded(child: _homeGrid(context, s, gridItems)),
               const SizedBox(height: 12),
-              Text(
-                s.sparkleRfid,
-                style: const TextStyle(
-                  color: Color(0xFFC4A35A),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.6,
-                ),
-              ),
-              const SizedBox(height: 8),
+              _homeBottomRow(context, bottomItems),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  List<Map<String, Object>> _gridItems(List<Map<String, Object>> menuItems) {
+    const bottom = {'sampleIn', 'sampleOut', 'settings'};
+    return [
+      for (final item in menuItems)
+        if (!bottom.contains(item['key'])) item,
+    ];
+  }
+
+  List<Map<String, Object>> _bottomItems(List<Map<String, Object>> menuItems) {
+    const order = ['sampleIn', 'sampleOut', 'settings'];
+    return [
+      for (final key in order)
+        for (final item in menuItems)
+          if (item['key'] == key) item,
+    ];
+  }
+
+  void _openMenuItem(BuildContext context, Map<String, Object> item, dynamic s) {
+    final route = item['route'] as String?;
+    if (route == null || route == '/coming_soon') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${item['title']} - ${s.comingSoon}'),
+          duration: const Duration(seconds: 1),
+        ),
+      );
+      return;
+    }
+    if (route == '/search') {
+      unawaited(_pushNamed(context, '/search', {
+        'listKey': 'normal',
+        'items': const [],
+      }));
+      return;
+    }
+    unawaited(_pushNamed(context, route));
+  }
+
+  Widget _homeStatRow(BuildContext context, dynamic s) {
+    final maxBar = _stockBars.fold<int>(0, (max, bar) {
+      return bar.count > max ? bar.count : max;
+    });
+    return SizedBox(
+      height: 148,
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF20201E),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    s.totalLabelStock,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppFonts.poppins(
+                      color: const Color(0xFFD9D6CE),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _labelCount == null ? '—' : '$_labelCount',
+                    style: AppFonts.poppins(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w700,
+                      height: 1,
+                    ),
+                  ),
+                  const Spacer(),
+                  SizedBox(
+                    height: 46,
+                    child: _stockBars.isEmpty
+                        ? Align(
+                            alignment: Alignment.bottomLeft,
+                            child: Container(
+                              height: 6,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE6C477),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                            ),
+                          )
+                        : Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              for (var i = 0; i < _stockBars.length; i++) ...[
+                                if (i > 0) const SizedBox(width: 6),
+                                Expanded(
+                                  child: Tooltip(
+                                    message: _stockBars[i].name,
+                                    child: Container(
+                                      height: maxBar <= 0
+                                          ? 8
+                                          : 10 + (36 * _stockBars[i].count / maxBar),
+                                      decoration: BoxDecoration(
+                                        color: i == 0
+                                            ? const Color(0xFFE6C477)
+                                            : const Color(0x66E6C477),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Material(
+              color: const Color(0xFFF3EFE4),
+              borderRadius: BorderRadius.circular(18),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(18),
+                onTap: () => unawaited(_pushNamed(context, '/stock_verification_report')),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        s.lastVerification,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppFonts.poppins(
+                          color: const Color(0xFF20201F),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          height: 1.2,
+                        ),
+                      ),
+                      const Spacer(),
+                      _countLine(s.matched, _matchQty, const Color(0xFF2E7D32)),
+                      const SizedBox(height: 4),
+                      _countLine(s.unmatched, _unmatchQty, const Color(0xFF8C3A2F)),
+                      const SizedBox(height: 8),
+                      _matchBar(),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _countLine(String label, int? value, Color color) {
+    return Row(
+      children: [
+        Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppFonts.poppins(fontSize: 11, color: const Color(0xFF6D6B66)),
+          ),
+        ),
+        Text(
+          value == null ? '—' : '$value',
+          style: AppFonts.poppins(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF20201F),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _matchBar() {
+    final matched = _matchQty ?? 0;
+    final unmatched = _unmatchQty ?? 0;
+    final total = matched + unmatched;
+    final matchFlex = total == 0 ? 1 : matched;
+    final unmatchFlex = total == 0 ? 1 : unmatched;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: SizedBox(
+        height: 6,
+        child: Row(
+          children: [
+            Expanded(flex: matchFlex == 0 ? 1 : matchFlex, child: const ColoredBox(color: Color(0xFF2E7D32))),
+            Expanded(flex: unmatchFlex == 0 ? 1 : unmatchFlex, child: const ColoredBox(color: Color(0xFFC4A35A))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _homeGrid(BuildContext context, dynamic s, List<Map<String, Object>> items) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        var crossAxisCount = 3;
+        if (width < 280) crossAxisCount = 2;
+        if (width > 700) crossAxisCount = 4;
+        return GridView.builder(
+          itemCount: items.length,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            childAspectRatio: 1.05,
+          ),
+          itemBuilder: (context, index) {
+            final item = items[index];
+            return Material(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => _openMenuItem(context, item, s),
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFE8E5DF)),
+                  ),
+                  padding: const EdgeInsets.all(8),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        item['icon'] as IconData,
+                        size: 26,
+                        color: const Color(0xFF866526),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        item['title'] as String,
+                        style: AppFonts.poppins(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF20201F),
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _homeBottomRow(BuildContext context, List<Map<String, Object>> items) {
+    return Row(
+      children: [
+        for (var i = 0; i < items.length; i++) ...[
+          if (i > 0) const SizedBox(width: 8),
+          Expanded(
+            child: Material(
+              color: const Color(0xFFF3F1EC),
+              borderRadius: BorderRadius.circular(14),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () => _openMenuItem(context, items[i], context.s),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+                  child: Text(
+                    items[i]['title'] as String,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppFonts.poppins(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF20201F),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

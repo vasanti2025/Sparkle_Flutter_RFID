@@ -4,9 +4,9 @@ import '../l10n/l10n_extension.dart';
 import '../services/pref_service.dart';
 import '../viewmodels/dashboard_view_model.dart';
 import '../viewmodels/login_view_model.dart';
+import '../utils/app_fonts.dart';
 import '../utils/user_facing_error.dart';
 import '../session_vm_hooks.dart' deferred as vm_hooks;
-import 'widgets/curved_header_painter.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -387,339 +387,324 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  void _contactSupport() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(context.sRead.contactUsClicked)),
+    );
+  }
+
+  InputDecoration _fieldDecoration({Widget? suffix}) {
+    const border = OutlineInputBorder(
+      borderRadius: BorderRadius.all(Radius.circular(12)),
+      borderSide: BorderSide(color: Color(0xFFDCD8D0)),
+    );
+    return InputDecoration(
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 16),
+      suffixIcon: suffix,
+      border: border,
+      enabledBorder: border,
+      focusedBorder: const OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(12)),
+        borderSide: BorderSide(color: Color(0xFF94702E), width: 1.4),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = context.s;
     final viewModel = context.watch<LoginViewModel>();
+    final label = AppFonts.poppins(
+      fontSize: 12,
+      fontWeight: FontWeight.w600,
+      color: const Color(0xFF20201F),
+    );
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F4F0),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // Custom Wave Curved Header
-            SizedBox(
-              width: double.infinity,
-              height: 285,
-              child: CustomPaint(
-                painter: CurvedHeaderPainter(),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const SizedBox(height: 20),
-                    Text(
-                      s.welcomeTo,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 34,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      s.sparkleRfid,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 34,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      s.pleaseLoginToContinue,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 480),
-                child: Column(
-                  children: [
-                    // Tab Buttons: Password vs Face
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: GestureDetector(
-                              onTap: () => viewModel.setLoginMode('password'),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(12),
-                                  gradient: viewModel.selectedLoginMode == 'password'
-                                      ? const LinearGradient(
-                                          colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
-                                        )
-                                      : const LinearGradient(
-                                          colors: [Color(0xFFE0E0E0), Color(0xFFCCCCCC)],
-                                        ),
-                                ),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  s.password,
-                                  style: TextStyle(
-                                    color: viewModel.selectedLoginMode == 'password'
-                                        ? Colors.white
-                                        : Colors.black,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 15,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          GestureDetector(
-                            onTap: () => viewModel.setLoginMode('face'),
-                            child: Container(
-                              width: 56,
-                              height: 50,
-                              decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(12),
-                                  gradient: viewModel.selectedLoginMode == 'face'
-                                      ? const LinearGradient(
-                                          colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
-                                        )
-                                      : const LinearGradient(
-                                          colors: [Color(0xFFE0E0E0), Color(0xFFCCCCCC)],
-                                        ),
-                              ),
-                              alignment: Alignment.center,
-                              child: Icon(
-                                Icons.face,
-                                size: 28,
-                                color: viewModel.selectedLoginMode == 'face'
-                                    ? Colors.white
-                                    : Colors.grey[700],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    if (viewModel.selectedLoginMode == 'password') ...[
-                      // Username Input
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                        child: TextField(
-                          controller: _usernameController,
-                          onChanged: (value) {
-                            _rememberFieldsApplied = true;
-                            _lastShownError = null;
-                            viewModel.clearErrorMessage();
-                            viewModel.setUsername(value);
-                          },
-                          autocorrect: false,
-                          enableSuggestions: false,
-                          decoration: InputDecoration(
-                            border: const OutlineInputBorder(),
-                            labelText: s.usernameLabel,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Password Input
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                        child: TextField(
-                          controller: _passwordController,
-                          onChanged: (value) {
-                            _rememberFieldsApplied = true;
-                            _lastShownError = null;
-                            viewModel.clearErrorMessage();
-                            viewModel.setPassword(value);
-                          },
-                          obscureText: !viewModel.passwordVisible,
-                          autocorrect: false,
-                          enableSuggestions: false,
-                          decoration: InputDecoration(
-                            border: const OutlineInputBorder(),
-                            labelText: s.password,
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                viewModel.passwordVisible
-                                    ? Icons.visibility
-                                    : Icons.visibility_off,
-                                color: Colors.grey,
-                              ),
-                              onPressed: viewModel.togglePasswordVisibility,
+      backgroundColor: const Color(0xFFF6F5F2),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(11),
+                        child: const ColoredBox(
+                          color: Color(0xFF111111),
+                          child: Padding(
+                            padding: EdgeInsets.all(6),
+                            child: Image(
+                              image: AssetImage('assets/branding/splash_logo_white.png'),
+                              width: 46,
+                              height: 48,
+                              fit: BoxFit.contain,
                             ),
                           ),
                         ),
                       ),
-                      const SizedBox(height: 8),
-
-                      // Remember Me & Forgot Password
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      const SizedBox(width: 11),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              children: [
-                                Checkbox(
-                                  value: viewModel.rememberMe,
-                                  onChanged: (val) {
-                                    if (val != null) viewModel.setRememberMe(val);
-                                  },
-                                ),
-                                Text(
-                                  s.rememberMe,
-                                  style: TextStyle(fontSize: 14),
-                                ),
-                              ],
-                            ),
                             Text(
-                              s.forgotPassword,
-                              style: TextStyle(
-                                color: Colors.blue,
-                                fontWeight: FontWeight.w500,
+                              s.sparkleRfid.toUpperCase(),
+                              style: AppFonts.poppins(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 1.1,
+                                color: const Color(0xFF20201F),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              s.brandByline,
+                              style: AppFonts.poppins(
+                                fontSize: 10,
+                                color: const Color(0xFF6D6B66),
                               ),
                             ),
                           ],
                         ),
                       ),
-                    ] else ...[
-                      // Face login message and lock icon
-                      const SizedBox(height: 24),
-                      Text(
-                        s.useFaceDetectionLogin,
-                        style: TextStyle(
-                          fontSize: 15,
-                          color: Colors.grey,
+                      IconButton(
+                        onPressed: () =>
+                            Navigator.pushNamed(context, '/face_login'),
+                        icon: const Icon(
+                          Icons.face_retouching_natural,
+                          size: 22,
                         ),
+                        color: const Color(0xFF20201F),
+                        tooltip: s.logInWithFace,
                       ),
-                      const SizedBox(height: 12),
-                      Icon(
-                        Icons.face_unlock_rounded,
-                        size: 72,
-                        color: Colors.grey[400],
+                      IconButton(
+                        onPressed: _contactSupport,
+                        icon: const Icon(Icons.help_outline, size: 22),
+                        color: const Color(0xFF20201F),
+                        tooltip: s.contactUs,
                       ),
-                      const SizedBox(height: 20),
                     ],
-
-                    const SizedBox(height: 16),
-
-                    // Login Button
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                      child: GestureDetector(
-                        onTap: viewModel.isLoading
-                            ? null
-                            : () async {
-                                if (viewModel.selectedLoginMode == 'password') {
-                                  FocusManager.instance.primaryFocus?.unfocus();
-                                  _lastShownError = null;
-                                  _clearLoginSnackBars();
-                                  viewModel.clearErrorMessage();
-                                  final username = _usernameController.value.text;
-                                  final password = _passwordController.value.text;
-                                  final success = await viewModel.login(
-                                    context,
-                                    username: username,
-                                    password: password,
-                                  );
-                                  if (!mounted) return;
-                                  if (success) {
-                                    _navigateAfterLogin(context);
-                                    return;
-                                  }
-                                  final err = viewModel.errorMessage;
-                                  if (err != null && err.isNotEmpty) {
-                                    setState(() {});
-                                  }
-                                } else {
-                                  // Navigate to Face detection placeholder
-                                  Navigator.pushNamed(context, '/face_login');
-                                }
-                              },
-                        child: Container(
-                          width: double.infinity,
-                          height: 50,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF1A1A1A), Color(0xFF3A3228)],
-                            ),
-                          ),
-                          alignment: Alignment.center,
-                          child: viewModel.isLoading
-                              ? const CircularProgressIndicator(
-                                  color: Colors.white,
-                                  strokeWidth: 2,
-                                )
-                              : Text(
-                                  viewModel.selectedLoginMode == 'password'
-                                      ? s.logIn
-                                      : s.logInWithFace,
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
+                  ),
+                  const SizedBox(height: 28),
+                  Text(
+                    s.welcomeBack,
+                    style: AppFonts.poppins(
+                      fontSize: 29,
+                      fontWeight: FontWeight.w600,
+                      height: 1.12,
+                      color: const Color(0xFF20201F),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    s.signInLead,
+                    style: AppFonts.poppins(
+                      fontSize: 14,
+                      height: 1.6,
+                      color: const Color(0xFF6D6B66),
+                    ),
+                  ),
+                  const SizedBox(height: 27),
+                  Text(s.usernameLabel, style: label),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _usernameController,
+                    onChanged: (value) {
+                      _rememberFieldsApplied = true;
+                      _lastShownError = null;
+                      viewModel.clearErrorMessage();
+                      viewModel.setUsername(value);
+                    },
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    style: AppFonts.poppins(fontSize: 16),
+                    decoration: _fieldDecoration(),
+                  ),
+                  const SizedBox(height: 19),
+                  Text(s.password, style: label),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _passwordController,
+                    onChanged: (value) {
+                      _rememberFieldsApplied = true;
+                      _lastShownError = null;
+                      viewModel.clearErrorMessage();
+                      viewModel.setPassword(value);
+                    },
+                    obscureText: !viewModel.passwordVisible,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    style: AppFonts.poppins(fontSize: 16),
+                    decoration: _fieldDecoration(
+                      suffix: IconButton(
+                        icon: Icon(
+                          viewModel.passwordVisible
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                          color: const Color(0xFF6D6B66),
                         ),
+                        onPressed: viewModel.togglePasswordVisibility,
                       ),
                     ),
-                    const SizedBox(height: 24),
-
-                    // Trouble Logging In?
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          s.troubleLogin,
-                          style: TextStyle(color: Colors.grey),
-                        ),
-                        GestureDetector(
-                          onTap: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(s.contactUsClicked)),
-                            );
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: Checkbox(
+                          value: viewModel.rememberMe,
+                          activeColor: const Color(0xFF282825),
+                          onChanged: (val) {
+                            if (val != null) viewModel.setRememberMe(val);
                           },
-                          child: Text(
-                            s.contactUs,
-                            style: TextStyle(
-                              color: Colors.blue,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Configure Custom API
-                    GestureDetector(
-                      onTap: () => _showCustomApiDialog(context, viewModel),
-                      child: Text(
-                        s.configureCustomApi,
-                        style: TextStyle(
-                          color: const Color(0xFFC4A35A),
-                          fontSize: 14,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        s.rememberMe,
+                        style: AppFonts.poppins(fontSize: 12),
+                      ),
+                      const Spacer(),
+                      Text(
+                        s.forgotPassword,
+                        style: AppFonts.poppins(
+                          fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          decoration: TextDecoration.underline,
-                          decorationColor: const Color(0xFFC4A35A),
+                          color: const Color(0xFF866526),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    height: 56,
+                    child: FilledButton(
+                      onPressed: viewModel.isLoading
+                          ? null
+                          : () async {
+                              FocusManager.instance.primaryFocus?.unfocus();
+                              _lastShownError = null;
+                              _clearLoginSnackBars();
+                              viewModel.clearErrorMessage();
+                              final success = await viewModel.login(
+                                context,
+                                username: _usernameController.value.text,
+                                password: _passwordController.value.text,
+                              );
+                              if (!mounted) return;
+                              if (success) {
+                                _navigateAfterLogin(context);
+                                return;
+                              }
+                              if ((viewModel.errorMessage ?? '').isNotEmpty) {
+                                setState(() {});
+                              }
+                            },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF20201E),
+                        disabledBackgroundColor: const Color(0xFF20201E),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                      ),
+                      child: viewModel.isLoading
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : Text(
+                              s.logIn,
+                              style: AppFonts.poppins(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  Material(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      onTap: () => _showCustomApiDialog(context, viewModel),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFDCD8D0)),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF6F5F2),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.tune,
+                                size: 18,
+                                color: Color(0xFF866526),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    s.connectionSettings,
+                                    style: AppFonts.poppins(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: const Color(0xFF20201F),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    s.configureCustomApi,
+                                    style: AppFonts.poppins(
+                                      fontSize: 11,
+                                      color: const Color(0xFF6D6B66),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(
+                              Icons.chevron_right,
+                              size: 20,
+                              color: Color(0xFF6D6B66),
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );

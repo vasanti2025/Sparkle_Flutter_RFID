@@ -135,6 +135,15 @@ class AppStrings {
   String get customApiSaved => _t('customApiSaved');
   String get expiryWarning => _t('expiryWarning');
   String get welcomeTo => _t('welcomeTo');
+  String get welcomeBack => _t('welcomeBack');
+  String get signInLead => _t('signInLead');
+  String get brandByline => _t('brandByline');
+  String get needAHand => _t('needAHand');
+  String get connectionSettings => _t('connectionSettings');
+  String get splashTagline => _t('splashTagline');
+  String get splashTaglineStrong => _t('splashTaglineStrong');
+  String get splashFooter1 => _t('splashFooter1');
+  String get splashFooter2 => _t('splashFooter2');
   String get sparkleRfid => _t('sparkleRfid');
   String get pleaseLoginToContinue => _t('pleaseLoginToContinue');
   String get rememberMe => _t('rememberMe');
@@ -308,6 +317,8 @@ class AppStrings {
   String get searchAllItems => _t('searchAllItems');
   String get searchType => _t('searchType');
   String get labelStock => _t('labelStock');
+  String get totalLabelStock => _t('totalLabelStock');
+  String get lastVerification => _t('lastVerification');
   String get enterRfidCustomOrderId => _t('enterRfidCustomOrderId');
   String get enterRfidBoxRfid => _t('enterRfidBoxRfid');
   String get srNo => _t('srNo');
@@ -1190,6 +1201,8 @@ class AppStrings {
       'searchAllItems': 'Search (All Items)',
       'searchType': 'Search Type',
       'labelStock': 'LabelStock',
+      'totalLabelStock': 'Total label stock',
+      'lastVerification': 'Last verification',
       'enterRfidCustomOrderId': 'Enter RFID / CustomOrderId',
       'enterRfidBoxRfid': 'Enter RFID / Box RFID',
       'srNo': 'Sr No',
@@ -1261,6 +1274,15 @@ class AppStrings {
       'createChallanHint': 'Create a new challan by clicking the + button.',
       'headerChallanNo': 'Challan No',
       'welcomeTo': 'Welcome To',
+      'welcomeBack': 'Welcome back.',
+      'signInLead': 'Sign in to your jewellery workspace.',
+      'brandByline': 'Intelligent jewellery operations',
+      'needAHand': 'Need a hand?',
+      'connectionSettings': 'Connection settings',
+      'splashTagline': 'Every piece matters.',
+      'splashTaglineStrong': 'Make every moment count.',
+      'splashFooter1': 'Intelligent Jewellery Operations',
+      'splashFooter2': 'Loyal String International Pvt Ltd.',
       'sparkleRfid': 'Sparkle RFID',
       'pleaseLoginToContinue': 'Please log in to continue',
       'rememberMe': 'Remember Me',
@@ -1819,6 +1841,15 @@ class AppStrings {
       'createChallanHint': '+ बटन पर क्लिक करके नया चालान बनाएं।',
       'headerChallanNo': 'चालान नंबर',
       'welcomeTo': 'आपका स्वागत है',
+      'welcomeBack': 'वापसी पर स्वागत है.',
+      'signInLead': 'अपने ज्वेलरी वर्कस्पेस में साइन इन करें.',
+      'brandByline': 'इंटेलिजेंट ज्वेलरी ऑपरेशन्स',
+      'needAHand': 'मदद चाहिए?',
+      'connectionSettings': 'कनेक्शन सेटिंग्स',
+      'splashTagline': 'हर piece मायने रखता है.',
+      'splashTaglineStrong': 'हर पल को खास बनाएं.',
+      'splashFooter1': 'Intelligent Jewellery Operations',
+      'splashFooter2': 'Loyal String International Pvt Ltd.',
       'sparkleRfid': 'स्पार्कल RFID',
       'pleaseLoginToContinue': 'जारी रखने के लिए कृपया लॉग इन करें',
       'rememberMe': 'मुझे याद रखें',
@@ -1944,6 +1975,8 @@ class AppStrings {
       'select': 'चुनें',
       'import': 'आयात',
       'labelStock': 'लेबल स्टॉक',
+      'totalLabelStock': 'कुल लेबल स्टॉक',
+      'lastVerification': 'पिछला वेरिफिकेशन',
       'box': 'बॉक्स',
       'batchDetails': 'बैच विवरण',
       'matchedItems': 'मिलान की गई वस्तुएं',
@@ -2076,6 +2109,8 @@ class AppStrings {
     },
     'ar': {
       'settings': 'الإعدادات',
+      'totalLabelStock': 'إجمالي مخزون الملصقات',
+      'lastVerification': 'آخر تحقق',
       'product': 'منتج',
       'inventory': 'المخزون',
       'scanDisplay': 'عرض المسح',
@@ -2372,6 +2407,15 @@ class AppStrings {
       'createChallanHint': 'قم بإنشاء إيصال جديد بالضغط على زر +.',
       'headerChallanNo': 'رقم الإيصال',
       'welcomeTo': 'مرحباً بك في',
+      'welcomeBack': 'مرحباً بعودتك.',
+      'signInLead': 'سجّل الدخول إلى مساحة عمل المجوهرات.',
+      'brandByline': 'عمليات مجوهرات ذكية',
+      'needAHand': 'هل تحتاج مساعدة؟',
+      'connectionSettings': 'إعدادات الاتصال',
+      'splashTagline': 'كل قطعة مهمة.',
+      'splashTaglineStrong': 'اجعل كل لحظة ذات قيمة.',
+      'splashFooter1': 'Intelligent Jewellery Operations',
+      'splashFooter2': 'Loyal String International Pvt Ltd.',
       'sparkleRfid': 'سباركل RFID',
       'pleaseLoginToContinue': 'يرجى تسجيل الدخول للمتابعة',
       'rememberMe': 'تذكرني',

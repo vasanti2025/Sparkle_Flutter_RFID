@@ -1,22 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
-    <item
-        android:width="156dp"
-        android:height="156dp"
-        android:gravity="center"
-        android:bottom="8dp">
+    <item android:drawable="@android:color/black" />
+    <item>
         <bitmap
             android:gravity="fill"
-            android:src="@drawable/sprakle_rfid_logo_1" />
-    </item>
-    <item
-        android:width="160dp"
-        android:height="64dp"
-        android:gravity="bottom|center_horizontal"
-        android:bottom="36dp">
-        <bitmap
-            android:gravity="fill"
-            android:src="@drawable/splash_version" />
+            android:src="@drawable/splash_screen" />
     </item>
 </layer-list>

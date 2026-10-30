@@ -16,6 +16,7 @@ import 'utils/fast_page_route.dart';
 import 'viewmodels/dashboard_view_model.dart';
 import 'viewmodels/login_view_model.dart';
 import 'views/dashboard_screen.dart';
+import 'launch_logo.dart';
 import 'views/login_screen.dart';
 
 /// Replaces the first-frame logo with Login or Dashboard.
@@ -237,7 +238,7 @@ class _LoginAppRootState extends State<_LoginAppRoot> {
       },
       home: showDashboard
           ? const DashboardScreen()
-          : const LoginScreen(),
+          : const LoginSplashGate(),
       onGenerateRoute: (settings) {
         final generator = _routeGenerator;
         if (generator != null) {

