@@ -5,12 +5,15 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:network_info_plus/network_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../l10n/l10n_extension.dart';
 import '../services/rfid_service.dart';
 import '../services/db_service.dart';
 import '../services/pref_service.dart';
 import '../services/api_service.dart';
+import '../services/email_service.dart';
 import '../utils/tag_scan_batcher.dart';
 import '../utils/app_dropdown.dart';
 import '../utils/app_dialogs.dart';
@@ -863,6 +866,223 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
     );
   }
 
+  Future<void> _showExportEmailDialog() async {
+    if (!mounted) return;
+    final items = _tagPayload(_desktopScans);
+    if (items.isEmpty) {
+      _showToast(context.sRead.noTagsScannedYet);
+      return;
+    }
+
+    SharedPreferences? prefs;
+    List<String> savedEmails = const [];
+    try {
+      prefs = await SharedPreferences.getInstance();
+      savedEmails = prefs.getStringList('saved_emails') ?? [];
+    } catch (e) {
+      debugPrint('Email prefs load failed: $e');
+    }
+    if (!mounted) return;
+
+    final s = context.sRead;
+    final emailController = TextEditingController();
+    String? selectedEmail;
+    var isSending = false;
+
+    try {
+      await showAppDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              return AlertDialog(
+                backgroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                title: Text(
+                  s.sendReport,
+                  style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18),
+                ),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (savedEmails.isNotEmpty) ...[
+                        Text(
+                          s.savedEmails,
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                            color: Colors.grey[700],
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Container(
+                          constraints: const BoxConstraints(maxHeight: 120),
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: savedEmails.length,
+                            itemBuilder: (context, idx) {
+                              final email = savedEmails[idx];
+                              final isSelected = selectedEmail == email;
+                              return InkWell(
+                                onTap: isSending
+                                    ? null
+                                    : () {
+                                        setDialogState(() {
+                                          selectedEmail = email;
+                                          emailController.text = email;
+                                          emailController.selection = TextSelection.collapsed(
+                                            offset: email.length,
+                                          );
+                                        });
+                                      },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                                  color: isSelected ? Colors.grey[200] : Colors.transparent,
+                                  child: Text(email, style: GoogleFonts.poppins(fontSize: 13)),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      TextField(
+                        controller: emailController,
+                        enabled: !isSending,
+                        decoration: InputDecoration(
+                          labelText: s.enterEmailAddress,
+                          labelStyle: GoogleFonts.poppins(fontSize: 13),
+                          border: const OutlineInputBorder(),
+                        ),
+                        style: GoogleFonts.poppins(fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: isSending ? null : () => Navigator.pop(dialogContext),
+                    child: Text(s.cancel, style: GoogleFonts.poppins(color: Colors.grey[600])),
+                  ),
+                  ElevatedButton(
+                    onPressed: isSending
+                        ? null
+                        : () async {
+                            final emailToSend = emailController.text.trim().isNotEmpty
+                                ? emailController.text.trim()
+                                : (selectedEmail ?? '').trim();
+                            if (emailToSend.isEmpty) {
+                              _showToast(s.pleaseEnterOrSelectEmail);
+                              return;
+                            }
+                            final emailRegex = RegExp(r'^[\w\-\.]+@([\w\-]+\.)+[\w\-]{2,}$');
+                            if (!emailRegex.hasMatch(emailToSend)) {
+                              _showToast(s.pleaseEnterValidEmail);
+                              return;
+                            }
+
+                            final navigator = Navigator.of(dialogContext);
+                            setDialogState(() => isSending = true);
+                            try {
+                              if (!savedEmails.contains(emailToSend)) {
+                                savedEmails = [...savedEmails, emailToSend];
+                                final store = prefs ?? await SharedPreferences.getInstance();
+                                await store.setStringList('saved_emails', savedEmails);
+                              }
+                              await Future<void>.delayed(Duration.zero);
+                              final latest = _tagPayload(_desktopScans);
+                              if (latest.isEmpty) {
+                                _showToast(s.noTagsScannedYet);
+                                setDialogState(() => isSending = false);
+                                return;
+                              }
+                              final file = await _writeDesktopCsv(latest);
+                              final success = await EmailService.sendEmailWithAttachment(
+                                toEmails: [emailToSend],
+                                subject: s.scanToDesktop.replaceAll('\n', ' '),
+                                bodyHtml: s.reportEmailBody,
+                                attachments: {'scan_to_desktop.csv': file},
+                              );
+                              if (!mounted) return;
+                              _showToast(
+                                success
+                                    ? s.reportSentTo(emailToSend)
+                                    : s.failedToSendEmail,
+                              );
+                              navigator.pop();
+                            } catch (e) {
+                              if (mounted) {
+                                _showToast(
+                                  UserFacingError.isNetwork(e)
+                                      ? s.noInternetConnection
+                                      : s.failedWithMessage(UserFacingError.of(e)),
+                                );
+                              }
+                              setDialogState(() => isSending = false);
+                            }
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF5231A7),
+                    ),
+                    child: isSending
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                          )
+                        : Text(s.send, style: GoogleFonts.poppins(color: Colors.white)),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } catch (e) {
+      debugPrint('Desktop export dialog failed: $e');
+      if (mounted) {
+        _showToast(UserFacingError.isNetwork(e)
+            ? s.noInternetConnection
+            : s.failedWithMessage(UserFacingError.of(e)));
+      }
+    } finally {
+      emailController.dispose();
+    }
+  }
+
+  /// Writes the same ClientCode, DeviceId, EPC, and RFIDCode rows sent to desktop.
+  Future<File> _writeDesktopCsv(List<Map<String, String>> items) async {
+    final clientCode = mounted
+        ? (context.read<PrefService>().getEmployee()?.clientCode ?? '')
+        : '';
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/scan_to_desktop.csv');
+    final sink = file.openWrite();
+    try {
+      sink.writeln('ClientCode,DeviceId,EPC,RFIDCode');
+      var written = 0;
+      for (final item in items) {
+        sink.writeln(
+          '${_csvCell(clientCode)},${_csvCell(_shortDeviceId)},${_csvCell(item['EPC'] ?? '')},${_csvCell(item['RFIDCode'] ?? '')}',
+        );
+        written++;
+        if (written % 4000 == 0) {
+          await sink.flush();
+          await Future<void>.delayed(Duration.zero);
+        }
+      }
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
+    return file;
+  }
+
+  String _csvCell(String value) => '"${value.replaceAll('"', '""')}"';
+
   @override
   Widget build(BuildContext context) {
     final s = context.s;
@@ -891,6 +1111,11 @@ class _ScanToDesktopScreenState extends State<ScanToDesktopScreen> {
               style: GoogleFonts.bodoniModa(color: Colors.white, fontWeight: FontWeight.w600),
             ),
             actions: [
+              IconButton(
+                tooltip: s.exportExcel,
+                onPressed: _showExportEmailDialog,
+                icon: const Icon(Icons.email_outlined, color: Colors.white),
+              ),
               Center(
                 child: PopupMenuButton<int>(
                   offset: const Offset(0, 45),
