@@ -21,28 +21,42 @@ class BulkProductViewModel extends ChangeNotifier {
   List<String> _products = [];
   List<String> _designs = [];
   final List<ScannedTagRow> _scannedTags = [];
+  final Set<String> _seenEpcs = <String>{};
   final Map<int, String> _itemCodes = {};
   final Map<int, String> _rfidCodes = {};
 
   bool _isBulkMode = false;
   bool _isScanning = false;
   bool _dropdownsLoaded = false;
+  int _dropdownVersion = 0;
   int? _lastClickedIndex;
   int _scanGeneration = 0;
+  int _listVersion = 0;
+  int _lastBeepMs = 0;
   StreamSubscription<String>? _tagSub;
   Timer? _notifyDebounce;
 
   void _scheduleNotify() {
-    _notifyDebounce ??= Timer(const Duration(milliseconds: 120), () {
+    _notifyDebounce ??= Timer(const Duration(milliseconds: 280), () {
       _notifyDebounce = null;
       notifyListeners();
     });
   }
 
+  void _beepThrottled() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastBeepMs < 280) return;
+    _lastBeepMs = now;
+    unawaited(_rfidService.playBeep());
+  }
+
   List<String> get categories => _categories;
   List<String> get products => _products;
   List<String> get designs => _designs;
-  List<ScannedTagRow> get scannedTags => List.unmodifiable(_scannedTags);
+  List<ScannedTagRow> get scannedTags => _scannedTags;
+  int get tagCount => _scannedTags.length;
+  int get listVersion => _listVersion;
+  int get dropdownVersion => _dropdownVersion;
   Map<int, String> get itemCodes => Map.unmodifiable(_itemCodes);
   Map<int, String> get rfidCodes => Map.unmodifiable(_rfidCodes);
   bool get isBulkMode => _isBulkMode;
@@ -59,6 +73,7 @@ class BulkProductViewModel extends ChangeNotifier {
       _products = data.products;
       _designs = data.designs;
       _dropdownsLoaded = true;
+      _dropdownVersion++;
       notifyListeners();
     } catch (e, st) {
       debugPrint('loadDropdowns failed: $e\n$st');
@@ -109,24 +124,29 @@ class BulkProductViewModel extends ChangeNotifier {
     if (epc.isEmpty) return;
 
     if (_isBulkMode) {
-      if (_scannedTags.any((t) => t.epc == epc)) return;
+      if (!_seenEpcs.add(epc)) return;
       _scannedTags.add(ScannedTagRow(epc: epc, tid: epc));
-      // Sparkle BulkViewModel Gscan: beep on each new tag added to the list.
-      unawaited(_rfidService.playBeep());
-    } else {
-      final idx = _lastClickedIndex ?? _scannedTags.length;
-      if (idx < _scannedTags.length) {
-        _scannedTags[idx] = ScannedTagRow(epc: epc, tid: epc);
-      } else {
-        while (_scannedTags.length <= idx) {
-          _scannedTags.add(ScannedTagRow(epc: '', tid: ''));
-        }
-        _scannedTags[idx] = ScannedTagRow(epc: epc, tid: epc);
-      }
-      unawaited(stopScanning());
-      unawaited(_rfidService.playBeep());
+      _listVersion++;
+      _beepThrottled();
+      _scheduleNotify();
+      return;
     }
-    _scheduleNotify();
+
+    final idx = _lastClickedIndex ?? _scannedTags.length;
+    if (idx < _scannedTags.length) {
+      final previous = _scannedTags[idx].epc;
+      if (previous.isNotEmpty) _seenEpcs.remove(previous);
+      _scannedTags[idx] = ScannedTagRow(epc: epc, tid: epc);
+    } else {
+      while (_scannedTags.length < idx) {
+        _scannedTags.add(ScannedTagRow(epc: '', tid: ''));
+      }
+      _scannedTags.add(ScannedTagRow(epc: epc, tid: epc));
+    }
+    _seenEpcs.add(epc);
+    _listVersion++;
+    _beepThrottled();
+    unawaited(stopScanning());
   }
 
   Future<bool> startScanning({
@@ -139,10 +159,17 @@ class BulkProductViewModel extends ChangeNotifier {
     _isScanning = true;
     notifyListeners();
 
+    // Plain inventory, same as Sparkle Bulk startScanning / startSingleScan.
+    // A leftover search or match filter would drop every new tag.
+    await _rfidService.clearSearchTags();
+    await _rfidService.setMatchEpcs(const []);
+    await _rfidService.clearInventoryScope();
+
     final started = await _rfidService.startScanning(
       power: power,
       simulatedScopeTags: simulatedScopeTags,
       playStartSound: playStartSound,
+      inventory: true,
     );
 
     if (gen != _scanGeneration) {
@@ -160,6 +187,8 @@ class BulkProductViewModel extends ChangeNotifier {
 
   Future<void> stopScanning() async {
     _scanGeneration++;
+    _notifyDebounce?.cancel();
+    _notifyDebounce = null;
     if (!_isScanning) {
       await _rfidService.haltScan();
       return;
@@ -174,9 +203,11 @@ class BulkProductViewModel extends ChangeNotifier {
     await stopScanning();
     _isBulkMode = false;
     _scannedTags.clear();
+    _seenEpcs.clear();
     _itemCodes.clear();
     _rfidCodes.clear();
     _lastClickedIndex = null;
+    _listVersion++;
     notifyListeners();
   }
 

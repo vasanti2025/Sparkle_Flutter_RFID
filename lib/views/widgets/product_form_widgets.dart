@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -45,9 +46,63 @@ class FilterDropdown extends StatelessWidget {
     return unique;
   }
 
+  Future<void> _openMenu(BuildContext context) async {
+    final box = context.findRenderObject() as RenderBox?;
+    final overlay = Overlay.maybeOf(context)?.context.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize || overlay == null || !overlay.hasSize) return;
+
+    final position = RelativeRect.fromRect(
+      Rect.fromPoints(
+        box.localToGlobal(Offset.zero, ancestor: overlay),
+        box.localToGlobal(box.size.bottomRight(Offset.zero), ancestor: overlay),
+      ),
+      Offset.zero & overlay.size,
+    );
+    final unique = _uniqueOptions;
+    final picked = await showMenu<String>(
+      context: context,
+      position: position,
+      constraints: BoxConstraints(
+        minWidth: box.size.width,
+        maxWidth: math.max(box.size.width, 180),
+        maxHeight: kDropdownMenuMaxHeight,
+      ),
+      items: [
+        for (final option in unique)
+          PopupMenuItem<String>(
+            value: option,
+            height: 40,
+            child: Text(
+              option,
+              style: GoogleFonts.bodoniModa(
+                fontSize: 12,
+                fontWeight: option == selected ? FontWeight.w600 : FontWeight.normal,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        if (unique.isNotEmpty) const PopupMenuDivider(),
+        PopupMenuItem<String>(
+          value: _addValue,
+          height: 40,
+          onTap: onAdd,
+          child: Text(
+            '➕ Add New',
+            style: GoogleFonts.bodoniModa(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: const Color(0xFFC4A35A),
+            ),
+          ),
+        ),
+      ],
+    );
+    if (picked == null || picked == _addValue) return;
+    onSelected(picked);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final unique = _uniqueOptions;
     final display = selected.isNotEmpty ? selected : label;
 
     return Container(
@@ -60,79 +115,28 @@ class FilterDropdown extends StatelessWidget {
       child: Material(
         color: Colors.white,
         borderRadius: BorderRadius.circular(5),
-        clipBehavior: Clip.antiAlias,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return PopupMenuButton<String>(
-              tooltip: label,
-              padding: EdgeInsets.zero,
-              offset: const Offset(0, 4),
-              position: PopupMenuPosition.under,
-              constraints: BoxConstraints(
-                minWidth: constraints.maxWidth,
-                maxWidth: math.max(constraints.maxWidth, 180),
-                maxHeight: kDropdownMenuMaxHeight,
-              ),
-              onSelected: (value) {
-                if (value == _addValue) {
-                  // Wait until PopupMenu route is fully dismissed — otherwise
-                  // showDialog can fail silently and the Add popup never appears.
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    onAdd();
-                  });
-                } else {
-                  onSelected(value);
-                }
-              },
-              itemBuilder: (ctx) => [
-                PopupMenuItem<String>(
-                  value: _addValue,
-                  height: 40,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(5),
+          onTap: () => unawaited(_openMenu(context)),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                Expanded(
                   child: Text(
-                    '➕ Add New',
+                    display,
                     style: GoogleFonts.bodoniModa(
                       fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: const Color(0xFFC4A35A),
+                      color: Colors.black87,
+                      fontWeight: FontWeight.w500,
                     ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                if (unique.isNotEmpty) const PopupMenuDivider(),
-                for (final option in unique)
-                  PopupMenuItem<String>(
-                    value: option,
-                    height: 40,
-                    child: Text(
-                      option,
-                      style: GoogleFonts.bodoniModa(
-                        fontSize: 12,
-                        fontWeight: option == selected ? FontWeight.w600 : FontWeight.normal,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
+                Icon(Icons.arrow_drop_down, color: Colors.grey[400], size: 20),
               ],
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        display,
-                        style: GoogleFonts.bodoniModa(
-                          fontSize: 12,
-                          color: Colors.black87,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    Icon(Icons.arrow_drop_down, color: Colors.grey[400], size: 20),
-                  ],
-                ),
-              ),
-            );
-          },
+            ),
+          ),
         ),
       ),
     );
@@ -143,29 +147,36 @@ class FilterDropdown extends StatelessWidget {
 class BulkInlineTextField extends StatelessWidget {
   final TextEditingController controller;
   final ValueChanged<String>? onChanged;
+  final VoidCallback? onFocus;
   final TextAlign textAlign;
 
   const BulkInlineTextField({
     super.key,
     required this.controller,
     this.onChanged,
+    this.onFocus,
     this.textAlign = TextAlign.center,
   });
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      onChanged: onChanged,
-      textAlign: textAlign,
-      style: GoogleFonts.bodoniModa(fontSize: 11, color: const Color(0xFF424242)),
-      decoration: const InputDecoration(
-        isDense: true,
-        contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-        border: InputBorder.none,
-        enabledBorder: InputBorder.none,
-        focusedBorder: InputBorder.none,
-        filled: false,
+    return Focus(
+      onFocusChange: (focused) {
+        if (focused) onFocus?.call();
+      },
+      child: TextField(
+        controller: controller,
+        onChanged: onChanged,
+        textAlign: textAlign,
+        style: GoogleFonts.bodoniModa(fontSize: 11, color: const Color(0xFF424242)),
+        decoration: const InputDecoration(
+          isDense: true,
+          contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+          border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          filled: false,
+        ),
       ),
     );
   }

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../l10n/l10n_extension.dart';
 import '../services/pref_service.dart';
+import '../utils/barcode_scan_mixin.dart';
 import '../viewmodels/bulk_product_view_model.dart';
 import 'widgets/product_form_widgets.dart';
 import 'widgets/scan_bottom_bar.dart';
@@ -16,19 +17,25 @@ class BulkProductScreen extends StatefulWidget {
   State<BulkProductScreen> createState() => _BulkProductScreenState();
 }
 
-class _BulkProductScreenState extends State<BulkProductScreen> {
+class _BulkProductScreenState extends State<BulkProductScreen> with BarcodeScanMixin {
   String _category = '';
   String _product = '';
   String _design = '';
+  String? _addFor;
   bool _applyItemCodeToAll = false;
   bool _applyRfidToAll = false;
   int _power = 5;
   bool _scanBusy = false;
+  bool _fillingAll = false;
   int _lastTriggerMs = 0;
   final Map<int, TextEditingController> _itemCodeCtrls = {};
   final Map<int, TextEditingController> _rfidCtrls = {};
   StreamSubscription<void>? _triggerSub;
   BulkProductViewModel? _vm;
+
+  static final TextStyle _rowStyle = GoogleFonts.bodoniModa(fontSize: 11, color: const Color(0xFF424242));
+  static final TextStyle _headerStyle = GoogleFonts.bodoniModa(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white);
+  static final TextStyle _emptyStyle = GoogleFonts.bodoniModa(color: Colors.grey);
 
   static const _typeKeys = {
     'Category': 'fieldCategory',
@@ -51,6 +58,7 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
         await vm.stopScanning();
       }
       unawaited(vm.loadDropdowns());
+      bindBarcodeScanner();
       _triggerSub = vm.rfidService.triggerStream.listen((_) {
         if (!mounted || _scanBusy) return;
         final now = DateTime.now().millisecondsSinceEpoch;
@@ -78,75 +86,70 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
     }
   }
 
-  Future<void> _showAddDialog(String type, BulkProductViewModel vm) async {
-    // Let Category/Product/Design PopupMenu finish closing first.
-    await Future<void>.delayed(Duration.zero);
-    if (!mounted) return;
+  @override
+  void onBarcodeScanned(String code) {
+    final vm = _vm;
+    if (vm == null || !mounted) return;
+    final normalized = code.trim().toUpperCase();
+    if (normalized.isEmpty) return;
 
-    final s = context.sRead;
-    final typeLabel = _typeLabel(context, type);
-    final ctrl = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      useRootNavigator: true,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: Text(
-          s.tr('addType', args: {'type': typeLabel}),
-          style: GoogleFonts.bodoniModa(fontWeight: FontWeight.bold),
-        ),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          textInputAction: TextInputAction.done,
-          decoration: InputDecoration(
-            hintText: s.tr('enterTypeName', args: {'type': typeLabel}),
-            border: const OutlineInputBorder(),
-          ),
-          onSubmitted: (value) {
-            if (value.trim().isEmpty) return;
-            Navigator.of(ctx, rootNavigator: true).pop(true);
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx, rootNavigator: true).pop(false),
-            child: Text(s.tr('cancel')),
-          ),
-          TextButton(
-            onPressed: () {
-              if (ctrl.text.trim().isEmpty) return;
-              Navigator.of(ctx, rootNavigator: true).pop(true);
-            },
-            child: Text(s.tr('addBtn')),
-          ),
-        ],
-      ),
-    );
+    final count = vm.tagCount;
+    var index = vm.lastClickedIndex ?? -1;
+    if (index < 0 || (count > 0 && index >= count)) {
+      index = 0;
+      for (var i = 0; i < count; i++) {
+        final current = (_rfidCtrls[i]?.text ?? vm.rfidCodes[i] ?? '').trim();
+        if (current.isEmpty) {
+          index = i;
+          break;
+        }
+      }
+    }
+    final target = index;
+    vm.setLastClickedIndex(target);
+    final ctrl = _rfidCtrls[target];
+    if (ctrl != null && ctrl.text != normalized) {
+      ctrl.value = TextEditingValue(
+        text: normalized,
+        selection: TextSelection.collapsed(offset: normalized.length),
+      );
+    }
+    _applyRfid(vm, target, normalized);
+    unawaited(barcodeRfid.stopBarcodeScan());
+  }
 
-    final name = ctrl.text.trim();
-    ctrl.dispose();
-    if (ok != true || name.isEmpty || !mounted) return;
+  void _openAddDialog(String type) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() => _addFor = type);
+    });
+  }
 
+  Future<void> _commitAdd(String name, BulkProductViewModel vm) async {
+    final type = _addFor;
+    if (type == null) return;
+    setState(() => _addFor = null);
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
     try {
       switch (type) {
         case 'Category':
-          await vm.addLocalCategory(name);
-          if (mounted) setState(() => _category = name);
+          await vm.addLocalCategory(trimmed);
+          if (mounted) setState(() => _category = trimmed);
           break;
         case 'Product':
-          await vm.addLocalProduct(name);
-          if (mounted) setState(() => _product = name);
+          await vm.addLocalProduct(trimmed);
+          if (mounted) setState(() => _product = trimmed);
           break;
         case 'Design':
-          await vm.addLocalDesign(name);
-          if (mounted) setState(() => _design = name);
+          await vm.addLocalDesign(trimmed);
+          if (mounted) setState(() => _design = trimmed);
           break;
       }
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(s.tr('enterTypeName', args: {'type': typeLabel}))),
+        SnackBar(content: Text(context.sRead.tr('enterTypeName', args: {'type': _typeLabel(context, type)}))),
       );
     }
   }
@@ -271,6 +274,38 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
     }
   }
 
+  void _applyItemCode(BulkProductViewModel vm, int index, String value) {
+    if (_fillingAll) return;
+    final normalized = value.toUpperCase();
+    vm.setItemCode(index, normalized);
+    if (!_applyItemCodeToAll) return;
+    _fillingAll = true;
+    final count = vm.tagCount;
+    for (var i = 0; i < count; i++) {
+      vm.setItemCode(i, normalized);
+    }
+    for (final entry in _itemCodeCtrls.entries) {
+      if (entry.value.text != normalized) entry.value.text = normalized;
+    }
+    _fillingAll = false;
+  }
+
+  void _applyRfid(BulkProductViewModel vm, int index, String value) {
+    if (_fillingAll) return;
+    final normalized = value.toUpperCase();
+    vm.setRfidCode(index, normalized);
+    if (!_applyRfidToAll) return;
+    _fillingAll = true;
+    final count = vm.tagCount;
+    for (var i = 0; i < count; i++) {
+      vm.setRfidCode(i, normalized);
+    }
+    for (final entry in _rfidCtrls.entries) {
+      if (entry.value.text != normalized) entry.value.text = normalized;
+    }
+    _fillingAll = false;
+  }
+
   TextEditingController _itemCtrl(int index, BulkProductViewModel vm) {
     return _itemCodeCtrls.putIfAbsent(
       index,
@@ -286,16 +321,19 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
   }
 
   void _syncControllers(BulkProductViewModel vm) {
-    while (_itemCodeCtrls.length > vm.scannedTags.length) {
+    final count = vm.tagCount;
+    if (_itemCodeCtrls.length <= count && _rfidCtrls.length <= count) return;
+    while (_itemCodeCtrls.length > count) {
       _itemCodeCtrls.remove(_itemCodeCtrls.keys.last)?.dispose();
     }
-    while (_rfidCtrls.length > vm.scannedTags.length) {
+    while (_rfidCtrls.length > count) {
       _rfidCtrls.remove(_rfidCtrls.keys.last)?.dispose();
     }
   }
 
   @override
   void dispose() {
+    unbindBarcodeScanner();
     _triggerSub?.cancel();
     unawaited(_vm?.stopScanning());
     for (final c in _itemCodeCtrls.values) {
@@ -333,7 +371,7 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
           Flexible(
             child: Text(
               label,
-              style: GoogleFonts.bodoniModa(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+              style: _headerStyle,
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -345,8 +383,6 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
   @override
   Widget build(BuildContext context) {
     final s = context.s;
-    final vm = context.watch<BulkProductViewModel>();
-    _syncControllers(vm);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF6F4F0),
@@ -360,44 +396,52 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
           context.read<PrefService>().savePower(PrefService.keyProductCount, v);
         },
       ),
-      body: Column(
+      body: Stack(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: FilterDropdown(
-                    label: s.tr('fieldCategory'),
-                    options: vm.categories,
-                    selected: _category,
-                    onSelected: (v) => setState(() => _category = v),
-                    onAdd: () => _showAddDialog('Category', vm),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilterDropdown(
-                    label: s.tr('fieldProduct'),
-                    options: vm.products,
-                    selected: _product,
-                    onSelected: (v) => setState(() => _product = v),
-                    onAdd: () => _showAddDialog('Product', vm),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilterDropdown(
-                    label: s.tr('fieldDesign'),
-                    options: vm.designs,
-                    selected: _design,
-                    onSelected: (v) => setState(() => _design = v),
-                    onAdd: () => _showAddDialog('Design', vm),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          Column(
+            children: [
+              Selector<BulkProductViewModel, int>(
+                selector: (_, vm) => vm.dropdownVersion,
+                builder: (context, _, child) {
+                  final vm = context.read<BulkProductViewModel>();
+                  return Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: FilterDropdown(
+                            label: s.tr('fieldCategory'),
+                            options: vm.categories,
+                            selected: _category,
+                            onSelected: (v) => setState(() => _category = v),
+                            onAdd: () => _openAddDialog('Category'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: FilterDropdown(
+                            label: s.tr('fieldProduct'),
+                            options: vm.products,
+                            selected: _product,
+                            onSelected: (v) => setState(() => _product = v),
+                            onAdd: () => _openAddDialog('Product'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: FilterDropdown(
+                            label: s.tr('fieldDesign'),
+                            options: vm.designs,
+                            selected: _design,
+                            onSelected: (v) => setState(() => _design = v),
+                            onAdd: () => _openAddDialog('Design'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
           Container(
             color: Colors.grey[800],
             padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
@@ -407,7 +451,7 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
                   width: 44,
                   child: Text(
                     s.tr('headerSr'),
-                    style: GoogleFonts.bodoniModa(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                    style: _headerStyle,
                     textAlign: TextAlign.center,
                   ),
                 ),
@@ -427,86 +471,154 @@ class _BulkProductScreenState extends State<BulkProductScreen> {
             ),
           ),
           Expanded(
-            child: vm.scannedTags.isEmpty
-                ? Center(
-                    child: Text(s.tr('scanTagsToAddRows'), style: GoogleFonts.bodoniModa(color: Colors.grey)),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    itemCount: vm.scannedTags.length,
-                    itemBuilder: (context, index) {
-                      return Column(
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                SizedBox(
-                                  width: 44,
-                                  height: 36,
-                                  child: Center(
-                                    child: Text(
-                                      '${index + 1}',
-                                      style: GoogleFonts.bodoniModa(fontSize: 11, color: Colors.grey[800]),
-                                    ),
-                                  ),
-                                ),
-                                Expanded(
-                                  child: SizedBox(
-                                    height: 36,
-                                    child: BulkInlineTextField(
-                                      controller: _itemCtrl(index, vm),
-                                      onChanged: (v) {
-                                        final normalized = v.toUpperCase();
-                                        vm.setItemCode(index, normalized);
-                                        if (_applyItemCodeToAll) {
-                                          for (var i = 0; i < vm.scannedTags.length; i++) {
-                                            vm.setItemCode(i, normalized);
-                                            _itemCtrl(i, vm).text = normalized;
-                                          }
-                                        }
-                                      },
-                                    ),
-                                  ),
-                                ),
-                                Expanded(
-                                  child: SizedBox(
-                                    height: 36,
-                                    child: BulkInlineTextField(
-                                      controller: _rfidCtrl(index, vm),
-                                      onChanged: (v) {
-                                        final normalized = v.toUpperCase();
-                                        vm.setRfidCode(index, normalized);
-                                        if (_applyRfidToAll) {
-                                          for (var i = 0; i < vm.scannedTags.length; i++) {
-                                            vm.setRfidCode(i, normalized);
-                                            _rfidCtrl(i, vm).text = normalized;
-                                          }
-                                        }
-                                      },
-                                    ),
-                                  ),
-                                ),
-                              ],
+            child: Selector<BulkProductViewModel, int>(
+              selector: (_, vm) => vm.listVersion,
+              builder: (context, _, child) {
+                final vm = context.read<BulkProductViewModel>();
+                _syncControllers(vm);
+                if (vm.tagCount == 0) {
+                  return Center(child: Text(s.tr('scanTagsToAddRows'), style: _emptyStyle));
+                }
+                return ListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  itemExtent: 40,
+                  itemCount: vm.tagCount,
+                  itemBuilder: (context, index) {
+                    return DecoratedBox(
+                      decoration: BoxDecoration(
+                        border: Border(bottom: BorderSide(color: Colors.grey.shade300, width: 0.6)),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 44,
+                              child: Text('${index + 1}', style: _rowStyle, textAlign: TextAlign.center),
                             ),
-                          ),
-                          Divider(height: 0.6, thickness: 0.6, color: Colors.grey[300]),
-                        ],
-                      );
-                    },
-                  ),
+                            Expanded(
+                              child: BulkInlineTextField(
+                                controller: _itemCtrl(index, vm),
+                                onFocus: () => vm.setLastClickedIndex(index),
+                                onChanged: (v) => _applyItemCode(vm, index, v),
+                              ),
+                            ),
+                            Expanded(
+                              child: BulkInlineTextField(
+                                controller: _rfidCtrl(index, vm),
+                                onFocus: () => vm.setLastClickedIndex(index),
+                                onChanged: (v) => _applyRfid(vm, index, v),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
           ),
-          ScanBottomBar(
-            onSave: () => _save(vm),
-            onList: () => Navigator.pushNamed(context, '/product_list'),
-            onScan: () => unawaited(_singleScan(vm)),
-            onGscan: () => unawaited(_toggleGscan(vm)),
-            onReset: () => unawaited(_resetAll(vm)),
-            isScanning: vm.isScanning && !vm.isBulkMode,
-            isBulkScanning: vm.isScanning && vm.isBulkMode,
+          Selector<BulkProductViewModel, (bool, bool)>(
+            selector: (_, vm) => (vm.isScanning, vm.isBulkMode),
+            builder: (context, flags, child) {
+              final vm = context.read<BulkProductViewModel>();
+              return ScanBottomBar(
+                onSave: () => _save(vm),
+                onList: () => Navigator.pushNamed(context, '/product_list'),
+                onScan: () => unawaited(_singleScan(vm)),
+                onGscan: () => unawaited(_toggleGscan(vm)),
+                onReset: () => unawaited(_resetAll(vm)),
+                isScanning: flags.$1 && !flags.$2,
+                isBulkScanning: flags.$1 && flags.$2,
+              );
+            },
           ),
         ],
+      ),
+          if (_addFor != null)
+            _BulkAddNameDialog(
+              heading: context.s.tr('addType', args: {'type': _typeLabel(context, _addFor!)}),
+              hint: context.s.tr('enterTypeName', args: {'type': _typeLabel(context, _addFor!)}),
+              addLabel: context.s.tr('addBtn'),
+              cancelLabel: context.s.tr('cancel'),
+              onDismiss: () => setState(() => _addFor = null),
+              onAdd: (name) => unawaited(_commitAdd(name, context.read<BulkProductViewModel>())),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BulkAddNameDialog extends StatefulWidget {
+  final String heading;
+  final String hint;
+  final String addLabel;
+  final String cancelLabel;
+  final VoidCallback onDismiss;
+  final ValueChanged<String> onAdd;
+
+  const _BulkAddNameDialog({
+    required this.heading,
+    required this.hint,
+    required this.addLabel,
+    required this.cancelLabel,
+    required this.onDismiss,
+    required this.onAdd,
+  });
+
+  @override
+  State<_BulkAddNameDialog> createState() => _BulkAddNameDialogState();
+}
+
+class _BulkAddNameDialogState extends State<_BulkAddNameDialog> {
+  final TextEditingController _ctrl = TextEditingController();
+  bool _error = false;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _ctrl.text.trim();
+    if (name.isEmpty) {
+      setState(() => _error = true);
+      return;
+    }
+    widget.onAdd(name);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.expand(
+      child: Material(
+        color: const Color(0x8A000000),
+        child: Center(
+          child: AlertDialog(
+            title: Text(widget.heading, style: GoogleFonts.bodoniModa(fontWeight: FontWeight.bold)),
+            content: TextField(
+              controller: _ctrl,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              onChanged: (_) {
+                if (_error) setState(() => _error = false);
+              },
+              onSubmitted: (_) => _submit(),
+              decoration: InputDecoration(
+                labelText: widget.hint,
+                errorText: _error ? widget.hint : null,
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: widget.onDismiss, child: Text(widget.cancelLabel)),
+              TextButton(onPressed: _submit, child: Text(widget.addLabel)),
+            ],
+          ),
+        ),
       ),
     );
   }
