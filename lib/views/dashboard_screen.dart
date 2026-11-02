@@ -105,20 +105,16 @@ class _DashboardScreenState extends State<DashboardScreen>
       final total = (totalRows.first['c'] as int?) ??
           int.tryParse('${totalRows.first['c']}') ??
           0;
-      final rows = await db.rawQuery(
-        "SELECT IFNULL(NULLIF(TRIM(category), ''), '—') AS name, COUNT(*) AS c "
-        'FROM bulk_items GROUP BY name ORDER BY c DESC LIMIT 5',
-      );
+      final groups = [
+        await _topCounts(db, 'category'),
+        await _topCounts(db, 'productName'),
+        await _topCounts(db, 'purity'),
+        await _topCounts(db, 'branchName'),
+      ];
       if (!mounted) return;
       setState(() {
         _labelCount = total;
-        _stockBars = [
-          for (final row in rows)
-            (
-              name: '${row['name']}',
-              count: (row['c'] as int?) ?? int.tryParse('${row['c']}') ?? 0,
-            ),
-        ];
+        _stockBars = _bestStockBars(groups);
       });
     } catch (_) {}
 
@@ -136,6 +132,102 @@ class _DashboardScreenState extends State<DashboardScreen>
         _unmatchQty = latest.unmatchQty;
       });
     } catch (_) {}
+  }
+
+  Future<List<({String name, int count})>> _topCounts(dynamic db, String column) async {
+    const allowed = {'category', 'productName', 'purity', 'branchName'};
+    if (!allowed.contains(column)) return const [];
+    final rows = await db.rawQuery(
+      "SELECT IFNULL(NULLIF(TRIM($column), ''), '—') AS name, COUNT(*) AS c "
+      'FROM bulk_items GROUP BY name ORDER BY c DESC LIMIT 6',
+    );
+    return [
+      for (final row in rows)
+        (
+          name: '${row['name']}',
+          count: (row['c'] as int?) ?? int.tryParse('${row['c']}') ?? 0,
+        ),
+    ];
+  }
+
+  List<({String name, int count})> _bestStockBars(
+    List<List<({String name, int count})>> groups,
+  ) {
+    List<({String name, int count})> best = const [];
+    var bestUseful = -1;
+    for (final group in groups) {
+      final useful = group.where((bar) => bar.name != '—' && bar.count > 0).length;
+      if (useful > bestUseful) {
+        best = group;
+        bestUseful = useful;
+      }
+    }
+    return best.where((bar) => bar.count > 0).toList(growable: false);
+  }
+
+  Widget _labelStockGraph() {
+    const gold = Color(0xFFE6C477);
+    const goldSoft = Color(0x66E6C477);
+    if (_stockBars.isEmpty) {
+      return const Align(
+        alignment: Alignment.bottomCenter,
+        child: SizedBox(
+          height: 2,
+          width: double.infinity,
+          child: ColoredBox(color: Color(0x33E6C477)),
+        ),
+      );
+    }
+    final maxBar = _stockBars.fold<int>(0, (max, bar) {
+      return bar.count > max ? bar.count : max;
+    });
+    return Column(
+      children: [
+        Expanded(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              for (var i = 0; i < _stockBars.length; i++) ...[
+                if (i > 0) const SizedBox(width: 5),
+                Expanded(
+                  child: Tooltip(
+                    message: '${_stockBars[i].name}  ${_stockBars[i].count}',
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final factor = maxBar <= 0
+                            ? 0.2
+                            : (_stockBars[i].count / maxBar).clamp(0.18, 1.0);
+                        final barWidth = constraints.maxWidth *
+                            (_stockBars.length == 1 ? 0.28 : 0.78);
+                        return Align(
+                          alignment: Alignment.bottomCenter,
+                          child: Container(
+                            width: barWidth,
+                            height: constraints.maxHeight * factor,
+                            decoration: BoxDecoration(
+                              color: i.isEven ? gold : goldSoft,
+                              borderRadius: const BorderRadius.vertical(
+                                top: Radius.circular(4),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 5),
+        const SizedBox(
+          height: 2,
+          width: double.infinity,
+          child: ColoredBox(color: Color(0x55E6C477)),
+        ),
+      ],
+    );
   }
 
   ReportSessionItem _latestSession(List<ReportSessionItem> sessions) {
@@ -316,10 +408,10 @@ class _DashboardScreenState extends State<DashboardScreen>
             ClipRRect(
               borderRadius: BorderRadius.circular(10),
               child: Image.asset(
-                'assets/branding/splash_logo_white.png',
+                'assets/branding/LS_logo.jpg',
                 width: 42,
-                height: 44,
-                fit: BoxFit.cover,
+                height: 42,
+                fit: BoxFit.contain,
               ),
             ),
             const SizedBox(width: 10),
@@ -472,14 +564,14 @@ class _DashboardScreenState extends State<DashboardScreen>
         ),
       ),
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
           child: Column(
             children: [
               _homeStatRow(context, s),
               const SizedBox(height: 14),
-              Expanded(child: _homeGrid(context, s, gridItems)),
-              const SizedBox(height: 12),
+              _homeGrid(context, s, gridItems),
+              const SizedBox(height: 10),
               _homeBottomRow(context, bottomItems),
             ],
           ),
@@ -527,9 +619,6 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _homeStatRow(BuildContext context, dynamic s) {
-    final maxBar = _stockBars.fold<int>(0, (max, bar) {
-      return bar.count > max ? bar.count : max;
-    });
     return SizedBox(
       height: 148,
       child: Row(
@@ -565,44 +654,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     ),
                   ),
                   const Spacer(),
-                  SizedBox(
-                    height: 46,
-                    child: _stockBars.isEmpty
-                        ? Align(
-                            alignment: Alignment.bottomLeft,
-                            child: Container(
-                              height: 6,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFE6C477),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                            ),
-                          )
-                        : Row(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              for (var i = 0; i < _stockBars.length; i++) ...[
-                                if (i > 0) const SizedBox(width: 6),
-                                Expanded(
-                                  child: Tooltip(
-                                    message: _stockBars[i].name,
-                                    child: Container(
-                                      height: maxBar <= 0
-                                          ? 8
-                                          : 10 + (36 * _stockBars[i].count / maxBar),
-                                      decoration: BoxDecoration(
-                                        color: i == 0
-                                            ? const Color(0xFFE6C477)
-                                            : const Color(0x66E6C477),
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                  ),
+                  SizedBox(height: 52, child: _labelStockGraph()),
                 ],
               ),
             ),
@@ -705,6 +757,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         if (width < 280) crossAxisCount = 2;
         if (width > 700) crossAxisCount = 4;
         return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
           itemCount: items.length,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
@@ -758,36 +812,46 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _homeBottomRow(BuildContext context, List<Map<String, Object>> items) {
-    return Row(
-      children: [
-        for (var i = 0; i < items.length; i++) ...[
-          if (i > 0) const SizedBox(width: 8),
-          Expanded(
-            child: Material(
-              color: const Color(0xFFF3F1EC),
-              borderRadius: BorderRadius.circular(14),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(14),
-                onTap: () => _openMenuItem(context, items[i], context.s),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
-                  child: Text(
-                    items[i]['title'] as String,
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppFonts.poppins(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFF20201F),
+    return SizedBox(
+      height: 58,
+      child: Row(
+        children: [
+          for (var i = 0; i < items.length; i++) ...[
+            if (i > 0) const SizedBox(width: 10),
+            Expanded(
+              child: Material(
+                color: const Color(0xFFF7F4EE),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  side: const BorderSide(color: Color(0xFFE4DDD4)),
+                ),
+                child: InkWell(
+                  customBorder: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  onTap: () => _openMenuItem(context, items[i], context.s),
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Text(
+                        items[i]['title'] as String,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppFonts.poppins(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: const Color(0xFF6A6258),
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
+          ],
         ],
-      ],
+      ),
     );
   }
 }

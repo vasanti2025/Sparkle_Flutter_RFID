@@ -3,7 +3,6 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'l10n/l10n_extension.dart';
-import 'utils/app_fonts.dart';
 import 'views/login_screen.dart';
 
 /// Splash matching the brand screen: larger centered logo and taglines,
@@ -35,7 +34,7 @@ class LaunchLogo extends StatelessWidget {
                     children: [
                       Image(
                         image: const AssetImage(
-                          'assets/branding/splash_logo_white.png',
+                          'assets/branding/LS_logo.jpg',
                         ),
                         width: logoW,
                         height: logoW,
@@ -47,22 +46,11 @@ class LaunchLogo extends StatelessWidget {
                       Text(
                         s.splashTagline,
                         textAlign: TextAlign.center,
-                        style: AppFonts.poppins(
-                          color: const Color(0xFFD9D6CE),
+                        style: const TextStyle(
+                          color: Color(0xFFD9D6CE),
                           fontSize: 16,
+                          fontWeight: FontWeight.normal,
                           height: 1.4,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                      Text(
-                        s.splashTaglineStrong,
-                        textAlign: TextAlign.center,
-                        style: AppFonts.poppins(
-                          color: const Color(0xFFE6C477),
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          height: 1.4,
-                          letterSpacing: 0.2,
                         ),
                       ),
                     ],
@@ -78,21 +66,21 @@ class LaunchLogo extends StatelessWidget {
                       Text(
                         s.splashFooter1,
                         textAlign: TextAlign.center,
-                        style: AppFonts.poppins(
-                          color: const Color(0xFF96938C),
+                        style: const TextStyle(
+                          color: Color(0xFF96938C),
                           fontSize: 12,
+                          fontWeight: FontWeight.normal,
                           height: 1.45,
-                          letterSpacing: 0.2,
                         ),
                       ),
                       Text(
                         s.splashFooter2,
                         textAlign: TextAlign.center,
-                        style: AppFonts.poppins(
-                          color: const Color(0xFF96938C),
+                        style: const TextStyle(
+                          color: Color(0xFF96938C),
                           fontSize: 12,
+                          fontWeight: FontWeight.normal,
                           height: 1.45,
-                          letterSpacing: 0.2,
                         ),
                       ),
                     ],

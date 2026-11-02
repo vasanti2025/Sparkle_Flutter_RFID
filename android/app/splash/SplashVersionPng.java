@@ -39,8 +39,8 @@ public final class SplashVersionPng {
                 new File(dir, "splash_caption.png"),
                 1200,
                 320,
-                new String[] {"Every piece matters.", "Make every moment count."},
-                new Color[] {new Color(0xD9, 0xD6, 0xCE), new Color(0xE6, 0xC4, 0x77)},
+                new String[] {"Every piece matters."},
+                new Color[] {new Color(0xD9, 0xD6, 0xCE)},
                 72
         );
         writeLines(
@@ -89,11 +89,9 @@ public final class SplashVersionPng {
         int y = top + logoH + gapAfterLogo;
         g.setFont(captionFont);
         y = drawLines(g, y, width, new String[] {
-            "Every piece matters.",
-            "Make every moment count."
+            "Every piece matters."
         }, new Color[] {
-            new Color(0xD9, 0xD6, 0xCE),
-            new Color(0xE6, 0xC4, 0x77)
+            new Color(0xD9, 0xD6, 0xCE)
         });
         y += gapBeforeFooter;
         g.setFont(footerFont);
@@ -127,11 +125,9 @@ public final class SplashVersionPng {
         g.setFont(new Font("SansSerif", Font.PLAIN, 42));
         int y = logoTop + logoH + 28;
         drawLines(g, y, width, new String[] {
-            "Every piece matters.",
-            "Make every moment count."
+            "Every piece matters."
         }, new Color[] {
-            new Color(0xD9, 0xD6, 0xCE),
-            new Color(0xE6, 0xC4, 0x77)
+            new Color(0xD9, 0xD6, 0xCE)
         });
         g.setFont(new Font("SansSerif", Font.PLAIN, 32));
         drawLines(g, height - 250, width, new String[] {
