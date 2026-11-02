@@ -6,6 +6,7 @@ import '../models/employee.dart';
 import '../models/clients.dart';
 import '../models/wholesale_master.dart';
 import 'pref_store.dart';
+import 'last_verification_store.dart';
 
 class PrefService {
   static const String _keyToken = 'token';
@@ -48,6 +49,9 @@ class PrefService {
   static const String keyNotificationsEnabled = 'notifications_enabled';
   static const String keyAppLanguage = 'app_language';
   static const String keyLocationSync = 'location_sync';
+  static const String keyLastVerifMatch = 'home_last_verif_match';
+  static const String keyLastVerifUnmatch = 'home_last_verif_unmatch';
+  static const String keyLastVerifClient = 'home_last_verif_client';
 
   static const Map<String, int> powerDefaults = {
     keyProductCount: 5,
@@ -614,6 +618,29 @@ class PrefService {
     );
   }
 
+  ({int match, int unmatch})? get lastVerification {
+    final saved = LastVerificationStore.cached;
+    if (saved != null) return saved;
+    final match = _store.getInt(keyLastVerifMatch);
+    final unmatch = _store.getInt(keyLastVerifUnmatch);
+    if (match == null || unmatch == null) return null;
+    return (match: match, unmatch: unmatch);
+  }
+
+  Future<void> saveLastVerification({
+    required String clientCode,
+    required int match,
+    required int unmatch,
+  }) async {
+    await LastVerificationStore.save(match, unmatch);
+    final code = clientCode.trim();
+    if (code.isNotEmpty) {
+      await _store.setString(keyLastVerifClient, code);
+    }
+    await _store.setInt(keyLastVerifMatch, match);
+    await _store.setInt(keyLastVerifUnmatch, unmatch);
+  }
+
   Future<void> logout() async {
     // Clear login flag first so a killed mid-logout process cannot autologin.
     await _store.remove(_keyLoggedIn);
@@ -627,6 +654,10 @@ class PrefService {
     await _store.remove(_keySessionStartedAt);
     await _store.remove(_keySessionUsername);
     await _store.remove(_keySessionPassword);
+    await _store.remove(keyLastVerifMatch);
+    await _store.remove(keyLastVerifUnmatch);
+    await _store.remove(keyLastVerifClient);
+    await LastVerificationStore.clear();
     if (!isRememberMe()) {
       await _store.remove(_keyUsername);
       await _store.remove(_keyPassword);

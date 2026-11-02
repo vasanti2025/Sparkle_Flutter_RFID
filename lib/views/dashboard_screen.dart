@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../app_navigator.dart';
 import '../l10n/l10n_extension.dart';
-import '../models/stock_verification_report.dart';
 import '../services/app_warmup_service.dart' deferred as warmup;
 import '../services/bootstrap_channel.dart';
 import '../services/db_service.dart';
+import '../services/last_verification_store.dart';
 import '../services/location_sync_service.dart';
 import '../services/pref_service.dart';
 import '../services/rfid_service.dart';
@@ -17,6 +17,7 @@ import '../utils/background_location_consent.dart';
 import '../session_vm_hooks.dart' deferred as vm_hooks;
 import '../viewmodels/dashboard_view_model.dart';
 import '../viewmodels/login_view_model.dart';
+import '../viewmodels/product_view_model.dart';
 import '../viewmodels/stock_verification_view_model.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -34,6 +35,10 @@ class _DashboardScreenState extends State<DashboardScreen>
   List<({String name, int count})> _stockBars = const [];
   int? _matchQty;
   int? _unmatchQty;
+  ProductViewModel? _productVm;
+  StockVerificationViewModel? _verificationVm;
+  bool _homeVisible = false;
+  bool _sawProductSync = false;
 
   static const _menuDefs = [
     {'key': 'product', 'icon': Icons.diamond_outlined, 'route': '/product_management'},
@@ -58,6 +63,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void initState() {
     super.initState();
+    _applySavedVerification();
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -67,6 +73,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       unawaited(_startWarmup());
       unawaited(_loadAppVersion());
       unawaited(_loadHomeStats());
+      unawaited(_watchProductSync());
       unawaited(Future<void>.delayed(const Duration(seconds: 6), () async {
         if (!mounted) return;
         await _offerBackgroundLocationConsent();
@@ -77,7 +84,21 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final visible = ModalRoute.of(context)?.isCurrent ?? true;
+    if (visible && !_homeVisible) {
+      _homeVisible = true;
+      unawaited(_refreshLabelStock());
+    } else if (!visible) {
+      _homeVisible = false;
+    }
+  }
+
+  @override
   void dispose() {
+    _productVm?.removeListener(_onProductSyncChanged);
+    _verificationVm?.removeListener(_onVerificationChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -89,6 +110,10 @@ class _DashboardScreenState extends State<DashboardScreen>
       try {
         context.read<DashboardViewModel>().loadUser();
       } catch (_) {}
+      _applySavedVerification();
+      if (mounted) setState(() {});
+      unawaited(_refreshLabelStock());
+      unawaited(_loadLastVerification());
     }
   }
 
@@ -99,6 +124,58 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _loadHomeStats() async {
+    _applySavedVerification();
+    if (mounted && _matchQty != null) setState(() {});
+    unawaited(_loadLastVerification());
+    await _refreshLabelStock();
+  }
+
+  void _applySavedVerification() {
+    final saved = LastVerificationStore.cached ?? PrefService.instanceOrNull?.lastVerification;
+    if (saved == null) return;
+    _matchQty = saved.match;
+    _unmatchQty = saved.unmatch;
+  }
+
+  Future<void> _rememberVerification(int match, int unmatch) async {
+    final prefs = PrefService.instanceOrNull;
+    if (prefs == null) return;
+    await prefs.saveLastVerification(
+      clientCode: prefs.getEmployee()?.clientCode ?? '',
+      match: match,
+      unmatch: unmatch,
+    );
+  }
+
+  Future<void> _watchProductSync() async {
+    for (var attempt = 0; attempt < 8; attempt++) {
+      if (!mounted) return;
+      try {
+        final vm = context.read<ProductViewModel>();
+        _productVm?.removeListener(_onProductSyncChanged);
+        _productVm = vm;
+        vm.addListener(_onProductSyncChanged);
+        return;
+      } catch (_) {
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+    }
+  }
+
+  void _onProductSyncChanged() {
+    final vm = _productVm;
+    if (vm == null || !mounted) return;
+    if (vm.isLoading) {
+      _sawProductSync = true;
+      return;
+    }
+    if (_sawProductSync && vm.syncCompleted) {
+      _sawProductSync = false;
+      unawaited(_refreshLabelStock());
+    }
+  }
+
+  Future<void> _refreshLabelStock() async {
     try {
       final db = await context.read<DbService>().database;
       final totalRows = await db.rawQuery('SELECT COUNT(*) AS c FROM bulk_items');
@@ -117,21 +194,53 @@ class _DashboardScreenState extends State<DashboardScreen>
         _stockBars = _bestStockBars(groups);
       });
     } catch (_) {}
+  }
 
-    await Future<void>.delayed(const Duration(seconds: 6));
+  void _showVerification(int match, int unmatch) {
     if (!mounted) return;
-    try {
-      final vm = context.read<StockVerificationViewModel>();
-      await vm.fetchSessions();
-      if (!mounted) return;
-      final sessions = vm.sessionList?.sessions ?? const <ReportSessionItem>[];
-      if (sessions.isEmpty) return;
-      final latest = _latestSession(sessions);
+    if (_matchQty == match && _unmatchQty == unmatch) return;
+    setState(() {
+      _matchQty = match;
+      _unmatchQty = unmatch;
+    });
+    unawaited(_rememberVerification(match, unmatch));
+  }
+
+  void _onVerificationChanged() {
+    final counts = latestSessionCounts(_verificationVm?.sessionList?.sessions ?? const []);
+    if (counts == null) return;
+    _showVerification(counts[0], counts[1]);
+  }
+
+  Future<void> _loadLastVerification() async {
+    final prefs = PrefService.instanceOrNull ?? await PrefService.init();
+    if (!mounted) return;
+    final saved = prefs.lastVerification;
+    if (saved != null) {
       setState(() {
-        _matchQty = latest.matchQty;
-        _unmatchQty = latest.unmatchQty;
+        _matchQty = saved.match;
+        _unmatchQty = saved.unmatch;
       });
-    } catch (_) {}
+    }
+
+    for (var attempt = 0; attempt < 20; attempt++) {
+      if (!mounted) return;
+      try {
+        final vm = context.read<StockVerificationViewModel>();
+        if (!identical(_verificationVm, vm)) {
+          _verificationVm?.removeListener(_onVerificationChanged);
+          _verificationVm = vm;
+          vm.addListener(_onVerificationChanged);
+        }
+        _onVerificationChanged();
+        await vm.fetchSessions();
+        if (!mounted) return;
+        _onVerificationChanged();
+        return;
+      } catch (_) {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+    }
   }
 
   Future<List<({String name, int count})>> _topCounts(dynamic db, String column) async {
@@ -228,25 +337,6 @@ class _DashboardScreenState extends State<DashboardScreen>
         ),
       ],
     );
-  }
-
-  ReportSessionItem _latestSession(List<ReportSessionItem> sessions) {
-    ReportSessionItem best = sessions.first;
-    DateTime? bestAt = _sessionTime(best);
-    for (final session in sessions.skip(1)) {
-      final at = _sessionTime(session);
-      if (at != null && (bestAt == null || at.isAfter(bestAt))) {
-        best = session;
-        bestAt = at;
-      }
-    }
-    return best;
-  }
-
-  DateTime? _sessionTime(ReportSessionItem session) {
-    final ended = DateTime.tryParse(session.endedOn.trim());
-    if (ended != null) return ended;
-    return DateTime.tryParse(session.startedOn.trim());
   }
 
   Future<void> _offerBackgroundLocationConsent() async {

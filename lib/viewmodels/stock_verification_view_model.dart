@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -34,6 +35,32 @@ SessionListResponse parseSessionsIsolate(String body) {
   if (decoded is Map<String, dynamic>) return SessionListResponse.fromJson(decoded);
   if (decoded is Map) return SessionListResponse.fromJson(Map<String, dynamic>.from(decoded));
   throw const FormatException('Expected a JSON object');
+}
+
+/// Match and unmatch counts for the newest session. Runs off the UI isolate.
+List<int>? latestSessionCountsIsolate(String body) {
+  final sessions = parseSessionsIsolate(body).sessions;
+  return latestSessionCounts(sessions);
+}
+
+List<int>? latestSessionCounts(List<ReportSessionItem> sessions) {
+  if (sessions.isEmpty) return null;
+  ReportSessionItem best = sessions.first;
+  DateTime? bestAt = _sessionStamp(best);
+  for (final session in sessions.skip(1)) {
+    final at = _sessionStamp(session);
+    if (at != null && (bestAt == null || at.isAfter(bestAt))) {
+      best = session;
+      bestAt = at;
+    }
+  }
+  return [best.matchQty, best.unmatchQty];
+}
+
+DateTime? _sessionStamp(ReportSessionItem session) {
+  final ended = DateTime.tryParse(session.endedOn.trim());
+  if (ended != null) return ended;
+  return DateTime.tryParse(session.startedOn.trim());
 }
 
 List<Map<String, dynamic>> extractConsolidatedItemsIsolate(Map<String, dynamic> args) {
@@ -376,6 +403,15 @@ class StockVerificationViewModel extends ChangeNotifier {
           _sessionList = list;
           _sessionState = ReportLoadState.success;
           _errorMessage = null;
+          final counts = latestSessionCounts(list.sessions);
+          final prefs = PrefService.instanceOrNull;
+          if (counts != null && prefs != null) {
+            unawaited(prefs.saveLastVerification(
+              clientCode: clientCode,
+              match: counts[0],
+              unmatch: counts[1],
+            ));
+          }
           notifyListeners();
           return;
         }
