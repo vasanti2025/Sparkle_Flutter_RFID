@@ -564,17 +564,24 @@ class _DashboardScreenState extends State<DashboardScreen>
         ),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-          child: Column(
-            children: [
-              _homeStatRow(context, s),
-              const SizedBox(height: 14),
-              _homeGrid(context, s, gridItems),
-              const SizedBox(height: 10),
-              _homeBottomRow(context, bottomItems),
-            ],
-          ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final h = constraints.maxHeight;
+            final statH = h * 0.22;
+            final bottomH = h * 0.16;
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+              child: Column(
+                children: [
+                  SizedBox(height: statH, child: _homeStatRow(context, s)),
+                  const SizedBox(height: 10),
+                  Expanded(child: _homeGrid(context, s, gridItems)),
+                  const SizedBox(height: 10),
+                  SizedBox(height: bottomH, child: _homeBottomRow(context, bottomItems)),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
@@ -619,9 +626,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Widget _homeStatRow(BuildContext context, dynamic s) {
-    return SizedBox(
-      height: 148,
-      child: Row(
+    return Row(
         children: [
           Expanded(
             child: Container(
@@ -644,17 +649,21 @@ class _DashboardScreenState extends State<DashboardScreen>
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    _labelCount == null ? '—' : '$_labelCount',
-                    style: AppFonts.poppins(
-                      color: Colors.white,
-                      fontSize: 28,
-                      fontWeight: FontWeight.w700,
-                      height: 1,
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      _labelCount == null ? '—' : '$_labelCount',
+                      style: AppFonts.poppins(
+                        color: Colors.white,
+                        fontSize: 28,
+                        fontWeight: FontWeight.w700,
+                        height: 1,
+                      ),
                     ),
                   ),
-                  const Spacer(),
-                  SizedBox(height: 52, child: _labelStockGraph()),
+                  const SizedBox(height: 6),
+                  Expanded(child: _labelStockGraph()),
                 ],
               ),
             ),
@@ -696,7 +705,6 @@ class _DashboardScreenState extends State<DashboardScreen>
             ),
           ),
         ],
-      ),
     );
   }
 
@@ -749,109 +757,87 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
+  Widget _menuCard(BuildContext context, dynamic s, Map<String, Object> item) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => _openMenuItem(context, item, s),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE8E5DF)),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final iconSize = (constraints.maxHeight * 0.32).clamp(16.0, 28.0);
+              final fontSize = (constraints.maxHeight * 0.16).clamp(10.0, 13.0);
+              return Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    item['icon'] as IconData,
+                    size: iconSize,
+                    color: const Color(0xFF866526),
+                  ),
+                  SizedBox(height: constraints.maxHeight < 70 ? 2 : 6),
+                  Text(
+                    item['title'] as String,
+                    style: AppFonts.poppins(
+                      fontSize: fontSize,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF20201F),
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _homeGrid(BuildContext context, dynamic s, List<Map<String, Object>> items) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         var crossAxisCount = 3;
         if (width < 280) crossAxisCount = 2;
-        if (width > 700) crossAxisCount = 4;
+        if (width > 900) crossAxisCount = 4;
+        final rows = (items.length / crossAxisCount).ceil().clamp(1, 99);
+        const spacing = 10.0;
+        final cellW = (width - spacing * (crossAxisCount - 1)) / crossAxisCount;
+        final cellH = (constraints.maxHeight - spacing * (rows - 1)) / rows;
+        final aspect = cellH <= 0 ? 1.0 : cellW / cellH;
         return GridView.builder(
-          shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: items.length,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            childAspectRatio: 1.05,
+            crossAxisSpacing: spacing,
+            mainAxisSpacing: spacing,
+            childAspectRatio: aspect,
           ),
-          itemBuilder: (context, index) {
-            final item = items[index];
-            return Material(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(16),
-                onTap: () => _openMenuItem(context, item, s),
-                child: Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFE8E5DF)),
-                  ),
-                  padding: const EdgeInsets.all(8),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        item['icon'] as IconData,
-                        size: 26,
-                        color: const Color(0xFF866526),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        item['title'] as String,
-                        style: AppFonts.poppins(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF20201F),
-                        ),
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
+          itemBuilder: (context, index) => _menuCard(context, s, items[index]),
         );
       },
     );
   }
 
   Widget _homeBottomRow(BuildContext context, List<Map<String, Object>> items) {
-    return SizedBox(
-      height: 58,
-      child: Row(
-        children: [
-          for (var i = 0; i < items.length; i++) ...[
-            if (i > 0) const SizedBox(width: 10),
-            Expanded(
-              child: Material(
-                color: const Color(0xFFF7F4EE),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  side: const BorderSide(color: Color(0xFFE4DDD4)),
-                ),
-                child: InkWell(
-                  customBorder: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  onTap: () => _openMenuItem(context, items[i], context.s),
-                  child: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Text(
-                        items[i]['title'] as String,
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppFonts.poppins(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: const Color(0xFF6A6258),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
+    return Row(
+      children: [
+        for (var i = 0; i < items.length; i++) ...[
+          if (i > 0) const SizedBox(width: 10),
+          Expanded(child: _menuCard(context, context.s, items[i])),
         ],
-      ),
+      ],
     );
   }
 }

