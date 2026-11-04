@@ -160,6 +160,9 @@ class UnmatchedSearchCatalog {
   void Function(BuildContext dialogContext)? onEmail;
   void Function(String menu)? onSelectMenu;
   VoidCallback? onResumeScan;
+  /// Scan Display opens a filled Search Unmatched list. The menu must not
+  /// push that screen with an empty catalog.
+  VoidCallback? onOpenUnmatched;
   int Function()? matchedCountOf;
   int Function()? unmatchedCountOf;
   int Function()? unlabelledCountOf;
@@ -174,6 +177,7 @@ class UnmatchedSearchCatalog {
     onEmail = null;
     onSelectMenu = null;
     onResumeScan = null;
+    onOpenUnmatched = null;
     matchedCountOf = null;
     unmatchedCountOf = null;
     unlabelledCountOf = null;
@@ -200,6 +204,7 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _scanStarting = false;
 
   bool _isInit = false;
+  int _routeCaptureTries = 0;
   bool _isLoading = false;
   bool _isScanning = false;
   bool _showMenu = false;
@@ -215,6 +220,7 @@ class _SearchScreenState extends State<SearchScreen> {
   final Map<String, String> _uploadedItemSessions = {};
   String _uploadedSessionId = '';
   bool _uploadedRemoving = false;
+  int _uploadedLoadSerial = 0;
 
   // O(1) tag lookup — mirrors Kotlin SearchViewModel.epcToIndex
   final Map<String, int> _tagIndexMap = {};
@@ -295,26 +301,40 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!_isInit) {
-      final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-      if (args != null) {
-        final listKey = args['listKey'] as String? ?? 'normal';
-        _listKey = listKey;
-        if (_listKey == 'unmatchedItems') {
-          _isLoading = true;
-          _indexReady = false;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) unawaited(_attachUnmatchedCatalog());
-          });
-        } else if (_listKey == 'uploadedList') {
-          _isLoading = true;
-          _indexReady = false;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) unawaited(_loadUploadedItemCodes());
-          });
-        }
-      }
-      _isInit = true;
+    _captureSearchRoute();
+  }
+
+  void _captureSearchRoute() {
+    final route = ModalRoute.of(context);
+    // Only this search page. The route underneath can still be current for a
+    // frame, and reading that one opened a blank Search Unmatched list.
+    if (route == null || route.settings.name != '/search') {
+      if (_isInit || _routeCaptureTries > 8) return;
+      _routeCaptureTries++;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _captureSearchRoute();
+      });
+      return;
+    }
+    final args = route.settings.arguments as Map<String, dynamic>?;
+    final listKey = args?['listKey'] as String? ?? 'normal';
+    if (_isInit && _listKey == listKey) return;
+    _isInit = true;
+    _listKey = listKey;
+    if (_listKey == 'unmatchedItems') {
+      _isLoading = true;
+      _indexReady = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _listKey != 'unmatchedItems') return;
+        unawaited(_attachUnmatchedCatalog());
+      });
+    } else if (_listKey == 'uploadedList') {
+      _isLoading = true;
+      _indexReady = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _listKey != 'uploadedList') return;
+        unawaited(_loadUploadedItemCodes());
+      });
     }
   }
 
@@ -398,9 +418,22 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
+  void _clearUploadedScanUi() {
+    _hotSet.clear();
+    _hotIndices.clear();
+    _atMaxProximity.clear();
+    _dirtyIndices.clear();
+    _lastRssiUpdateMs.clear();
+    _unmatchedSeen.clear();
+    _queryScopeIndices.clear();
+    _mainDisplayOrder = [];
+    _mainDisplayDirty = true;
+  }
+
   /// Upload button loads GetClientItemCodes.
   Future<void> _loadUploadedItemCodes() async {
     if (!mounted) return;
+    final serial = ++_uploadedLoadSerial;
     setState(() {
       _isLoading = true;
       _indexReady = false;
@@ -409,7 +442,7 @@ class _SearchScreenState extends State<SearchScreen> {
       final api = context.read<ApiService>();
       final clientCode = _loggedInClientCode();
       if (clientCode.isEmpty) {
-        if (!mounted) return;
+        if (!mounted || serial != _uploadedLoadSerial) return;
         setState(() {
           _isLoading = false;
           _indexReady = true;
@@ -418,13 +451,13 @@ class _SearchScreenState extends State<SearchScreen> {
         return;
       }
       // Same call as the working URL: clientCode only.
+      // The text box filters this list locally. Sending it here returned an
+      // empty page and left the list blank the next time Upload List opened.
       // branchId filters sessions, and these sessions are stored with BranchId 0.
-      final query = _searchQuery.trim();
       final page = await api.getClientItemCodes(
         clientCode: clientCode,
-        searchQuery: query.isEmpty ? null : query,
       );
-      if (!mounted) return;
+      if (!mounted || serial != _uploadedLoadSerial) return;
       final results = <SearchItem>[];
       final sessions = <String, String>{};
       var sessionId = page.searchSessionId.trim();
@@ -440,9 +473,10 @@ class _SearchScreenState extends State<SearchScreen> {
         results.add(item);
       }
       await _enrichUploadedFromStock(results);
-      if (!mounted) return;
+      if (!mounted || serial != _uploadedLoadSerial) return;
       _searchItems = results;
       _dedupeSearchItems();
+      _clearUploadedScanUi();
       _uploadedItemSessions
         ..clear()
         ..addAll(sessions);
@@ -458,14 +492,14 @@ class _SearchScreenState extends State<SearchScreen> {
         return;
       }
       await _rebuildTagIndexChunked();
-      if (!mounted) return;
+      if (!mounted || serial != _uploadedLoadSerial) return;
       if (_tagIndexMap.isNotEmpty) {
         await _rfidService.setSearchTags(_tagIndexMap.keys.toList(growable: false));
         _unmatchedTagsOnReader = true;
       } else {
         _unmatchedTagsOnReader = false;
       }
-      if (!mounted) return;
+      if (!mounted || serial != _uploadedLoadSerial) return;
       setState(() {
         _invalidateDisplayOrder();
         _ensureShuffledOrder();
@@ -475,7 +509,7 @@ class _SearchScreenState extends State<SearchScreen> {
       });
       unawaited(_rfidService.prepareForScan());
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || serial != _uploadedLoadSerial) return;
       setState(() {
         _isLoading = false;
         _indexReady = true;
@@ -750,6 +784,10 @@ class _SearchScreenState extends State<SearchScreen> {
     if (!_usesListScan || _rangeArmedAt == 0) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _rangeArmedAt < 1500) return;
+    if (_isUploadedList) {
+      _decayUploadedOutOfRange(now);
+      return;
+    }
     var newest = 0;
     for (final ms in _lastRssiUpdateMs.values) {
       if (ms > newest) newest = ms;
@@ -770,6 +808,36 @@ class _SearchScreenState extends State<SearchScreen> {
       any = true;
     }
     if (!any || !mounted || _listScrolling) return;
+    setState(() {});
+  }
+
+  /// One uploaded row falls back to 0% after that tag stops reporting.
+  /// In-range reads arrive about every 400ms, so a shorter gap was wiping a
+  /// live bar and rebuilding the list on the reader thread. The gun and its
+  /// tone are not restarted here; the next read fills the bar again.
+  void _decayUploadedOutOfRange(int now) {
+    const quietMs = 1500;
+    if (_hotSet.isEmpty) return;
+    final stale = <int>[];
+    for (final i in _hotSet.toList(growable: false)) {
+      if (i < 0 || i >= _searchItems.length) {
+        stale.add(i);
+        continue;
+      }
+      final seenAt = _lastRssiUpdateMs[i] ?? 0;
+      if (seenAt != 0 && now - seenAt < quietMs) continue;
+      final item = _searchItems[i];
+      item.rssi = '';
+      item.proximityPercent = 0;
+      stale.add(i);
+    }
+    if (stale.isEmpty || !mounted || _listScrolling) return;
+    for (final i in stale) {
+      _hotSet.remove(i);
+      _atMaxProximity.remove(i);
+    }
+    _mainDisplayDirty = true;
+    _refreshUpsideIndices();
     setState(() {});
   }
 
@@ -2006,6 +2074,19 @@ class _SearchScreenState extends State<SearchScreen> {
     action?.call();
   }
 
+  /// Uploaded List must not push Search Unmatched on an empty catalog.
+  /// A list already open underneath is shown again. Otherwise Scan Display
+  /// builds the unmatched rows and opens that screen.
+  Future<void> _returnToSearchUnmatched({
+    required bool keepOpenList,
+    required VoidCallback? openFilledList,
+  }) async {
+    if (_isScanning) await _stopSearchScan();
+    if (!mounted) return;
+    Navigator.of(context).pop();
+    if (!keepOpenList) openFilledList?.call();
+  }
+
   void _resetSearch() {
     unawaited(_stopSearchScan());
     _stopProximityDecay();
@@ -2387,16 +2468,22 @@ class _SearchScreenState extends State<SearchScreen> {
               },
               onSearchUnmatched: () {
                 setState(() => _showMenu = false);
-                if (isUploadedList) {
-                  unawaited(Navigator.pushNamed(context, '/search', arguments: {
-                    'listKey': 'unmatchedItems',
-                  }));
-                }
+                if (!isUploadedList) return;
+                final catalog = UnmatchedSearchCatalog.instance;
+                final keepOpenList = catalog.items.isNotEmpty;
+                final open = catalog.onOpenUnmatched;
+                unawaited(_returnToSearchUnmatched(
+                  keepOpenList: keepOpenList,
+                  openFilledList: open,
+                ));
               },
               showUploadedList: context.read<PrefService>().isUploadedListLoginUser(),
               onUploadedList: () {
                 setState(() => _showMenu = false);
-                if (isUploadedList) return;
+                if (isUploadedList) {
+                  unawaited(_loadUploadedItemCodes());
+                  return;
+                }
                 unawaited(Navigator.pushNamed(context, '/search', arguments: {
                   'listKey': 'uploadedList',
                 }));
@@ -2472,7 +2559,8 @@ class _SearchScreenState extends State<SearchScreen> {
                     item.proximityPercent,
                     3,
                     showAutoTick: false,
-                    persistentTick: !_usesListScan && item.rangeTicked,
+                    persistentTick: (_isHomeSearch || _isUploadedList) &&
+                        item.rangeTicked,
                   ),
                   _buildDataCell('${item.proximityPercent}%', 1),
                   if (_listKey == 'unmatchedItems') _buildManualMatchButton(item),

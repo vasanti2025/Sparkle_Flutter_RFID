@@ -1640,6 +1640,10 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
       if (!mounted) return;
       _resumeScan();
     };
+    catalog.onOpenUnmatched = () {
+      if (!mounted) return;
+      unawaited(_openSearchUnmatched());
+    };
     catalog.matchedCountOf = () => _cachedMatchedCount;
     catalog.unmatchedCountOf = () => _cachedTotalCount - _cachedMatchedCount;
     catalog.unlabelledCountOf = () => _unlabelledEpcs.length;
