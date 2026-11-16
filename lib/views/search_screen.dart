@@ -811,12 +811,12 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() {});
   }
 
-  /// One uploaded row falls back to 0% after that tag stops reporting.
-  /// In-range reads arrive about every 400ms, so a shorter gap was wiping a
-  /// live bar and rebuilding the list on the reader thread. The gun and its
-  /// tone are not restarted here; the next read fills the bar again.
+  /// Drop one uploaded row to 0% only after that tag has left.
+  /// A tag still in range is reported every few hundred milliseconds, and a
+  /// crowded read can gap longer than that. Clearing on those gaps made the
+  /// bar hit 0% while the tag was still there. The reader is not touched.
   void _decayUploadedOutOfRange(int now) {
-    const quietMs = 1500;
+    const quietMs = 5000;
     if (_hotSet.isEmpty) return;
     final stale = <int>[];
     for (final i in _hotSet.toList(growable: false)) {
@@ -825,7 +825,8 @@ class _SearchScreenState extends State<SearchScreen> {
         continue;
       }
       final seenAt = _lastRssiUpdateMs[i] ?? 0;
-      if (seenAt != 0 && now - seenAt < quietMs) continue;
+      // No timestamp yet, or a read inside the window: keep the bar and %.
+      if (seenAt == 0 || now - seenAt < quietMs) continue;
       final item = _searchItems[i];
       item.rssi = '';
       item.proximityPercent = 0;
