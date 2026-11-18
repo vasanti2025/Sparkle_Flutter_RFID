@@ -136,6 +136,23 @@ bool applyUnmatchedRead(SearchItem item, int proximity, String rssi) {
   return item.applyLiveRange(rssi, proximity);
 }
 
+/// How long a tag must stay silent before Search calls it out of range.
+/// [gaps] are the pauses this Chainway is actually leaving between reads of
+/// tags that are still in the field. C5 and C7 do not share one pause, so a
+/// fixed timeout hits 0% between reads. Fewer than three gaps means this
+/// reader has not shown its pace yet.
+int silenceMeansLeftMs(List<int> gaps) {
+  if (gaps.length < 3) return 12000;
+  var slow = 0;
+  for (final gap in gaps) {
+    if (gap > slow) slow = gap;
+  }
+  var need = slow * 3;
+  if (need < 2500) need = 2500;
+  if (need > 12000) need = 12000;
+  return need;
+}
+
 /// First row keeps a shared key. A later row must not steal it and hide the first.
 bool claimUnmatchedIndexKey(Map<String, int> map, String key, int index) {
   final existing = map[key];
@@ -226,6 +243,9 @@ class _SearchScreenState extends State<SearchScreen> {
   // O(1) tag lookup — mirrors Kotlin SearchViewModel.epcToIndex
   final Map<String, int> _tagIndexMap = {};
   final Map<int, int> _lastRssiUpdateMs = {};
+  /// Gaps between live reads on this gun. C5 and C7 do not share one gap.
+  final List<int> _repeatGaps = [];
+  final Map<int, int> _repeatAt = {};
   int _rangeArmedAt = 0;
   int _lastSearchUiUpdateUs = 0;
   int _lastCatalogUiUpdateUs = 0;
@@ -837,7 +857,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _startProximityDecay() {
     _proximityDecayTimer?.cancel();
-    _proximityDecayTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+    _proximityDecayTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
       _decayStaleProximity();
     });
   }
@@ -848,48 +868,17 @@ class _SearchScreenState extends State<SearchScreen> {
     _rangeArmedAt = 0;
   }
 
-  /// Keep every found bar while tags are still arriving or the list is moving.
-  /// A short gap, including a scroll, must not wipe them. Clear only after the
-  /// field has actually gone quiet. Does not rebuild order or touch the reader.
+  /// Drop a row to 0% once that tag has left.
+  /// Upload list uses the same one-second silence as the search tone, so the
+  /// bar reaches 0% when the sound stops. A read that is still arriving keeps
+  /// the percent. The reader is not touched.
   void _decayStaleProximity() {
     if (!_isScanning || !mounted || _scanStarting || _listScrolling) return;
     if (!_usesListScan || _rangeArmedAt == 0) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _rangeArmedAt < 1500) return;
-    if (_isUploadedList) {
-      _decayUploadedOutOfRange(now);
-      return;
-    }
-    var newest = 0;
-    for (final ms in _lastRssiUpdateMs.values) {
-      if (ms > newest) newest = ms;
-    }
-    if (newest == 0) return;
-    final seen = _unmatchedSeen.length;
-    if (seen > 8 && now - newest < 5000) return;
-    final quietMs = seen > 8 ? 5000 : 3000;
-    var any = false;
-    for (final entry in _lastRssiUpdateMs.entries) {
-      if (now - entry.value < quietMs) continue;
-      final i = entry.key;
-      if (i < 0 || i >= _searchItems.length) continue;
-      final item = _searchItems[i];
-      if (item.proximityPercent <= 0 && item.rssi.isEmpty) continue;
-      item.rssi = '';
-      item.proximityPercent = 0;
-      any = true;
-    }
-    if (!any || !mounted || _listScrolling) return;
-    setState(() {});
-  }
-
-  /// Drop one uploaded row to 0% only after that tag has left.
-  /// A tag still in range is reported every few hundred milliseconds, and a
-  /// crowded read can gap longer than that. Clearing on those gaps made the
-  /// bar hit 0% while the tag was still there. The reader is not touched.
-  void _decayUploadedOutOfRange(int now) {
-    const quietMs = 5000;
     if (_hotSet.isEmpty) return;
+    final quietMs = _isUploadedList ? 1000 : silenceMeansLeftMs(_repeatGaps);
     final stale = <int>[];
     for (final i in _hotSet.toList(growable: false)) {
       if (i < 0 || i >= _searchItems.length) {
@@ -897,7 +886,7 @@ class _SearchScreenState extends State<SearchScreen> {
         continue;
       }
       final seenAt = _lastRssiUpdateMs[i] ?? 0;
-      // No timestamp yet, or a read inside the window: keep the bar and %.
+      // No timestamp yet, or a read inside this gun's own gap: keep the %.
       if (seenAt == 0 || now - seenAt < quietMs) continue;
       final item = _searchItems[i];
       item.rssi = '';
@@ -908,10 +897,26 @@ class _SearchScreenState extends State<SearchScreen> {
     for (final i in stale) {
       _hotSet.remove(i);
       _atMaxProximity.remove(i);
+      _repeatAt.remove(i);
     }
     _mainDisplayDirty = true;
     _refreshUpsideIndices();
     setState(() {});
+  }
+
+  /// Remember how often this Chainway repeats a tag that is still in range.
+  void _noteRepeat(int index, int now) {
+    final prev = _repeatAt[index];
+    if (prev != null && now > prev) {
+      final gap = now - prev;
+      if (gap >= 80 && gap <= 8000) {
+        _repeatGaps.add(gap);
+        if (_repeatGaps.length > 32) {
+          _repeatGaps.removeAt(0);
+        }
+      }
+    }
+    _repeatAt[index] = now;
   }
 
   void _rebuildTagIndex() {
@@ -1525,6 +1530,7 @@ class _SearchScreenState extends State<SearchScreen> {
         return;
       }
 
+      _noteRepeat(index, now);
       _lastRssiUpdateMs[index] = now;
       final item = _searchItems[index];
       if (_usesListScan) {
@@ -1609,6 +1615,8 @@ class _SearchScreenState extends State<SearchScreen> {
       _lastSearchUiUpdateUs = 0;
       _lastCatalogUiUpdateUs = 0;
       _dirtyIndices.clear();
+      _repeatGaps.clear();
+      _repeatAt.clear();
       _displayIndexValid = false;
       if (_usesListScan) _beginUnmatchedScanLog();
       _startProximityDecay();

