@@ -426,12 +426,16 @@ class ApiService {
     required String clientCode,
     required String branchAddress,
     required String stockTakingDate,
+    String? counterName,
+    String? counterNumber,
   }) {
     return _getStockTakingList(
       path: 'api/ProductMaster/GetStockTakingMatchedList',
       clientCode: clientCode,
       branchAddress: branchAddress,
       stockTakingDate: stockTakingDate,
+      counterName: counterName,
+      counterNumber: counterNumber,
       failureMessage: 'Failed to load matched stocks',
     );
   }
@@ -441,12 +445,16 @@ class ApiService {
     required String clientCode,
     required String branchAddress,
     required String stockTakingDate,
+    String? counterName,
+    String? counterNumber,
   }) {
     return _getStockTakingList(
       path: 'api/ProductMaster/GetStockTakingUnmatchedList',
       clientCode: clientCode,
       branchAddress: branchAddress,
       stockTakingDate: stockTakingDate,
+      counterName: counterName,
+      counterNumber: counterNumber,
       failureMessage: 'Failed to load missing stocks',
     );
   }
@@ -495,6 +503,8 @@ class ApiService {
     required String stockTakingDate,
     required String failureMessage,
     String branchAddress = '',
+    String? counterName,
+    String? counterNumber,
     int? branchId,
     int? counterId,
     int? boxId,
@@ -513,6 +523,56 @@ class ApiService {
     } else {
       body['BranchAddress'] = branchAddress;
     }
+    final labels = splitWholesaleCounterNames(
+      (counterNumber ?? '').trim().isNotEmpty
+          ? counterNumber!.trim()
+          : (counterName ?? '').trim(),
+    );
+    if (labels.length <= 1) {
+      final label = labels.isEmpty ? '' : labels.first;
+      if (label.isNotEmpty) {
+        body['CounterName'] = label;
+        body['CounterNumber'] = label;
+      }
+      return _postStockTakingList(path, body, failureMessage);
+    }
+
+    final merged = <dynamic>[];
+    final seen = <String>{};
+    Object? lastError;
+    for (final label in labels) {
+      final request = Map<String, dynamic>.from(body)
+        ..['CounterName'] = label
+        ..['CounterNumber'] = label;
+      try {
+        for (final row in await _postStockTakingList(path, request, failureMessage)) {
+          final key = _stockTakingRowKey(row);
+          if (key.isNotEmpty && !seen.add(key)) continue;
+          merged.add(row);
+        }
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    if (merged.isEmpty && lastError != null) throw lastError;
+    return merged;
+  }
+
+  String _stockTakingRowKey(dynamic row) {
+    if (row is String) return row.trim().toUpperCase();
+    if (row is! Map) return '';
+    for (final key in const ['RFID', 'Rfid', 'rfid', 'EPC', 'Epc', 'epc', 'ItemCode', 'itemCode']) {
+      final value = row[key]?.toString().trim() ?? '';
+      if (value.isNotEmpty) return value.toUpperCase();
+    }
+    return '';
+  }
+
+  Future<List<dynamic>> _postStockTakingList(
+    String path,
+    Map<String, dynamic> body,
+    String failureMessage,
+  ) async {
     try {
       final response = await _dio.post(
         path,
@@ -657,8 +717,26 @@ class ApiService {
     final rows = <dynamic>[];
     for (final session in sessions) {
       if (session is! Map) continue;
+      final sessionId = _sessionField(session);
       final items = session['Items'] ?? session['items'];
-      if (items is List) rows.addAll(items);
+      if (items is! List) continue;
+      for (final raw in items) {
+        if (raw is Map) {
+          final row = Map<String, dynamic>.from(raw);
+          if (sessionId.isNotEmpty) {
+            row.putIfAbsent('SearchSessionId', () => sessionId);
+            row.putIfAbsent('searchSessionId', () => sessionId);
+          }
+          rows.add(row);
+        } else if (raw is String && raw.trim().isNotEmpty) {
+          rows.add({
+            'ItemCode': raw.trim(),
+            if (sessionId.isNotEmpty) 'SearchSessionId': sessionId,
+          });
+        } else {
+          rows.add(raw);
+        }
+      }
     }
     return rows;
   }
@@ -678,7 +756,8 @@ class ApiService {
   }
 
   /// `POST api/LabelStockSearch/RemoveItem`
-  /// One code uses `itemCode`. More than one uses `itemCodes`.
+  /// Select-all must delete every row. The working single-item call uses
+  /// `ItemCode`; a bulk `itemCodes` body can succeed without removing the rest.
   Future<void> removeLabelStockItems({
     required String clientCode,
     required String searchSessionId,
@@ -689,14 +768,30 @@ class ApiService {
         .where((code) => code.isNotEmpty)
         .toList(growable: false);
     if (codes.isEmpty) return;
+    for (final code in codes) {
+      await _postRemoveLabelStockItem(
+        clientCode: clientCode,
+        searchSessionId: searchSessionId,
+        itemCode: code,
+      );
+    }
+  }
+
+  Future<void> _postRemoveLabelStockItem({
+    required String clientCode,
+    required String searchSessionId,
+    required String itemCode,
+  }) async {
+    final session = searchSessionId.trim();
     final body = <String, dynamic>{
+      'ClientCode': clientCode,
       'clientCode': clientCode,
-      'searchSessionId': searchSessionId,
+      'ItemCode': itemCode,
+      'itemCode': itemCode,
     };
-    if (codes.length == 1) {
-      body['itemCode'] = codes.first;
-    } else {
-      body['itemCodes'] = codes;
+    if (session.isNotEmpty) {
+      body['SearchSessionId'] = session;
+      body['searchSessionId'] = session;
     }
     try {
       final response = await _dio.post(
@@ -710,8 +805,8 @@ class ApiService {
           message != null && message.isNotEmpty ? message : 'Failed to remove items',
         );
       }
-      final code = response.statusCode ?? 0;
-      if (code >= 200 && code < 300) return;
+      final status = response.statusCode ?? 0;
+      if (status >= 200 && status < 300) return;
       throw Exception('Failed to remove items');
     } on DioException catch (e) {
       final server = e.response?.data;

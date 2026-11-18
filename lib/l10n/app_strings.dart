@@ -307,6 +307,8 @@ class AppStrings {
   String get searchUnmatched => _t('searchUnmatched');
   String get uploadedList => _t('uploadedList');
   String get loadList => _t('loadList');
+  String get confirmDeleteUploadedItems => _t('confirmDeleteUploadedItems');
+  String get uploadedItemsDeleted => _t('uploadedItemsDeleted');
   String get saved => _t('saved');
   String get searchAllItems => _t('searchAllItems');
   String get searchType => _t('searchType');
@@ -1192,6 +1194,9 @@ class AppStrings {
       'searchUnmatched': 'Search (Unmatched)',
       'uploadedList': 'Uploaded list',
       'loadList': 'Upload',
+      'confirmDeleteUploadedItems':
+          'Are you sure you want to delete the selected items?',
+      'uploadedItemsDeleted': 'Selected items deleted',
       'searchAllItems': 'Search (All Items)',
       'searchType': 'Search Type',
       'labelStock': 'LabelStock',
@@ -1645,6 +1650,9 @@ class AppStrings {
       'deleteProduct': 'उत्पाद हटाएं',
       'addBtn': 'जोड़ें',
       'delete': 'हटाएं',
+      'confirmDeleteUploadedItems':
+          'क्या आप वाकई चयनित आइटम हटाना चाहते हैं?',
+      'uploadedItemsDeleted': 'चयनित आइटम हटा दिए गए',
       'reset': 'रीसेट',
       'apply': 'लागू करें',
       'importBtn': 'आयात',
@@ -2198,6 +2206,9 @@ class AppStrings {
       'deleteProduct': 'حذف المنتج',
       'addBtn': 'إضافة',
       'delete': 'حذف',
+      'confirmDeleteUploadedItems':
+          'هل أنت متأكد من حذف العناصر المحددة؟',
+      'uploadedItemsDeleted': 'تم حذف العناصر المحددة',
       'reset': 'إعادة تعيين',
       'apply': 'تطبيق',
       'importBtn': 'استيراد',

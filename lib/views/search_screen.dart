@@ -11,6 +11,7 @@ import '../services/db_service.dart';
 import '../services/pref_service.dart';
 import '../services/rfid_service.dart';
 import '../viewmodels/dashboard_view_model.dart';
+import '../utils/app_dialogs.dart';
 import '../utils/app_dropdown.dart';
 import '../utils/scan_key.dart';
 import '../utils/user_facing_error.dart';
@@ -464,7 +465,7 @@ class _SearchScreenState extends State<SearchScreen> {
       for (final row in page.items) {
         final item = _searchItemFromUploaded(row);
         if (item.itemCode.isEmpty && item.rfid.isEmpty) continue;
-        final code = item.itemCode.trim();
+        final code = _uploadedRowKey(item);
         final rowSession = _sessionOnUploadedRow(row);
         if (rowSession.isNotEmpty && code.isNotEmpty) {
           sessions[code] = rowSession;
@@ -475,7 +476,6 @@ class _SearchScreenState extends State<SearchScreen> {
       await _enrichUploadedFromStock(results);
       if (!mounted || serial != _uploadedLoadSerial) return;
       _searchItems = results;
-      _dedupeSearchItems();
       _clearUploadedScanUi();
       _uploadedItemSessions
         ..clear()
@@ -600,6 +600,45 @@ class _SearchScreenState extends State<SearchScreen> {
     });
   }
 
+  Future<void> _confirmUploadedRemoval() async {
+    if (_uploadedRemoving || _uploadedSelected.isEmpty || !mounted) return;
+    final s = context.sRead;
+    final confirmed = await showAppDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: Text(
+          s.delete,
+          style: AppFonts.poppins(fontWeight: FontWeight.w600, fontSize: 16),
+        ),
+        content: Text(
+          s.confirmDeleteUploadedItems,
+          style: AppFonts.poppins(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(s.cancel, style: AppFonts.poppins()),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              s.delete,
+              style: AppFonts.poppins(
+                color: const Color(0xFFD32940),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await _saveUploadedRemoval();
+    }
+  }
+
   Future<void> _saveUploadedRemoval() async {
     if (_uploadedRemoving || _uploadedSelected.isEmpty || !mounted) return;
     final selected = _uploadedSelected.toList(growable: false);
@@ -618,19 +657,36 @@ class _SearchScreenState extends State<SearchScreen> {
         final session = (_uploadedItemSessions[code] ?? _uploadedSessionId).trim();
         groups.putIfAbsent(session, () => []).add(code);
       }
+      final removed = <String>{};
+      Object? lastError;
       for (final entry in groups.entries) {
-        await api.removeLabelStockItems(
-          clientCode: clientCode,
-          searchSessionId: entry.key,
-          itemCodes: entry.value,
-        );
+        for (final code in entry.value) {
+          try {
+            await api.removeLabelStockItems(
+              clientCode: clientCode,
+              searchSessionId: entry.key,
+              itemCodes: [code],
+            );
+            removed.add(code);
+          } catch (e) {
+            lastError = e;
+          }
+        }
       }
       if (!mounted) return;
-      final removed = selected.toSet();
+      if (removed.isEmpty) {
+        setState(() => _uploadedRemoving = false);
+        _showToast(lastError == null
+            ? context.sRead.failedToSaveItemsToServer
+            : (UserFacingError.isNetwork(lastError)
+                ? context.sRead.noInternetConnection
+                : UserFacingError.of(lastError)));
+        return;
+      }
       setState(() {
         _searchItems = [
           for (final item in _searchItems)
-            if (!removed.contains(item.itemCode.trim())) item,
+            if (!removed.contains(_uploadedRowKey(item))) item,
         ];
         _uploadedSelected.removeAll(removed);
         for (final code in removed) {
@@ -646,7 +702,7 @@ class _SearchScreenState extends State<SearchScreen> {
       } else {
         await _rfidService.setSearchTags(_tagIndexMap.keys.toList(growable: false));
       }
-      if (mounted) _showToast(context.sRead.saved);
+      if (mounted) _showToast(context.sRead.uploadedItemsDeleted);
     } catch (e) {
       if (!mounted) return;
       setState(() => _uploadedRemoving = false);
@@ -654,6 +710,12 @@ class _SearchScreenState extends State<SearchScreen> {
           ? context.sRead.noInternetConnection
           : UserFacingError.of(e));
     }
+  }
+
+  String _uploadedRowKey(SearchItem item) {
+    final code = item.itemCode.trim();
+    if (code.isNotEmpty) return code;
+    return item.rfid.trim();
   }
 
   void _toggleUploadedCode(String code) {
@@ -670,7 +732,9 @@ class _SearchScreenState extends State<SearchScreen> {
       if (allOn) {
         _uploadedSelected.removeAll(codes);
       } else {
-        _uploadedSelected.addAll(codes);
+        _uploadedSelected
+          ..clear()
+          ..addAll(codes);
       }
     });
   }
@@ -678,14 +742,22 @@ class _SearchScreenState extends State<SearchScreen> {
   List<String> _uploadedVisibleCodes() {
     final codes = <String>[];
     final seen = <String>{};
-    final indices = _searchQuery.trim().isEmpty
-        ? List<int>.generate(_searchItems.length, (i) => i)
-        : _visibleOrder;
-    for (final i in indices) {
-      if (i < 0 || i >= _searchItems.length) continue;
-      final code = _searchItems[i].itemCode.trim();
-      if (code.isEmpty || !seen.add(code)) continue;
+    void addItem(SearchItem item) {
+      final code = _uploadedRowKey(item);
+      if (code.isEmpty || !seen.add(code)) return;
       codes.add(code);
+    }
+
+    if (_searchQuery.trim().isEmpty) {
+      for (final item in _searchItems) {
+        addItem(item);
+      }
+      return codes;
+    }
+    if (!_displayIndexValid) _rebuildDisplayIndices();
+    for (final i in _visibleOrder) {
+      if (i < 0 || i >= _searchItems.length) continue;
+      addItem(_searchItems[i]);
     }
     return codes;
   }
@@ -2396,10 +2468,10 @@ class _SearchScreenState extends State<SearchScreen> {
               actionLabel: isUploadedList ? s.loadList : null,
               actionIcon: isUploadedList ? Icons.cloud_upload_outlined : null,
               emailLabel: isUploadedList
-                  ? (_uploadedSelected.isEmpty ? s.clearBtn : s.save)
+                  ? (_uploadedSelected.isEmpty ? s.clearBtn : s.delete)
                   : null,
               emailIcon: isUploadedList
-                  ? (_uploadedSelected.isEmpty ? Icons.clear_all : Icons.save)
+                  ? (_uploadedSelected.isEmpty ? Icons.clear_all : Icons.delete_outline)
                   : null,
               emailEnabled: !isUploadedList || !_uploadedRemoving,
               onSave: () {
@@ -2418,7 +2490,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   if (_uploadedSelected.isEmpty) {
                     _clearUploadedList();
                   } else {
-                    unawaited(_saveUploadedRemoval());
+                    unawaited(_confirmUploadedRemoval());
                   }
                   return;
                 }
@@ -2522,7 +2594,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildSearchRow(SearchItem item, int index) {
     final uploaded = _listKey == 'uploadedList';
-    final code = item.itemCode.trim();
+    final code = uploaded ? _uploadedRowKey(item) : item.itemCode.trim();
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: uploaded && code.isNotEmpty && !_uploadedRemoving

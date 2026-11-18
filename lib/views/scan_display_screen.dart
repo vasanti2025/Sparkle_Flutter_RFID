@@ -3613,12 +3613,16 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
     }
 
     var branchAddress = '';
+    var counterName = '';
     if (keepLegacyBranch) {
       final address = await _resolveStockTakingBranchAddress(
         branchId: stockBranchId,
       );
       if (!mounted || address == null) return;
       branchAddress = address;
+      counterName = (_sessionLocation?.counterName.trim().isNotEmpty == true)
+          ? _sessionLocation!.counterName.trim()
+          : context.read<PrefService>().getWholesaleCounterName().trim();
     }
 
     final req = ++_stockTakingReq;
@@ -3640,11 +3644,15 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
               clientCode: clientCode,
               branchAddress: branchAddress,
               stockTakingDate: dateStr,
+              counterName: counterName,
+              counterNumber: counterName,
             ),
             api.getStockTakingUnmatchedList(
               clientCode: clientCode,
               branchAddress: branchAddress,
               stockTakingDate: dateStr,
+              counterName: counterName,
+              counterNumber: counterName,
             ),
           ]);
           matchedRaw = lists[0];
@@ -3654,12 +3662,16 @@ class _ScanDisplayScreenState extends State<ScanDisplayScreen> {
             clientCode: clientCode,
             branchAddress: branchAddress,
             stockTakingDate: dateStr,
+            counterName: counterName,
+            counterNumber: counterName,
           );
         } else {
           unmatchedRaw = await api.getStockTakingUnmatchedList(
             clientCode: clientCode,
             branchAddress: branchAddress,
             stockTakingDate: dateStr,
+            counterName: counterName,
+            counterNumber: counterName,
           );
         }
       } else {

@@ -189,6 +189,27 @@ String readWholesaleString(Map<String, dynamic> json, List<String> keys) {
   return '';
 }
 
+/// Split `"D1, D2"` into `["D1", "D2"]`. A single name that happens to
+/// contain a comma is kept whole when [expectedCount] is 1.
+List<String> splitWholesaleCounterNames(String raw, {int expectedCount = 0}) {
+  final text = raw.trim();
+  if (text.isEmpty) return const [];
+  if (!text.contains(',')) return [text];
+  if (expectedCount == 1) return [text];
+  final parts = <String>[];
+  final seen = <String>{};
+  for (final piece in text.split(',')) {
+    final name = piece.trim();
+    if (name.isEmpty) continue;
+    final key = name.toLowerCase();
+    if (!seen.add(key)) continue;
+    parts.add(name);
+  }
+  if (parts.isEmpty) return [text];
+  if (expectedCount > 1 && parts.length == 1) return [text];
+  return parts;
+}
+
 List<Map<String, dynamic>> extractAssignmentMaps(dynamic data) {
   final out = <Map<String, dynamic>>[];
 
@@ -255,14 +276,21 @@ List<RfidDeviceAssignment> parseWholesaleAssignments(dynamic data) {
     final counterName = readWholesaleString(json, const ['CounterName', 'counterName']);
     final branches = branchIds.isEmpty ? const [0] : branchIds;
     final counters = counterIds.isEmpty ? const [0] : counterIds;
+    final names = splitWholesaleCounterNames(
+      counterName,
+      expectedCount: counters.length,
+    );
     for (final branchId in branches) {
-      for (final counterId in counters) {
+      for (var i = 0; i < counters.length; i++) {
+        final name = names.isEmpty
+            ? ''
+            : (i < names.length ? names[i] : names.first);
         out.add(
           RfidDeviceAssignment(
             branchId: branchId,
             branchName: branchName,
-            counterId: counterId,
-            counterName: counterName,
+            counterId: counters[i],
+            counterName: name,
           ),
         );
       }

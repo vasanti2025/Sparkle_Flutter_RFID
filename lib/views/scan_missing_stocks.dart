@@ -465,6 +465,8 @@ class _ScanMissingStocksScreenState extends State<ScanMissingStocksScreen> {
         clientCode: clientCode,
         branchAddress: branchAddress,
         stockTakingDate: date,
+        counterName: _counterName,
+        counterNumber: _counterName,
       );
       if (!mounted || req != _loadReq) return;
       if (_scanning) {
