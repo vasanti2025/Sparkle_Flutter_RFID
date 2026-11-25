@@ -238,6 +238,8 @@ class _SearchScreenState extends State<SearchScreen> {
   final Map<String, String> _uploadedItemSessions = {};
   String _uploadedSessionId = '';
   bool _uploadedRemoving = false;
+  /// Row indexes after Stop, highest progress first. Empty while scanning.
+  List<int> _uploadedRankOrder = const [];
   int _uploadedLoadSerial = 0;
 
   // O(1) tag lookup — mirrors Kotlin SearchViewModel.epcToIndex
@@ -502,6 +504,7 @@ class _SearchScreenState extends State<SearchScreen> {
         ..addAll(sessions);
       _uploadedSessionId = sessionId;
       _uploadedSelected.clear();
+      _uploadedRankOrder = const [];
       if (_searchItems.isEmpty) {
         setState(() {
           _indexReady = true;
@@ -613,6 +616,7 @@ class _SearchScreenState extends State<SearchScreen> {
       _uploadedSelected.clear();
       _uploadedItemSessions.clear();
       _uploadedSessionId = '';
+      _uploadedRankOrder = const [];
       _isScanning = false;
       _rebuildTagIndex();
       _invalidateDisplayOrder();
@@ -716,6 +720,7 @@ class _SearchScreenState extends State<SearchScreen> {
         _invalidateDisplayOrder();
         _displayIndexValid = false;
         _uploadedRemoving = false;
+        if (_uploadedRankOrder.isNotEmpty) _rankUploadedOnStop();
       });
       if (_tagIndexMap.isEmpty) {
         await _rfidService.clearSearchTags();
@@ -992,26 +997,22 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
-  /// After Stop, highest progress is row 1. The reader is already idle.
-  void _sortUploadedItemsOnStop() {
-    if (!_isUploadedList || _searchItems.length < 2) return;
-    _searchItems.sort((a, b) {
-      final byPercent = b.proximityPercent.compareTo(a.proximityPercent);
+  /// Stop paints this order directly: 100%, then 90%, then 60%, then 0%.
+  void _rankUploadedOnStop() {
+    if (!_isUploadedList || _searchItems.isEmpty) {
+      _uploadedRankOrder = const [];
+      return;
+    }
+    final order = List<int>.generate(_searchItems.length, (i) => i);
+    order.sort((a, b) {
+      final byPercent = _searchItems[b].proximityPercent
+          .compareTo(_searchItems[a].proximityPercent);
       if (byPercent != 0) return byPercent;
-      return a.itemCode.compareTo(b.itemCode);
+      return a.compareTo(b);
     });
-    _rebuildTagIndex();
+    _uploadedRankOrder = order;
     _hotIndices.clear();
     _hotSet.clear();
-    _displayOrder = List<int>.generate(_searchItems.length, (i) => i);
-    _shuffledGen = _orderGen;
-    _visibleOrder
-      ..clear()
-      ..addAll(_displayOrder);
-    _filteredCount = _searchItems.length;
-    _mainDisplayOrder = List<int>.from(_displayOrder);
-    _mainDisplayDirty = false;
-    _displayIndexValid = true;
   }
 
   /// One order per result set. Uploaded List is sorted by percent, high to low.
@@ -1021,8 +1022,7 @@ class _SearchScreenState extends State<SearchScreen> {
       return;
     }
     if (_isUploadedList) {
-      final last = _searchItems.length - 1;
-      _displayOrder = List<int>.generate(_searchItems.length, (i) => last - i);
+      _displayOrder = List<int>.generate(_searchItems.length, (i) => i);
     } else {
       _displayOrder = List<int>.generate(_searchItems.length, (i) => i)..shuffle();
     }
@@ -1292,9 +1292,10 @@ class _SearchScreenState extends State<SearchScreen> {
       await _rfidService.stopInventorySound();
       await _rfidService.stopScanning();
       if (mounted) {
-        if (_isUploadedList) _sortUploadedItemsOnStop();
-        _displayIndexValid = _isUploadedList;
-        setState(() => _isScanning = false);
+        setState(() {
+          _isScanning = false;
+          if (_isUploadedList) _rankUploadedOnStop();
+        });
         _nearbyTick.value++;
       }
     } finally {
@@ -1638,7 +1639,10 @@ class _SearchScreenState extends State<SearchScreen> {
       }
 
       final held = _holdCurrentSearchProgress();
-      setState(() => _isScanning = true);
+      setState(() {
+        _isScanning = true;
+        if (_isUploadedList) _uploadedRankOrder = const [];
+      });
       if (held == null) {
         if (!_usesListScan) {
           unawaited(_rfidService.playBeep());
@@ -2473,15 +2477,28 @@ class _SearchScreenState extends State<SearchScreen> {
                           return false;
                         },
                         child: ListView.builder(
-                        itemCount: catalogCount +
-                            ((isFinderList && !statusFiltered)
-                                ? _nearbyPinnedCount()
-                                : 0),
+                        itemCount: (isUploadedList &&
+                                query.isEmpty &&
+                                _uploadedRankOrder.length == _searchItems.length)
+                            ? _uploadedRankOrder.length
+                            : catalogCount +
+                                ((isFinderList && !statusFiltered)
+                                    ? _nearbyPinnedCount()
+                                    : 0),
                         itemExtent: 34,
                         cacheExtent: 400,
                         addAutomaticKeepAlives: false,
                         addRepaintBoundaries: isFinderList,
                         itemBuilder: (context, index) {
+                          if (isUploadedList &&
+                              query.isEmpty &&
+                              index < _uploadedRankOrder.length) {
+                            final i = _uploadedRankOrder[index];
+                            if (i < 0 || i >= _searchItems.length) {
+                              return const SizedBox(height: 34);
+                            }
+                            return _buildSearchRow(_searchItems[i], index);
+                          }
                           if (isFinderList && !statusFiltered) {
                             final pinned = _nearbyPinnedCount();
                             if (index < pinned) {
