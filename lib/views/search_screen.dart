@@ -992,12 +992,40 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
-  /// One shuffle per result set. Does not reorder the shared unmatched catalog.
+  /// After Stop, highest progress is row 1. The reader is already idle.
+  void _sortUploadedItemsOnStop() {
+    if (!_isUploadedList || _searchItems.length < 2) return;
+    _searchItems.sort((a, b) {
+      final byPercent = b.proximityPercent.compareTo(a.proximityPercent);
+      if (byPercent != 0) return byPercent;
+      return a.itemCode.compareTo(b.itemCode);
+    });
+    _rebuildTagIndex();
+    _hotIndices.clear();
+    _hotSet.clear();
+    _displayOrder = List<int>.generate(_searchItems.length, (i) => i);
+    _shuffledGen = _orderGen;
+    _visibleOrder
+      ..clear()
+      ..addAll(_displayOrder);
+    _filteredCount = _searchItems.length;
+    _mainDisplayOrder = List<int>.from(_displayOrder);
+    _mainDisplayDirty = false;
+    _displayIndexValid = true;
+  }
+
+  /// One order per result set. Uploaded List is sorted by percent, high to low.
+  /// Unmatched Search keeps a shuffle and does not reorder the shared catalog.
   void _ensureShuffledOrder() {
     if (_shuffledGen == _orderGen && _displayOrder.length == _searchItems.length) {
       return;
     }
-    _displayOrder = List<int>.generate(_searchItems.length, (i) => i)..shuffle();
+    if (_isUploadedList) {
+      final last = _searchItems.length - 1;
+      _displayOrder = List<int>.generate(_searchItems.length, (i) => last - i);
+    } else {
+      _displayOrder = List<int>.generate(_searchItems.length, (i) => i)..shuffle();
+    }
     _shuffledGen = _orderGen;
   }
 
@@ -1042,6 +1070,10 @@ class _SearchScreenState extends State<SearchScreen> {
         _shuffledGen != _orderGen || _displayOrder.length != _searchItems.length;
     if (!_rssiOrderDirty && !needsShuffle) return;
     if (needsShuffle) _ensureShuffledOrder();
+    if (_isUploadedList) {
+      _rssiOrderDirty = false;
+      return;
+    }
     if (_rssiOrderDirty && _displayOrder.isNotEmpty) {
       _placeByRssiThenLock(_displayOrder);
     }
@@ -1067,7 +1099,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _dirtyIndices.clear();
     _unmatchedOldestDirtyMs = 0;
     _applyRssiPriority();
-    if (!_usesListScan) return;
+    if (!_usesListScan || _isUploadedList) return;
     _refreshUpsideIndices(touched);
   }
 
@@ -1154,7 +1186,9 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   int _nearbyPinnedCount() {
-    if (!_usesListScan || _countFilter != _SearchCountFilter.all) {
+    if (!_usesListScan ||
+        _isUploadedList ||
+        _countFilter != _SearchCountFilter.all) {
       return 0;
     }
     final n = _hotIndices.length;
@@ -1258,7 +1292,8 @@ class _SearchScreenState extends State<SearchScreen> {
       await _rfidService.stopInventorySound();
       await _rfidService.stopScanning();
       if (mounted) {
-        _displayIndexValid = false;
+        if (_isUploadedList) _sortUploadedItemsOnStop();
+        _displayIndexValid = _isUploadedList;
         setState(() => _isScanning = false);
         _nearbyTick.value++;
       }
