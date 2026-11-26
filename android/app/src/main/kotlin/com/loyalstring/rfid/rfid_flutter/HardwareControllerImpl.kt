@@ -771,7 +771,9 @@ class HardwareControllerImpl(
             }
         }
         reconnectRunnable = runnable
-        mainHandler.postDelayed(runnable, 5000L)
+        // The tray should come back on the existing bond, without an unpair.
+        val delay = if (trayModeEnabled) 2000L else 5000L
+        mainHandler.postDelayed(runnable, delay)
     }
 
     private fun cancelBleReconnect() {
@@ -785,6 +787,10 @@ class HardwareControllerImpl(
             (trayManager.isReallyConnected() || trayManager.isConnected)
         map["enabled"] = trayModeEnabled
         map["connected"] = trayModeEnabled && linked
+        map["osLinked"] = trayModeEnabled &&
+            trayDeviceAddress.isNotEmpty() &&
+            ::trayManager.isInitialized &&
+            trayManager.isOsLinked(trayDeviceAddress)
         map["connecting"] = trayModeEnabled && ::trayManager.isInitialized &&
             (trayManager.isConnecting || bleConnectQueued)
         map["address"] = trayDeviceAddress
@@ -1241,28 +1247,20 @@ class HardwareControllerImpl(
             }
             if (!started) {
                 val address = trayDeviceAddress.trim()
-                if (address.isNotEmpty()) {
-                    if (trayManager.isOsLinked(address) || trayManager.isReallyConnected()) {
-                        Log.w(TAG, "Tray startInventory failed — retry without cancelOpen")
+                if (address.isNotEmpty() &&
+                    (trayManager.isBonded(address) || trayManager.isOsLinked(address))
+                ) {
+                    // Same bond as a headset. Reopen the reader session only.
+                    Log.w(TAG, "Tray startInventory failed — resume paired link")
+                    val linked = trayManager.resumePairedLink(address)
+                    if (linked) {
                         try {
-                            Thread.sleep(600L)
+                            Thread.sleep(500L)
                         } catch (_: InterruptedException) {
                         }
                         trayManager.drainBuffer()
                         started = trayManager.startInventory()
-                        Log.i(TAG, "Tray startInventory OS-held retry => $started")
-                    } else {
-                        Log.w(TAG, "Tray startInventory failed — one reconnect retry")
-                        val linked = trayManager.connectAndWait(address, 18000L)
-                        if (linked) {
-                            try {
-                                Thread.sleep(500L)
-                            } catch (_: InterruptedException) {
-                            }
-                            trayManager.drainBuffer()
-                            started = trayManager.startInventory()
-                            Log.i(TAG, "Tray startInventory after reconnect => $started")
-                        }
+                        Log.i(TAG, "Tray startInventory after paired resume => $started")
                     }
                 }
             }

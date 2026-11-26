@@ -133,6 +133,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         return s.settings;
       case 'home':
         return s.home;
+      case 'trayView':
+        return s.trayView;
       case 'logout':
         return s.logout;
       default:
@@ -204,6 +206,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         unawaited(_pushNamed(context, '/settings'));
       case 'stockTransfer':
         unawaited(_pushNamed(context, '/stock_transfer'));
+      case 'trayView':
+        unawaited(_pushNamed(context, '/tray_view'));
       default:
         break;
     }
@@ -230,6 +234,11 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     final drawerItems = [
       ..._drawerExtra.take(1).map((item) => {...item, 'title': _titleForKey(item['key'] as String, s)}),
+      {
+        'key': 'trayView',
+        'icon': Icons.view_agenda_outlined,
+        'title': s.trayView,
+      },
       ...menuItems,
       ..._drawerExtra.skip(1).map((item) => {...item, 'title': _titleForKey(item['key'] as String, s)}),
     ];

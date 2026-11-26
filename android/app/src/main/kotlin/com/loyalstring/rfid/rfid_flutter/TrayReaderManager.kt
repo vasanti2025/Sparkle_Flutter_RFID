@@ -463,7 +463,8 @@ class TrayReaderManager(
                 return false
             }
 
-            if (!isReallyConnected()) {
+            // A paired tray is already known. Scanning for it drops the live link.
+            if (!isReallyConnected() && !isBonded(address)) {
                 preScanForDevice(address, 3500L)
             }
             for (attempt in 1..2) {
@@ -507,6 +508,56 @@ class TrayReaderManager(
     }
 
     fun isOsLinked(address: String): Boolean = isOsBluetoothConnected(address)
+
+    /** Bonded in Android. This is the headphone-style pair. It is not a live GATT session. */
+    fun isBonded(address: String): Boolean {
+        val target = address.trim()
+        if (target.isEmpty()) return false
+        return try {
+            @Suppress("DEPRECATION")
+            val adapter = BluetoothAdapter.getDefaultAdapter() ?: return false
+            adapter.bondedDevices.orEmpty().any { it.address.equals(target, ignoreCase = true) }
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * Open the SDK session on a tray that is already paired.
+     * Does not scan for devices and does not remove the bond. A discovery
+     * scan is what drops the Bluetooth light and forces the user to unpair.
+     */
+    fun resumePairedLink(address: String): Boolean {
+        if (address.isBlank()) return false
+        if (isReallyConnected() && currentAddress.equals(address, ignoreCase = true)) {
+            return true
+        }
+        stopBtDiscoveryQuietly()
+        init()
+        if (!connectOnce(address, 12_000L) && isOsBluetoothConnected(address)) {
+            // The light is on, but the reader session is stale. Reset GATT once.
+            Log.w(TAG, "Paired link stale — one GATT reset for $address")
+            softDisconnectForRetry()
+            connectOnce(address, 12_000L)
+        }
+        return isReallyConnected() && currentAddress.equals(address, ignoreCase = true)
+    }
+
+    private fun connectOnce(address: String, timeoutMs: Long): Boolean {
+        if (isReallyConnected() && currentAddress.equals(address, ignoreCase = true)) {
+            return true
+        }
+        val latch = CountDownLatch(1)
+        connectLatch.set(latch)
+        connect(address)
+        val ok = try {
+            latch.await(timeoutMs, TimeUnit.MILLISECONDS) && isReallyConnected()
+        } catch (_: InterruptedException) {
+            false
+        }
+        connectLatch.compareAndSet(latch, null)
+        return ok || (isReallyConnected() && currentAddress.equals(address, ignoreCase = true))
+    }
 
     fun disconnect() {
         stopBtDiscoveryQuietly()

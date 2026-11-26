@@ -649,6 +649,11 @@ class AppStrings {
   String get selectTrayDevice => _t('selectTrayDevice');
   String get trayConnected => _t('trayConnected');
   String get trayNotConnected => _t('trayNotConnected');
+  String get trayView => _t('trayView');
+  String get netWt => _t('netWt');
+  String get totalGrossWt => _t('totalGrossWt');
+  String get totalNetWt => _t('totalNetWt');
+  String get totalPieces => _t('totalPieces');
   String get trayDeviceSelected => _t('trayDeviceSelected');
   String get bluetoothPermissionRequired => _t('bluetoothPermissionRequired');
   String get noBondedBluetoothDevices => _t('noBondedBluetoothDevices');
@@ -1472,6 +1477,11 @@ class AppStrings {
       'selectTrayDevice': 'Select Bluetooth tray',
       'trayConnected': 'Connected',
       'trayNotConnected': 'Not connected',
+      'trayView': 'Tray View',
+      'netWt': 'Net Wt',
+      'totalGrossWt': 'Total Gross Wt',
+      'totalNetWt': 'Total Net Wt',
+      'totalPieces': 'Total Pieces',
       'trayDeviceSelected': 'Tray device selected',
       'bluetoothPermissionRequired': 'Bluetooth permission is required for RFID Bluetooth readers',
       'noBondedBluetoothDevices': 'No Bluetooth RFID devices found. Turn on the reader and try again.',
@@ -2021,6 +2031,11 @@ class AppStrings {
       'selectTrayDevice': 'ब्लूटूथ ट्रे चुनें',
       'trayConnected': 'कनेक्टेड',
       'trayNotConnected': 'कनेक्ट नहीं',
+      'trayView': 'ट्रे दृश्य',
+      'netWt': 'शुद्ध वज़न',
+      'totalGrossWt': 'कुल सकल वज़न',
+      'totalNetWt': 'कुल शुद्ध वज़न',
+      'totalPieces': 'कुल पीस',
       'trayDeviceSelected': 'ट्रे डिवाइस चुनी गई',
       'bluetoothPermissionRequired': 'RFID ब्लूटूथ रीडर के लिए ब्लूटूथ अनुमति आवश्यक है',
       'noBondedBluetoothDevices': 'कोई ब्लूटूथ RFID डिवाइस नहीं मिला। रीडर चालू करें और फिर कोशिश करें।',
@@ -2596,6 +2611,11 @@ class AppStrings {
       'selectTrayDevice': 'اختر الصينية عبر البلوتوث',
       'trayConnected': 'متصل',
       'trayNotConnected': 'غير متصل',
+      'trayView': 'عرض الصينية',
+      'netWt': 'الوزن الصافي',
+      'totalGrossWt': 'إجمالي الوزن القائم',
+      'totalNetWt': 'إجمالي الوزن الصافي',
+      'totalPieces': 'إجمالي القطع',
       'trayDeviceSelected': 'تم اختيار جهاز الصينية',
       'bluetoothPermissionRequired': 'مطلوب إذن البلوتوث لقارئ RFID عبر البلوتوث',
       'noBondedBluetoothDevices': 'لم يتم العثور على أجهزة RFID بلوتوث. شغّل القارئ وحاول مرة أخرى.',

@@ -660,6 +660,7 @@ class RfidService {
       return {
         'enabled': status?['enabled'] == true,
         'connected': status?['connected'] == true,
+        'osLinked': status?['osLinked'] == true,
         'connecting': status?['connecting'] == true,
         'address': status?['address']?.toString() ?? '',
       };
